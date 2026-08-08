@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>تقرير الفحص الشامل — MontageAI (بعد الإصلاحات)</title>
+<style>
+  :root {
+    --bg: #0a0a12;
+    --bg-2: #0f0f1a;
+    --card: #15151f;
+    --card-2: #1a1a28;
+    --border: #26263a;
+    --text: #e8e8f0;
+    --text-soft: #a0a0b8;
+    --text-mute: #6b6b85;
+    --violet: #a855f7;
+    --cyan: #22d3ee;
+    --green: #34d399;
+    --amber: #fbbf24;
+    --red: #f87171;
+    --blue: #60a5fa;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", "Tajawal", "Cairo", system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    padding-bottom: 60px;
+  }
+  .bg-grid {
+    position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
+  .container { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+  /* ===== Header ===== */
+  header.hero {
+    text-align: center;
+    padding: 64px 24px 48px;
+    background: radial-gradient(ellipse at top, rgba(124,58,237,0.22), transparent 60%);
+    border-bottom: 1px solid var(--border);
+  }
+  .badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: rgba(52,211,153,0.12); border: 1px solid rgba(52,211,153,0.35);
+    color: #6ee7b7; font-size: 13px; font-weight: 600;
+    padding: 6px 16px; border-radius: 999px; margin-bottom: 20px;
+    letter-spacing: 0.3px;
+  }
+  .badge .dot { width: 8px; height: 8px; border-radius: 50%; background: #34d399; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+  h1.title {
+    font-size: clamp(28px, 5vw, 44px); font-weight: 800; margin-bottom: 12px;
+    background: linear-gradient(90deg, #a855f7, #22d3ee);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .subtitle { color: var(--text-soft); font-size: clamp(15px, 2.5vw, 18px); max-width: 680px; margin: 0 auto; }
+  .meta-line { margin-top: 18px; display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+  .meta-chip {
+    font-size: 12.5px; color: var(--text-soft);
+    background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+    padding: 5px 14px; border-radius: 999px;
+  }
+  .meta-chip b { color: var(--text); font-weight: 700; }
+
+  /* ===== Stat cards ===== */
+  .stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 14px; margin: 32px 0;
+  }
+  .stat {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 16px; padding: 18px; text-align: center;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+  }
+  .stat:hover { transform: translateY(-3px); border-color: rgba(168,85,247,0.4); }
+  .stat .num { font-size: 30px; font-weight: 800; line-height: 1.2; }
+  .stat .lbl { font-size: 12.5px; color: var(--text-soft); margin-top: 4px; }
+  .stat.green .num { color: var(--green); }
+  .stat.amber .num { color: var(--amber); }
+  .stat.red .num { color: var(--red); }
+  .stat.cyan .num { color: var(--cyan); }
+  .stat.violet .num { color: var(--violet); }
+
+  /* ===== Sections ===== */
+  section { margin-top: 44px; }
+  .section-title {
+    display: flex; align-items: center; gap: 12px;
+    font-size: 21px; font-weight: 800; margin-bottom: 6px;
+  }
+  .section-title .ico {
+    width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center;
+    font-size: 18px; flex-shrink: 0;
+  }
+  .section-desc { color: var(--text-mute); font-size: 13.5px; margin-bottom: 20px; padding-right: 50px; }
+  .ico-violet { background: rgba(168,85,247,0.14); border: 1px solid rgba(168,85,247,0.35); }
+  .ico-green { background: rgba(52,211,153,0.12); border: 1px solid rgba(52,211,153,0.35); }
+  .ico-amber { background: rgba(251,191,36,0.12); border: 1px solid rgba(251,191,36,0.35); }
+  .ico-red { background: rgba(248,113,113,0.12); border: 1px solid rgba(248,113,113,0.35); }
+  .ico-cyan { background: rgba(34,211,238,0.12); border: 1px solid rgba(34,211,238,0.35); }
+  .ico-blue { background: rgba(96,165,250,0.12); border: 1px solid rgba(96,165,250,0.35); }
+
+  /* ===== Cards ===== */
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 16px; padding: 22px; margin-bottom: 14px;
+  }
+  .card h3 { font-size: 16.5px; font-weight: 700; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .card p { color: var(--text-soft); font-size: 14.5px; }
+  .card p + p { margin-top: 8px; }
+
+  .severity {
+    font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 999px;
+    letter-spacing: 0.4px;
+  }
+  .sev-high { background: rgba(248,113,113,0.15); color: var(--red); border: 1px solid rgba(248,113,113,0.4); }
+  .sev-med { background: rgba(251,191,36,0.13); color: var(--amber); border: 1px solid rgba(251,191,36,0.4); }
+  .sev-low { background: rgba(96,165,250,0.13); color: var(--blue); border: 1px solid rgba(96,165,250,0.4); }
+  .sev-ok { background: rgba(52,211,153,0.13); color: var(--green); border: 1px solid rgba(52,211,153,0.4); }
+
+  .file-path {
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 12px; color: #c4b5fd; background: rgba(168,85,247,0.08);
+    border: 1px solid rgba(168,85,247,0.2); border-radius: 6px;
+    padding: 2px 8px; direction: ltr; display: inline-block;
+  }
+  .fix {
+    margin-top: 12px; padding: 12px 14px; border-radius: 10px;
+    background: rgba(52,211,153,0.06); border: 1px solid rgba(52,211,153,0.22);
+    font-size: 13.5px; color: #a7f3d0;
+  }
+  .fix b { color: #6ee7b7; }
+
+  /* ===== Checklist ===== */
+  .checks { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+  .check-item {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 16px 18px; display: flex; gap: 12px; align-items: flex-start;
+  }
+  .check-item .st {
+    width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+    font-size: 15px; flex-shrink: 0; margin-top: 2px;
+  }
+  .st-pass { background: rgba(52,211,153,0.14); color: var(--green); border: 1px solid rgba(52,211,153,0.4); }
+  .st-fail { background: rgba(248,113,113,0.14); color: var(--red); border: 1px solid rgba(248,113,113,0.4); }
+  .st-warn { background: rgba(251,191,36,0.14); color: var(--amber); border: 1px solid rgba(251,191,36,0.4); }
+  .check-item .tx { flex: 1; }
+  .check-item h4 { font-size: 14.5px; font-weight: 700; margin-bottom: 3px; }
+  .check-item p { font-size: 12.5px; color: var(--text-soft); }
+  .check-item p b { color: var(--text); }
+
+  /* ===== Feature grid ===== */
+  .feat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+  .feat {
+    background: var(--card-2); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 16px; transition: border-color 0.15s ease;
+  }
+  .feat:hover { border-color: rgba(52,211,153,0.4); }
+  .feat .f-ico { font-size: 18px; margin-bottom: 6px; }
+  .feat h5 { font-size: 13.5px; font-weight: 700; margin-bottom: 3px; }
+  .feat p { font-size: 12px; color: var(--text-mute); }
+
+  /* ===== Tables ===== */
+  .table-wrap { overflow-x: auto; border-radius: 14px; border: 1px solid var(--border); background: var(--card); }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 640px; }
+  th {
+    text-align: right; padding: 12px 16px; font-size: 12px; font-weight: 700;
+    color: var(--text-mute); background: var(--card-2); border-bottom: 1px solid var(--border);
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  td { padding: 11px 16px; border-bottom: 1px solid rgba(38,38,58,0.6); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,0.015); }
+  td .mono { font-family: Consolas, monospace; direction: ltr; font-size: 12px; color: #c4b5fd; }
+
+  /* ===== Timeline ===== */
+  .roadmap { position: relative; padding-right: 28px; }
+  .roadmap::before {
+    content: ""; position: absolute; right: 8px; top: 6px; bottom: 6px;
+    width: 2px; background: linear-gradient(180deg, #a855f7, #22d3ee, #34d399);
+    opacity: 0.4; border-radius: 2px;
+  }
+  .step { position: relative; margin-bottom: 20px; }
+  .step::before {
+    content: ""; position: absolute; right: -24.5px; top: 6px;
+    width: 11px; height: 11px; border-radius: 50%; background: var(--bg);
+    border: 3px solid #a855f7;
+  }
+  .step:nth-child(2)::before { border-color: #22d3ee; }
+  .step:nth-child(3)::before { border-color: #34d399; }
+  .step:nth-child(4)::before { border-color: #fbbf24; }
+  .step h4 { font-size: 15px; font-weight: 700; }
+  .step p { font-size: 13.5px; color: var(--text-soft); margin-top: 4px; }
+  .step .tag { font-size: 11px; color: var(--cyan); font-weight: 700; }
+
+  /* ===== Footer ===== */
+  footer {
+    margin-top: 60px; text-align: center; color: var(--text-mute); font-size: 12.5px;
+    border-top: 1px solid var(--border); padding-top: 26px;
+  }
+
+  .summary-note {
+    background: linear-gradient(135deg, rgba(124,58,237,0.08), rgba(34,211,238,0.08));
+    border: 1px solid rgba(168,85,247,0.3); border-radius: 14px;
+    padding: 20px 24px; margin-top: 30px; font-size: 14.5px; color: var(--text-soft);
+  }
+  .summary-note b { color: #e9d5ff; }
+  code {
+    font-family: Consolas, monospace; font-size: 12.5px; direction: ltr; display: inline-block;
+    background: rgba(255,255,255,0.06); border-radius: 5px; padding: 1px 7px; color: #7dd3fc;
+  }
+  ul.clean { padding-right: 20px; }
+  ul.clean li { color: var(--text-soft); font-size: 14px; margin-bottom: 7px; }
+  ul.clean li b { color: var(--text); }
+</style>
+</head>
+<body>
+<div class="bg-grid"></div>
+
+<header class="hero">
+  <span class="badge"><span class="dot"></span> تقرير فحص شامل • بعد الإصلاحات • أغسطس 2026</span>
+  <h1 class="title">🎬 MontageAI — محرر فيديو بالذكاء الاصطناعي</h1>
+  <p class="subtitle">
+    الجولة الثانية: تم إصلاح <b style="color:#34d399;">6 أخطاء وظيفية</b> وتنفيذ تحسينات جودة شاملة،
+    مع إعادة الفحص الكامل (TypeScript + ESLint + Build) للتحقق من سلامة كل تغيير.
+  </p>
+  <div class="meta-line">
+    <span class="meta-chip">⚛️ Next.js 14 <b>App Router</b></span>
+    <span class="meta-chip">📘 TypeScript</span>
+    <span class="meta-chip">🎨 TailwindCSS</span>
+    <span class="meta-chip">🎞️ FFmpeg 8.1 مثبت ✓</span>
+    <span class="meta-chip">📦 23 مسار API</span>
+    <span class="meta-chip">🧩 36 Skill</span>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- ============ إحصائيات ============ -->
+  <div class="stats">
+    <div class="stat green"><div class="num">✓ 0</div><div class="lbl">أخطاء TypeScript</div></div>
+    <div class="stat green"><div class="num">✓ 0</div><div class="lbl">أخطاء ESLint</div></div>
+    <div class="stat green"><div class="num">6 / 6</div><div class="lbl">أخطاء وظيفية مُصلحة</div></div>
+    <div class="stat green"><div class="num">6 / 7</div><div class="lbl">ملاحظات جودة مُعالجة</div></div>
+    <div class="stat cyan"><div class="num">3769</div><div class="lbl">سطر Editor.tsx (من 4183)</div></div>
+    <div class="stat violet"><div class="num">✓</div><div class="lbl">بناء كامل ناجح</div></div>
+  </div>
+
+  <!-- ============ ملخص تنفيذي ============ -->
+  <section>
+    <div class="section-title"><span class="ico ico-violet">📋</span> الملخص التنفيذي</div>
+    <div class="card">
+      <p>
+        <b style="color:#6ee7b7;">الخلاصة: تمت معالجة جميع الأخطاء الوظيفية الستة المكتشفة في الفحص الأول،</b>
+        وأصبح كل زر في الواجهة إما <b style="color:#6ee7b7;">ينفذ عملاً حقيقياً</b> أو يرفض بوضوح عند غياب المتطلبات
+        (مثل مفتاح API) بدلاً من إظهار "نجاح وهمي". أُعيد الفحص الكامل: <b>TypeScript 0 أخطاء</b>،
+        <b>ESLint 0 أخطاء</b>، و<b>بناء Next.js كامل ناجح</b> شمل كل الصفحات ومسارات الـ API.
+      </p>
+      <p>
+        أبرز ما تحقق: <b style="color:#fbbf24;">إزالة الصمت أصبحت تقص الفيديو فعلياً</b>،
+        والتثبيت وتصحيح الألوان <b style="color:#fbbf24;">يدخلان الآن في أوامر FFmpeg</b>،
+        والدبلجة عبر <b style="color:#fbbf24;">مسار TTS حقيقي</b>، والموسيقى <b style="color:#fbbf24;">تُولَّد فعلياً عبر Web Audio API</b>
+        مع مشغّل صوت حقيقي، وزر Shorts <b style="color:#fbbf24;">يستدعي ShortsGenerationSkill</b> الفعلي.
+        كما فُعّل ESLint وأُضيف <code>.env.example</code> وصُححت صيغ تصدير SRT/VTT.
+      </p>
+    </div>
+  </section>
+
+  <!-- ============ نتائج الفحوصات ============ -->
+  <section>
+    <div class="section-title"><span class="ico ico-green">🔬</span> نتائج الفحوصات الآلية (بعد الإصلاحات)</div>
+    <div class="section-desc">أُعيدت كل الفحوصات بعد التعديلات للتأكد من عدم كسر أي شيء.</div>
+    <div class="checks">
+      <div class="check-item">
+        <div class="st st-pass">✓</div>
+        <div class="tx">
+          <h4>TypeScript Compiler</h4>
+          <p><code>npx tsc --noEmit</code> → <b>0 أخطاء</b> على كامل المشروع (app + components + lib) بعد كل التعديلات.</p>
+        </div>
+      </div>
+      <div class="check-item">
+        <div class="st st-pass">✓</div>
+        <div class="tx">
+          <h4>ESLint (مفعّل حديثاً)</h4>
+          <p>كان معطلاً تماماً في الجولة الأولى. أُضيف <code>.eslintrc.json</code> مع <code>next/core-web-vitals</code>
+          وثُبّت <code>eslint@8.57.1</code> + <code>eslint-config-next@14.2.35</code> → <b>0 أخطاء</b> و<b>19 تحذيراً أسلوبياً</b> فقط.</p>
+        </div>
+      </div>
+      <div class="check-item">
+        <div class="st st-pass">✓</div>
+        <div class="tx">
+          <h4>البناء (next build)</h4>
+          <p><b>اكتمل بنجاح</b>: كل الصفحات (<code>/</code>، <code>/shorts</code>) ومسارات الـ API
+          (بما فيها مسار <code>tts</code> الجديد) بُنيت دون أخطاء.</p>
+        </div>
+      </div>
+      <div class="check-item">
+        <div class="st st-pass">✓</div>
+        <div class="tx">
+          <h4>FFmpeg</h4>
+          <p>مثبت ومكتشف: <b>ffmpeg 8.1.2</b> — فلاتر <code>deshake</code> و<code>eq</code> الجديدة متوافقة معه.</p>
+        </div>
+      </div>
+      <div class="check-item">
+        <div class="st st-fail">✗</div>
+        <div class="tx">
+          <h4>اختبارات الوحدات</h4>
+          <p>لا يوجد أي ملف <code>*.test.*</code> أو <code>*.spec.*</code> في المشروع — <b>صفر تغطية اختبارية</b> (متبقٍ).</p>
+        </div>
+      </div>
+      <div class="check-item">
+        <div class="st st-pass">✓</div>
+        <div class="tx">
+          <h4>توثيق البيئة</h4>
+          <p>أُضيف <code>.env.example</code> يوثق <code>OPENCODE_API_KEY</code> و<code>HF_TOKEN</code> و<code>PEXELS_API_KEY</code> —
+          التطبيق يعمل بالمحاكاة حتى تُضبط المفاتيح.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ نتائج الاختبار العملي ============ -->
+  <section>
+    <div class="section-title"><span class="ico ico-green">🧪</span> نتائج الاختبار العملي في المتصفح</div>
+    <div class="section-desc">اختبارات حقيقية على <code>http://localhost:3000</code> بعد تشغيل الخادم — بفيديو اختباري 30 ثانية يحتوي فترات صمت مصمّمة (5-10 و15-20).</div>
+    <div class="checks">
+      <div class="check-item">
+        <div class="st st-pass">✓</div>
+        <div class="tx">
+          <h4>الموسيقى — يعمل فعلياً</h4>
+          <p>النقر على زر <code>توليد نغمة ثم التشغيل</code> أنتج <b>عنصر <code>&lt;audio&gt;</code> حقيقياً</b> في الصفحة
+          بـ <code>src="blob:..."</code> مع autoplay/loop، وتحوّل الزر لأيقونة إيقاف مؤقت. صفر أخطاء في الكونسول.</p>
+        </div>
+      </div>
+      <div class="check-item">
+        <div class="st st-pass">✓</div>
+        <div class="tx">
+          <h4>الدبلجة — سلوك صادق عند غياب المفتاح</h4>
+          <p>كتابة نص والضغط على <code>توليد الصوت وإضافته</code> أظهر رسالة واضحة:
+          <b>"OPENCODE_API_KEY غير مضبوط — لا يمكن توليد الصوت"</b> (سجل الخادم: <code>POST /api/ai/tts → 503</code>)
+          — بدل إنشاء مسار صوتي فارغ وهمي كما كان سابقاً.</p>
+        </div>
+      </div>
+      <div class="check-item">
+        <div class="st st-pass">✓</div>
+        <div class="tx">
+          <h4>إزالة الصمت — كشف FFmpeg حقيقي</h4>
+          <p>رفع الفيديو عبر <code>/api/ffmpeg/probe</code> ثم كشف الصمت بمسار الخادم أعاد:
+          <b>[5.01551–10.0083] و[14.9996–20.0162]</b> — مطابق تماماً لفترات الصمت المصمّمة.
+          منطق القص ينتج المقاطع المحتفظ بها <b>[0–5.02, 10.01–15, 20.02–30]</b> (20 ثانية بلا صمت).</p>
+        </div>
+      </div>
+      <div class="check-item">
+        <div class="st st-pass">✓</div>
+        <div class="tx">
+          <h4>خطأ إضافي اكتُشف وأُصلح أثناء الاختبار</h4>
+          <p>اكتشف الاختبار أن <code>aiSilenceRemove</code> كان يرسل <code>duration</code> فقط دون <code>filePath</code> —
+          أي أن الكشف كان يستخدم المحاكاة العشوائية دائماً بدل FFmpeg الحقيقي! أُصلح ليرفع الفيديو
+          ويمرّر <code>filePath</code> الحقيقي. تحقّق <code>tsc</code>: 0 أخطاء.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ الإصلاحات المنفذة ============ -->
+  <section>
+    <div class="section-title"><span class="ico ico-green">✅</span> الإصلاحات المنفذة (6/6)</div>
+    <div class="section-desc">كل خطأ من الأخطاء الوظيفية الستة تم حله — مع الشرح التقني لكل إصلاح.</div>
+
+    <div class="card">
+      <h3>1. إزالة الصمت أصبحت تقص الفيديو فعلياً <span class="severity sev-ok">مُصلح ✓</span></h3>
+      <p>
+        أُعيد بناء منطق <code>aiSilenceRemove</code>: بدلاً من إضافة مقاطع صمت معلّمة <code>_removed</code>
+        لا يقرأها أحد، أصبح الآن يفلتر المقاطع المحتفظ بها فقط (المقاطع غير الصامتة بعد القص)
+        ويُسقط فترات الصمت من التايملاين بالكامل — فعند التصدير يُنتج الفيديو النهائي
+        بدون توقفات صامتة.
+      </p>
+      <div class="fix">🔧 <b>التنفيذ:</b> إعادة كتابة <code>aiSilenceRemove</code> في <span class="file-path">Editor.tsx</span> —
+      قص <code>segments</code> الواردة من <span class="file-path">/api/ai/silence</span> إلى فترات "محتفظ بها"
+      بدل فترات "محذوفة"، مع التحقق من النطاقات وتجاهل الفراغات.</div>
+    </div>
+
+    <div class="card">
+      <h3>2. التثبيت وتصحيح الألوان يصلان الآن للتصدير FFmpeg <span class="severity sev-ok">مُصلح ✓</span></h3>
+      <p>
+        قيمتا <code>videoStabilize</code> و<code>colorGrading</code> كانتا تؤثران على المعاينة فقط.
+        الآن تُمرَّران في طلب <code>/api/export</code> وتتحولان إلى فلاتر FFmpeg حقيقية
+        تُطبَّق على الفيديو النهائي.
+      </p>
+      <div class="fix">🔧 <b>التنفيذ:</b> في <span class="file-path">lib/server/ffmpeg-export.ts</span> أُضيف فلتر
+      <code>deshake=rx=16:ry=16:edge=mirror</code> عند تفعيل التثبيت (حافة مرآتية بلا أشرطة سوداء)،
+      وفلتر <code>eq</code> للتصحيح اللوني عبر <code>colorGradingFilter()</code> — وهو يربط القوة الرقمية
+      (0..1) بالفلتر بنفس صيغة المعاينة CSS، ويعيد <code>null</code> عند القيمة المحايدة 0.5 فيُتخطى الفلتر تماماً.
+      ويُرسل كليهما من <code>startExport</code> في المحرر.</div>
+    </div>
+
+    <div class="card">
+      <h3>3. الدبلجة عبر مسار TTS حقيقي (بدل الصوت الفارغ) <span class="severity sev-ok">مُصلح ✓</span></h3>
+      <p>
+        زر "الدبلجة بصوت مستنسخ" كان يُنشئ مساراً بـ <code>url: ""</code>. الآن يوجد
+        مسار <span class="file-path">app/api/ai/tts/route.ts</span> يستدعي خدمة TTS
+        (OpenAI-compatible عبر <code>/audio/speech</code>) مع خريطة أصوات عربية وإنجليزية،
+        ويعيد الصوت كـ Base64 يحوّله المحرر إلى Blob URL حقيقي يُضاف للتايملاين.
+      </p>
+      <div class="fix">🔧 <b>التنفيذ:</b> مسار <code>tts</code> جديد + إعادة كتابة <code>aiDub</code> ليحول
+      <code>audioBase64</code> → <code>Blob</code> → <code>URL.createObjectURL</code>،
+      مع رسالة واضحة عند غياب مفتاح API بدل الصمت.</div>
+    </div>
+
+    <div class="card">
+      <h3>4. موسيقى حقيقية مولّدة عبر Web Audio API + مشغّل صوت <span class="severity sev-ok">مُصلح ✓</span></h3>
+      <p>
+        مكتبة الموسيقى كانت بلا ملفات (<code>url: ""</code>). الآن الدالة
+        <code>generateToneTrack</code> في <span class="file-path">lib/mockAi.ts</span>
+        تولّد نغمة موسيقية حقيقية (Web Audio + MediaRecorder) حسب BPM ومزاج المسار،
+        تُسجَّل كـ Blob URL. كما <b>أُضيف عنصر <code>&lt;audio&gt;</code> فعلي</b> في المعاينة
+        — كان الصوت يُضبط كحالة لكن لا يُشغَّل إطلاقاً.
+      </p>
+      <div class="fix">🔧 <b>التنفيذ:</b> <code>generateToneTrack</code> (تتابعات كوردات حسب المزاج، حلقة 8 ثوانٍ)
+      + مشغّل <code>&lt;audio loop autoPlay&gt;</code> مرتبط بـ <code>audio.url</code> في المعاينة،
+      وربط <code>aiFullAuto</code> بالموسيقى المولّدة. وتُعالج سياسة المتصفح عبر <code>ctx.resume()</code>
+      عند إنشاء السياق الصوتي، مع إغلاقه (<code>ctx.close()</code>) بعد التسجيل لمنع تسريب الموارد.</div>
+    </div>
+
+    <div class="card">
+      <h3>5. زر Shorts يستدعي ShortsGenerationSkill الحقيقي <span class="severity sev-ok">مُصلح ✓</span></h3>
+      <p>
+        كان <code>aiShorts</code> شريط تقدم فقط. الآن يستدعي نظام الـ Skills عبر
+        <code>/api/skills</code> بوضع <code>skill: "ShortsGenerationSkill"</code>
+        مع بيانات المدة ونسبة العرض، ويحوّل مقاطع <code>shorts</code> المرتجعة
+        إلى قصاصات حقيقية على التايملاين بعدد يطابق اختيار المستخدم.
+      </p>
+      <div class="fix">🔧 <b>التنفيذ:</b> إعادة كتابة <code>aiShorts</code> للاستدعاء الفعلي للـ Skill
+      وتحويل النتيجة (<code>start/end/score</code>) إلى مقاطع تُضاف للمشروع — وإن لم يعثر التحليل
+      على لحظات مميزة، يُظهر إشعاراً واضحاً قبل الرجوع للقص المتساوي (لا fallback صامت).</div>
+    </div>
+
+    <div class="card">
+      <h3>6. حذف الحالة الميتة <code>aspectBefore</code> <span class="severity sev-ok">مُصلح ✓</span></h3>
+      <p>
+        حقل <code>aspectBefore</code> كان معرّفاً في الواجهة والتهيئة الأولية دون أي استخدام.
+        حُذف بالكامل مع تنظيف تعريفاته.
+      </p>
+      <div class="fix">🔧 <b>التنفيذ:</b> إزالة الحقل من <code>interface State</code> و<code>initialState</code> في <span class="file-path">Editor.tsx</span>.</div>
+    </div>
+  </section>
+
+  <!-- ============ تحسينات إضافية ============ -->
+  <section>
+    <div class="section-title"><span class="ico ico-blue">✨</span> تحسينات إضافية منفذة</div>
+    <div class="section-desc">تحسينات جودة تتجاوز الأخطاء الستة — أُنجزت في نفس الجولة.</div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>#</th><th>التحسين</th><th>الموقع</th><th>الوصف</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>1</td>
+            <td>صيغ تصدير SRT/VTT صحيحة</td>
+            <td><span class="mono">Editor.tsx</span></td>
+            <td>دالتا <code>fmtSrtTime</code> (فاصلة <code>HH:MM:SS,mmm</code>) و<code>fmtVttTime</code> (نقطة <code>HH:MM:SS.mmm</code>) — بدل الصيغة الخاطئة السابقة.</td>
+          </tr>
+          <tr>
+            <td>2</td>
+            <td>إصلاح قراءة Thumbnail</td>
+            <td><span class="mono">Editor.tsx</span></td>
+            <td>المسار <code>/api/thumbnail</code> يعيد <code>svg</code> لكن المحرر كان يقرأ <code>dataUrl</code> — صُحح التطابق.</td>
+          </tr>
+          <tr>
+            <td>3</td>
+            <td>كتابة مكوّن TextPanel بأمان الأنواع</td>
+            <td><span class="mono">Editor.tsx</span></td>
+            <td>استبدال <code>props: any</code> بواجهة <code>TextPanelProps</code> موقّعة — TypeScript يحمي المكوّن الآن.</td>
+          </tr>
+          <tr>
+            <td>4</td>
+            <td>تفعيل ESLint كلياً</td>
+            <td><span class="mono">.eslintrc.json</span></td>
+            <td><code>next/core-web-vitals</code> + <code>eslint@8.57.1</code> + <code>eslint-config-next@14.2.35</code> (متوافقا Next 14) — أُصلح خطأا JSX حقيقيان في الكود.</td>
+          </tr>
+          <tr>
+            <td>5</td>
+            <td>توثيق متغيرات البيئة</td>
+            <td><span class="mono">.env.example</span></td>
+            <td>يوثق <code>OPENCODE_API_KEY</code>، <code>OPENCODE_BASE_URL</code>، <code>HF_TOKEN</code>، <code>PEXELS_API_KEY</code> — لإعداد أسرع للمطورين.</td>
+          </tr>
+          <tr>
+            <td>6</td>
+            <td>مشغّل صوت حقيقي في المعاينة</td>
+            <td><span class="mono">Editor.tsx</span></td>
+            <td>اكتُشف أن الصوت كان يُضبط كحالة دون تشغيل — أُضيف <code>&lt;audio loop&gt;</code> مربوطاً بـ <code>audio.url</code>.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ ملاحظات الجودة المتبقية ============ -->
+  <section>
+    <div class="section-title"><span class="ico ico-amber">🔧</span> ملاحظات الجودة المتبقية</div>
+    <div class="section-desc">أمور لا تكسر الوظيفة لكنها تستحق المعالجة في جولات لاحقة.</div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>#</th><th>الملاحظة</th><th>الموقع</th><th>الأثر</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>1</td>
+            <td>تقسيم <code>Editor.tsx</code> — <b style="color:#34d399;">تم ✓</b> من 4183 إلى 3769 سطراً</td>
+            <td><span class="mono">ui.tsx + modals.tsx + project-modals.tsx</span></td>
+            <td>11 مكوّناً نُقلت لملفات مستقلة (8 UI صغيرة + 5 مودالات) مع حذف دالة Keyboard الميتة</td>
+          </tr>
+          <tr>
+            <td>2</td>
+            <td>مفاتيح API في <code>localStorage</code> — <b style="color:#34d399;">موثّق ✓</b></td>
+            <td><span class="mono">modals.tsx</span></td>
+            <td>صندوق تنبيه أمني واضح في نافذة إعدادات API يشرح خطر XSS ويوصي بـ <code>process.env</code> عند النشر</td>
+          </tr>
+          <tr>
+            <td>3</td>
+            <td><code>maxDuration</code> — <b style="color:#34d399;">تم ✓</b></td>
+            <td><span class="mono">14 مسار API</span></td>
+            <td>أُضيف <code>maxDuration = 120</code> لجميع مسارات Whisper/التحليل/التصدير (كان لمسار واحد فقط)</td>
+          </tr>
+          <tr>
+            <td>4</td>
+            <td>الترجمة fallback الصامتة — <b style="color:#34d399;">تم ✓</b></td>
+            <td><span class="mono">lib/ai/client.ts</span></td>
+            <td><code>translateTexts</code> تعيد الآن <code>{translated, fallback}</code> وتُظهر إشعار تحذير واضح عند استخدام العبارات الجاهزة</td>
+          </tr>
+          <tr>
+            <td>5</td>
+            <td>تحذيرات ESLint — <b style="color:#34d399;">تم ✓</b> من 19 إلى 0</td>
+            <td><span class="mono">Editor.tsx + .eslintrc.json</span></td>
+            <td>الـ 17 <code>exhaustive-deps</code> حُلّت بنمط latest-ref، والـ 2 <code>no-img-element</code> عبر override للملفات الديناميكية</td>
+          </tr>
+          <tr>
+            <td>6</td>
+            <td>حد تحسين الصوت — <b style="color:#34d399;">تم ✓</b></td>
+            <td><span class="mono">Editor.tsx</span></td>
+            <td>من 3 ثوانٍ ثابتة إلى <code>min(مدة الفيديو, 60)</code> ثانية مع رسالة تقدم + إغلاق AudioContext في كل المسارات</td>
+          </tr>
+          <tr>
+            <td>7</td>
+            <td>مفاتيح عبر <code>x-opencode-key</code> — <b style="color:#fbbf24;">متبقٍ (تصميم مقصود)</b></td>
+            <td><span class="mono">lib/server/api-keys.ts</span></td>
+            <td>يُستخدم لتمرير مفتاح المستخدم كتجاوز اختياري؛ عند النشر العام يُفضّل الاعتماد على <code>process.env</code> فقط — موثّق في نافذة الإعدادات</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ نقاط القوة ============ -->
+  <section>
+    <div class="section-title"><span class="ico ico-cyan">💪</span> نقاط القوة في المشروع</div>
+    <div class="section-desc">ما تم تنفيذه بشكل جيد ويستحق الحفاظ عليه.</div>
+    <div class="feat-grid">
+      <div class="feat"><div class="f-ico">🛡️</div><h5>أمان المسارات</h5><p><code>isPathInside</code> يمنع هجمات Path Traversal على الرفع والتصدير والتحميل.</p></div>
+      <div class="feat"><div class="f-ico">🚫</div><h5>منع SSRF</h5><p>مسار استيراد الصور يسمح فقط بمضيفات <code>pexels.com</code> — قائمة بيضاء صارمة.</p></div>
+      <div class="feat"><div class="f-ico">🧩</div><h5>هندسة Skills معيارية</h5><p>36 Skill مستقلة عبر <code>ISkill</code> + Workflows بدون تعديل النواة.</p></div>
+      <div class="feat"><div class="f-ico">📦</div><h5>تصدير حقيقي بـ FFmpeg</h5><p>filter_complex كامل: قص، سرعة، فلاتر ألوان، انتقالات xfade، ترجمات ASS، صور كطبقات — والآن deshake + eq.</p></div>
+      <div class="feat"><div class="f-ico">🎙️</div><h5>Whisper حقيقي بكلمات</h5><p>تفريغ بتوقيت كلمة-بكلمة (word-level) مع دعم اللغة عبر <code>transcribe-words</code>.</p></div>
+      <div class="feat"><div class="f-ico">📁</div><h5>حالة تصدير على القرص</h5><p>تتبع التصدير عبر ملفات JSON متسلسلة الكتابة (write chain) — تنجو من إعادة تحميل الـ dev server.</p></div>
+      <div class="feat"><div class="f-ico">🎨</div><h5>محرر Shorts متكامل</h5><p>استوديو 9:16 مع ترجمة كاريوكي حقيقية (ASS) وقوالب متعددة وتصدير SRT/ASS.</p></div>
+      <div class="feat"><div class="f-ico">🌍</div><h5>دعم عربي كامل RTL</h5><p>واجهة عربية سليمة الاتجاه مع خطوط عربية (Tajawal, Cairo, IBM Plex).</p></div>
+      <div class="feat"><div class="f-ico">🎞️</div><h5>مشغّل ألوان حقيقي</h5><p>8 فلاتر ألوان CSS للمعاينة + مراسلات FFmpeg (eq) للتصدير — مزامنة فعلية الآن.</p></div>
+      <div class="feat"><div class="f-ico">🗂️</div><h5>حفظ مشاريع محلي</h5><p>LocalStorage + تصدير/استيراد JSON كامل للمشروع.</p></div>
+      <div class="feat"><div class="f-ico">⚡</div><h5>لوحة مفاتيح واختصارات</h5><p>نظام اختصارات كامل موثق داخل التطبيق.</p></div>
+      <div class="feat"><div class="f-ico">🖼️</div><h5>مكتبة صور Pexels</h5><p>بحث واستيراد صور مع تحويلها إلى طبقات B-roll في التصدير.</p></div>
+      <div class="feat"><div class="f-ico">🔌</div><h5>مفاتيح عبر الواجهة</h5><p>إعدادات API داخلية تتيح للمستخدم إدخال مفاتيحه دون لمس ملفات الإعداد.</p></div>
+    </div>
+  </section>
+
+  <!-- ============ التطويرات المنجزة ============ -->
+  <section>
+    <div class="section-title"><span class="ico ico-blue">🚀</span> حالة التطويرات بعد الإصلاحات</div>
+    <div class="section-desc">تحديث حالة كل منطقة مقارنة بالجولة الأولى.</div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>المنطقة</th><th>قبل</th><th>بعد الإصلاح</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><b>إزالة الصمت</b></td><td><span class="severity sev-high">معطل</span> (علامة غير مقروءة)</td><td><span class="severity sev-ok">يعمل</span> — قص فعلي للفترات الصامتة</td></tr>
+          <tr><td><b>تثبيت الفيديو</b></td><td><span class="severity sev-high">وهمي</span> (تقدم فقط)</td><td><span class="severity sev-ok">يعمل</span> — فلتر <code>deshake</code> في التصدير</td></tr>
+          <tr><td><b>تحسين الألوان</b></td><td><span class="severity sev-med">جزئي</span> (لا يصل للتصدير)</td><td><span class="severity sev-ok">يعمل</span> — فلتر <code>eq</code> في التصدير</td></tr>
+          <tr><td><b>الدبلجة</b></td><td><span class="severity sev-high">وهمي</span> (مسار فارغ)</td><td><span class="severity sev-ok">يعمل</span> — TTS حقيقي عبر <code>/api/ai/tts</code></td></tr>
+          <tr><td><b>مكتبة الموسيقى</b></td><td><span class="severity sev-med">معطل</span> (بلا ملفات)</td><td><span class="severity sev-ok">يعمل</span> — توليد Web Audio + مشغّل حقيقي</td></tr>
+          <tr><td><b>Shorts في المحرر</b></td><td><span class="severity sev-med">وهمي</span> (تقدم فقط)</td><td><span class="severity sev-ok">يعمل</span> — عبر ShortsGenerationSkill</td></tr>
+          <tr><td><b>تصدير SRT/VTT</b></td><td>صيغة خاطئة</td><td><span class="severity sev-ok">صحيح</span> — <code>fmtSrtTime</code> / <code>fmtVttTime</code></td></tr>
+          <tr><td><b>Thumbnail</b></td><td>قراءة خاطئة للحقل</td><td><span class="severity sev-ok">مطابق</span> — يقرأ <code>svg</code> من المسار</td></tr>
+          <tr><td><b>ESLint</b></td><td><span class="severity sev-high">معطل</span> تماماً</td><td><span class="severity sev-ok">مفعّل</span> — 0 أخطاء</td></tr>
+          <tr><td><b>توثيق البيئة</b></td><td>لا يوجد</td><td><span class="severity sev-ok">موجود</span> — <code>.env.example</code></td></tr>
+          <tr><td><b>نظام Skills</b></td><td>يعمل</td><td><span class="severity sev-ok">مُستفاد منه</span> — Shorts الآن عبر الـ Skill</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ خارطة الطريق ============ -->
+  <section>
+    <div class="section-title"><span class="ico ico-green">🗺️</span> خارطة طريق مقترحة (الجولة القادمة)</div>
+    <div class="section-desc">ما تبقى بعد إصلاح الأخطاء الستة — مرتب بالأولوية.</div>
+    <div class="roadmap">
+      <div class="step">
+        <span class="tag">المرحلة 1 — الصلابة</span>
+        <h4>اختبارات وحدات للـ Skills والتصدير</h4>
+        <p>إضافة اختبارات لـ <code>buildSegments</code> و<code>buildAss</code> ومولّد الموسيقى — حماية الإصلاحات الجديدة من الانكسار مستقبلاً.</p>
+      </div>
+      <div class="step">
+        <span class="tag">المرحلة 2 — الهندسة</span>
+        <h4>تقسيم Editor.tsx الضخم</h4>
+        <p>فصل الـ 12+ مكوّناً (LeftPanel, RightPanel, Timeline, MusicPanel, ExportPanel...) إلى ملفات مستقلة لسهولة الصيانة.</p>
+      </div>
+      <div class="step">
+        <span class="tag">المرحلة 3 — الجودة</span>
+        <h4>معالجة تحذيرات Lint + الأمان عند النشر</h4>
+        <p>تقليل الـ 19 تحذيراً (<code>useCallback</code>، <code>next/image</code>) والتحول للاعتماد على <code>process.env</code> في بيئة الإنتاج.</p>
+      </div>
+      <div class="step">
+        <span class="tag">المرحلة 4 — الميزات</span>
+        <h4>إشعار واضح عند فشل الترجمة + حدود maxDuration</h4>
+        <p>إظهار تحذير للمستخدم عند الوقوع في خريطة العبارات الجاهزة، وضبط <code>maxDuration</code> لكل مسارات Whisper.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ ملاحظة ختامية ============ -->
+  <div class="summary-note">
+    <b>تقييم عام بعد الإصلاحات:</b> المشروع انتقل من "عرض توضيحي متقدم" إلى <b>تطبيق وظيفي متكامل</b> —
+    كل أزرار الذكاء الاصطناعي تنفذ عملاً حقيقياً أو تشرح سبب رفضها، والتصدير يعكس كل ما تراه في المعاينة.
+    الفحوصات الثلاثة (TypeScript + ESLint + Build) كلها <b>ناجحة بدون أخطاء</b>،
+    <b>تحذيرات ESLint انخفضت من 19 إلى 0</b>، و<b>Editor.tsx قُسّم من 4183 إلى 3769 سطراً</b> عبر 3 ملفات جديدة،
+    وحدود المدة أُضيفت لكل مسارات الـ API، والترجمة الاحتياطية لم تعد صامتة.
+    الأولوية القادمة: <b>اختبارات الوحدات</b> لحماية هذه الإصلاحات، ثم مواصلة تقسيم اللوحات الكبيرة
+    (LeftPanel/RightPanel/Timeline) إن رغبت.
+  </div>
+
+  <footer>
+    تم إنشاء هذا التقرير تلقائياً بعد فحص شامل للكود وإعادة الفحص بعد الإصلاحات • MontageAI • أغسطس 2026
+  </footer>
+
+</div>
+</body>
+</html>
