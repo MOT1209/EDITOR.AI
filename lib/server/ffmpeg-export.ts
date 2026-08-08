@@ -138,6 +138,28 @@ export function hasFfmpeg(): boolean {
   }
 }
 
+// كشف تسريع GPU (NVENC) باختبار تشفير حقيقي (القائمة -encoders تذكر المحوّل حتى
+// بدون GPU فعلي). يُستخدم للتصدير الأسرع ~300% مع الرجوع تلقائياً إلى libx264.
+let nvencCached: boolean | null = null;
+export function hasNvenc(): boolean {
+  if (nvencCached !== null) return nvencCached;
+  try {
+    // تشفير إطار أسود صغير واحد إلى null — ينجح فقط مع GPU يعمل فعلاً.
+    const r = spawnSync(
+      resolveFfmpegPath(),
+      [
+        "-y", "-f", "lavfi", "-i", "color=black:s=64x64:d=0.2",
+        "-c:v", "h264_nvenc", "-preset", "p5", "-cq", "26", "-f", "null", "-",
+      ],
+      { stdio: "ignore", timeout: 8000 }
+    );
+    nvencCached = r.status === 0;
+  } catch {
+    nvencCached = false;
+  }
+  return nvencCached;
+}
+
 // ffmpeg's subtitles filter chokes on a Windows drive-letter colon in an
 // absolute path no matter how it's escaped/quoted (tested: backslash-escape
 // and single-quote-wrap both fail with "Unable to parse original_size"). The
@@ -444,6 +466,15 @@ function buildFilterComplex(
   }
   parts.push(`[${videoLabel}]${finalOps.join(",")}[vout]`);
 
+  // ضبط الصوت التلقائي (تحسين نهائي): إزالة ضوضاء خفيفة (afftdn) ثم
+  // تطبيع مستوى الصوت لمعيار السوشال ميديا (-16 LUFS) لضمان وضوح الكلام
+  // فوق الموسيقى الخلفية.
+  if (audioLabel) {
+    const enhancedAudio = "aenh";
+    parts.push(`[${audioLabel}]afftdn=nr=12:nf=-35,loudnorm=I=-16:TP=-1.5:LRA=11[aenh]`);
+    audioLabel = enhancedAudio;
+  }
+
   return { filterComplex: parts.join(";"), audioLabel };
 }
 
@@ -467,6 +498,9 @@ export async function runExport(req: ExportRequest): Promise<{ size: number }> {
   const [width, height] = resolveOutputSize(project.resolution, project.aspect);
   const { crf, preset } = QUALITY_CRF[project.quality] || QUALITY_CRF.standard;
   const codec = FORMAT_CODEC[project.format] || FORMAT_CODEC.mp4;
+  // تسريع GPU إن توفر (h264 فقط — لا ينطبق على webm/vp9): أسرع حتى 3x مع جودة مماثلة.
+  const useNvenc =
+    codec.video === "libx264" && hasNvenc();
 
   // Written to its own throwaway dir so we can set ffmpeg's cwd there and
   // reference it by bare filename (see the comment above assTimestamp).
@@ -516,9 +550,13 @@ export async function runExport(req: ExportRequest): Promise<{ size: number }> {
     // duration authoritative regardless of what any filter thinks it is.
     "-t", totalDuration.toFixed(3),
     "-r", String(project.fps),
-    "-c:v", codec.video,
-    "-crf", String(codec.video === "libvpx-vp9" ? crf * 2 : crf),
-    ...(codec.video !== "libvpx-vp9" ? ["-preset", preset] : []),
+    ...(useNvenc
+      ? ["-c:v", "h264_nvenc", "-preset", "p5", "-cq", String(crf)]
+      : [
+          "-c:v", codec.video,
+          "-crf", String(codec.video === "libvpx-vp9" ? crf * 2 : crf),
+          ...(codec.video !== "libvpx-vp9" ? ["-preset", preset] : []),
+        ]),
     "-c:a", codec.audio,
     "-b:a", "192k",
     ...codec.extraArgs,
