@@ -64,7 +64,7 @@ async def _resume_render(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog="montage",
-        description="مسار المونتاج متعدد الوكلاء (CEO → Analyst → Director → Render)",
+        description="مسار المونتاج متعدد الوكلاء (CEO → Analyst → Director → Critic → Audio → Render)",
     )
     ap.add_argument("input", nargs="?", help="مسار الفيديو المصدر (اختياري مع --resume)")
     ap.add_argument("--request", default="فيديو قصير حماسي مع ترجمة", help="طلب المستخدم")
@@ -121,6 +121,19 @@ async def _run(args: argparse.Namespace) -> int:
         out_edl = Path(result.artifacts_dir) / "edl.json"
         out_edl.write_text(edl_to_json(result.edl), encoding="utf-8")
         print(f"خطة EDL كاملة: {out_edl}")
+    if result.critic:
+        print(
+            f"الناقد الإبداعي: {result.critic.score:.0f}/100 → {result.critic.verdict}"
+            + (f" | {len(result.critic.suggestions)} ملاحظة" if result.critic.suggestions else "")
+        )
+        for s in result.critic.suggestions[:3]:
+            print(f"  • {s}")
+    if result.audio:
+        music = result.audio.music
+        print(
+            f"الصوت: {music.mood.value} {music.bpm}BPM (طاقة {music.energy:.0%}) | "
+            f"{len(result.audio.ducking)} نافذة Ducking | {len(result.audio.fx)} مؤثر | {result.audio.loudness_lufs:.0f} LUFS"
+        )
     if result.render:
         if result.render.rendered:
             print(f"الرندر اكتمل: {result.render.output_path}")

@@ -61,6 +61,7 @@ import {
   FileText,
   Bot,
   Brain,
+  Music2,
   Aperture,
   Activity,
   Settings,
@@ -4051,6 +4052,9 @@ function PipelineModal({
 }) {
   const edl = (plan.edl || {}) as Record<string, any>;
   const analyst = (plan.analyst || {}) as Record<string, any>;
+  const critic = (plan.critic || {}) as Record<string, any>;
+  const audio = (plan.audio || {}) as Record<string, any>;
+  const audioMusic = (audio.music || {}) as Record<string, any>;
   const segments = (edl.segments || []) as any[];
   const keeps = segments.filter((s: any) => s.keep);
   const cuts = segments.length - keeps.length;
@@ -4141,6 +4145,66 @@ function PipelineModal({
               </div>
             )}
           </div>
+
+          {/* الناقد الإبداعي: درجة + حكم + ملاحظات توجيهية */}
+          {critic && typeof critic.score === "number" && (
+            <div className="border-t border-line pt-3">
+              <h3 className="text-xs font-bold text-rose-400 mb-2 flex items-center gap-1.5">
+                <Bot className="h-3.5 w-3.5" /> الناقد الإبداعي
+              </h3>
+              <div className="rounded-md border border-line bg-bg-soft p-3 space-y-2">
+                <div className="flex items-center gap-3">
+                  <span
+                    className={`text-lg font-black tabular-nums ${critic.score >= 70 ? "text-emerald-400" : critic.score >= 50 ? "text-amber-400" : "text-rose-400"}`}
+                  >
+                    {critic.score.toFixed(0)}
+                    <span className="text-[10px] font-normal text-ink-soft">/100</span>
+                  </span>
+                  <span
+                    className={`text-[10px] px-2 py-0.5 rounded-full border ${
+                      critic.verdict === "approve"
+                        ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                        : "bg-amber-500/15 text-amber-300 border-amber-500/30"
+                    }`}
+                  >
+                    {critic.verdict === "approve" ? "✓ معتمدة" : "↻ تحتاج مراجعة"}
+                  </span>
+                </div>
+                {Array.isArray(critic.suggestions) && critic.suggestions.length > 0 && (
+                  <ul className="space-y-1">
+                    {critic.suggestions.slice(0, 4).map((s: string, i: number) => (
+                      <li key={i} className="text-[11px] text-ink-soft flex gap-1.5">
+                        <span className="text-rose-400/70 shrink-0">•</span>
+                        {s}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* مهندس الصوت: خطة موسيقى + Ducking + ضبط LUFS */}
+          {audio && typeof audioMusic.bpm === "number" && (
+            <div className="border-t border-line pt-3">
+              <h3 className="text-xs font-bold text-teal-400 mb-2 flex items-center gap-1.5">
+                <Music2 className="h-3.5 w-3.5" /> خطة الصوت (مهندس الصوت)
+              </h3>
+              <div className="rounded-md border border-line bg-bg-soft p-3">
+                <div className="grid grid-cols-4 gap-2">
+                  <PStat label="المزاج" value={String(audioMusic.mood || "—")} />
+                  <PStat label="BPM" value={String(audioMusic.bpm || "—")} />
+                  <PStat label="Ducking" value={String((audio.ducking || []).length)} />
+                  <PStat label="LUFS" value={`${Number(audio.loudnessLufs ?? audio.loudness_lufs ?? 0).toFixed(0)}`} />
+                </div>
+                {Array.isArray(audio.notes) && audio.notes.length > 0 && (
+                  <p className="mt-2 text-[10px] text-ink-soft leading-relaxed">
+                    {audio.notes.slice(0, 3).join(" • ")}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* الخطوة 2: نتيجة الرندر */}
           {render && (

@@ -13,6 +13,8 @@ from src.agents.registry import AGENT_REGISTRY, register_agent, get_agent_class
 from src.agents import edl_schema, validation
 from src.agents import analyst_agent  # noqa: F401  (تسجيل)
 from src.agents import director_agent  # noqa: F401  (تسجيل)
+from src.agents import critic_agent  # noqa: F401  (تسجيل — الناقد الإبداعي)
+from src.agents import audio_agent  # noqa: F401  (تسجيل — مهندس الصوت)
 from src.agents import render_agent  # noqa: F401  (تسجيل)
 from src.agents.ceo_agent import CeoOrchestrator, PipelineContext, PipelineResult
 

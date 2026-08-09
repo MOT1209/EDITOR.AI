@@ -16,6 +16,8 @@ src/
     ├── ceo_agent.py         # المديرة التنفيذية — إشراف وتنسيق
     ├── analyst_agent.py     # المحلل — ffmpeg حقيقي + نقاط توسعة (Whisper/وجوه/متحدثون)
     ├── director_agent.py    # المخرج — EDL عبر LLM هرمي + خطة قواعد + B-Roll + ترجمات
+    ├── critic_agent.py      # الناقد الإبداعي — درجة 0-100 + حكم approve/revise + حلقة مراجعة
+    ├── audio_agent.py       # مهندس الصوت — خطة موسيقى + Ducking + مؤثرات + LUFS (حتمي)
     └── render_agent.py      # الرندر — كشف GPU حقيقي + بناء أوامر ffmpeg
 ```
 
@@ -40,7 +42,8 @@ Groq llama-3.3-70b-versatile)، `PEXELS_API_KEY` لـ B-Roll، `FFMPEG_PATH`.
 دفاع. `sequential` الصريح يوفّر الرموز من البداية.
 
 كل مخرجات المراحل تُحفظ في `.montage_ai/pipeline/<job_id>/` (`analyst.json`,
-`director.json`, `edl.json`, `render.json`, `manifest.json`) — أي فشل يُشخَّص
+`director.json`, `critic.json`, `audio.json`, `edl.json`, `render.json`,
+`manifest.json`) — أي فشل يُشخَّص
 من الملفات دون إعادة تشغيل المسار.
 
 ## لماذا CrewAI (وليس LangGraph)
@@ -69,6 +72,8 @@ Groq llama-3.3-70b-versatile)، `PEXELS_API_KEY` لـ B-Roll، `FFMPEG_PATH`.
 |---------|--------|-----------------|
 | `analyst_agent` | صمت/فحص المصدر ✓ | Whisper word-level، Diarization، MediaPipe (نقاط التوسعة موثقة) |
 | `director_agent` | EDL + ترجمات + B-Roll ✓ | ضبط البرومبت/المخطط حسب الحاجة |
+| `critic_agent` | درجة إبداعية 0-100 + حكم ✓ | حلقة مراجعة مع المخرج (LLM يستجيب للملاحظات) |
+| `audio_agent` | خطة موسيقى + Ducking + LUFS ✓ | دمج المسار الموسيقي في أمر الرندر لاحقاً |
 | `render_agent` | أمر ffmpeg + كشف GPU ✓ | تنفيذ الرندر الفعلي (`RenderAgent.render`) |
 
 أي وكيل جديد: عرّف صنفه + `@register_agent("name")` + بوابة في

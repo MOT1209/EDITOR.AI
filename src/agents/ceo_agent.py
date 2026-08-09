@@ -37,7 +37,7 @@ from src.agents.registry import get_agent_class
 from src.agents.utils import disable_crewai_cache_breakpoints, env_or_default, get_logger, load_env
 from src.agents.validation import STAGE_VALIDATORS
 
-STAGE_ORDER: tuple[str, ...] = ("analyst", "director", "render")
+STAGE_ORDER: tuple[str, ...] = ("analyst", "director", "critic", "audio", "render")
 DEFAULT_MODEL = env_or_default("OPENCODE_MODEL", "llama-3.3-70b-versatile")
 DEFAULT_BASE_URL = env_or_default("OPENCODE_BASE_URL", "https://api.groq.com/openai/v1")
 
@@ -70,6 +70,8 @@ class PipelineResult(BaseModel):
     duration_seconds: float = 0.0
     edl: Optional[EdlPlan] = None
     analyst: Optional[AnalystReport] = None
+    critic: Optional[Any] = None
+    audio: Optional[Any] = None
     render: Optional[RenderPlan] = None
     errors: List[str] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
@@ -209,7 +211,11 @@ class CeoOrchestrator:
         try:
             stages = STAGE_ORDER[:-1] if plan_only else STAGE_ORDER  # بدون الرندر (تخطيط فقط)
             for stage in stages:
-                outcome = await self._run_stage(stage, ctx, artifacts)
+                if stage == "critic":
+                    # حلقة المراجعة الإبداعية: ناقد ↔ مخرج حتى القبول أو نفاد المحاولات
+                    outcome = await self._creative_loop(ctx, artifacts)
+                else:
+                    outcome = await self._run_stage(stage, ctx, artifacts)
                 warnings.extend(outcome.warnings)
                 if not outcome.ok:
                     self.logger.error("مرحلة %s فشلت نهائياً: %s", stage, outcome.errors)
@@ -243,7 +249,8 @@ class CeoOrchestrator:
         validator = STAGE_VALIDATORS[stage]
         attempt = 0
         while True:
-            ctx.feedback = []
+            # ملاحظة: لا نُصفّر ctx.feedback هنا — ما تضعه البوابة في المحاولة
+            # الفاشلة يجب أن يصله الوكيل في المحاولة التالية (المخرج عبر البرومبت).
             try:
                 artifact = await agent.execute(ctx, prior)
             except NotImplementedError as exc:
@@ -255,6 +262,7 @@ class CeoOrchestrator:
 
             validation = validator(artifact)
             if validation.ok:
+                ctx.feedback = []  # نجحت المرحلة — امسح ملاحظات التصحيح القديمة
                 return _StageOutcome(ok=True, artifact=artifact, warnings=validation.warnings)
 
             ctx.feedback = validation.errors
@@ -266,6 +274,46 @@ class CeoOrchestrator:
             )
             if attempt > self.max_retries:
                 return _StageOutcome(ok=False, errors=validation.errors, warnings=validation.warnings)
+
+    async def _creative_loop(self, ctx: PipelineContext, artifacts: Dict[str, Any]) -> "_StageOutcome":
+        """حلقة الناقد الإبداعي: يراجع الخطة المعتمدة بنيوياً؛ عند revise يعيد المخرج
+        بالملاحظات حتى القبول أو نفاد المحاولات (يمرر حينها بأفضل خطة سليمة + تحذير)."""
+        critic = self._agents["critic"]
+        director = self._agents["director"]
+        round_no = 0
+        while True:
+            critique = await critic.execute(ctx, artifacts)
+            artifacts["critic"] = critique  # آخر تقرير ناقد — يُحفظ في run() أيضاً
+            self._save_artifact(ctx, "critic", critique)
+            if critique.verdict == "approve":
+                self.logger.info("الناقد اعتمد الخطة (%.0f/100)", critique.score)
+                return _StageOutcome(ok=True, artifact=critique)
+            round_no += 1
+            if round_no > self.max_retries:
+                self.logger.warning(
+                    "الناقد ما زال يطلب مراجعة بعد %d جولة — تمرير بأفضل خطة سليمة",
+                    round_no - 1,
+                )
+                return _StageOutcome(
+                    ok=True,
+                    artifact=critique,
+                    warnings=[
+                        f"الناقد طلب مراجعة لم تُنفَّذ بالكامل (الدرجة {critique.score:.0f}/100) — تمرير مع تحذير"
+                    ],
+                )
+            # أعد المخرج بملاحظات الناقد (LLM يعيد التخطيط؛ القواعد تصمد بلا تغيير)
+            ctx.feedback = list(critique.suggestions)
+            self.logger.info(
+                "الناقد يطلب مراجعة (%.0f/100): %d ملاحظة → إعادة المخرج",
+                critique.score, len(critique.suggestions),
+            )
+            plan = await director.execute(ctx, artifacts)
+            validation = STAGE_VALIDATORS["director"](plan)
+            if not validation.ok:
+                return _StageOutcome(ok=False, errors=validation.errors)
+            artifacts["director"] = plan
+            self._save_artifact(ctx, "director", plan)
+            artifacts["critic_rounds"] = round_no
 
     # ------------------------------------------------------------------
     # الحفظ والتشخيص
@@ -316,6 +364,8 @@ class CeoOrchestrator:
             duration_seconds=round(time.monotonic() - started, 2),
             edl=artifacts.get("director"),
             analyst=artifacts.get("analyst"),
+            critic=artifacts.get("critic"),
+            audio=artifacts.get("audio"),
             render=artifacts.get("render"),
             errors=errors or [],
             warnings=warnings or [],
