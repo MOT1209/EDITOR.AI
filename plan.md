@@ -81,6 +81,11 @@
 
 ## المرحلة 3 — جودة وهندسة (مستمرة)
 
+### ✅ منجز
+- **pytest**: 9 حالات (4 موجه/وجه/متحدثين + 5 ناقد/صوت) — `pytest.ini` + `python -m pytest` (1 ثانية محلياً)
+- **CI (GitHub Actions)**: `.github/workflows/ci.yml` — py_compile + pytest + tsc + فحص العقد + gitleaks على كل push
+- **إصلاح أداء جذري**: استيراد pyannote.audio أصبح كسولاً (كان يسحب lightning/torchcodec ~145s لكل استيراد → أصبح 1.2s)
+
 | البند | الوصف | الأثر |
 |-------|-------|-------|
 | **pytest** | 20+ حالة: `normalize_plan` (تداخل/فجوات/سقف 60/تسامح camelCase)، البوابات، `extract_json` | يمنع تكرار خطأ «المثال الـ19» |

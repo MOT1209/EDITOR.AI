@@ -1,0 +1,66 @@
+name: CI — الجودة والأمان (مونتاج متعدد الوكلاء)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  python-checks:
+    name: Python — فحص + اختبارات
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+      - name: تثبيت الاعتماديات
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r src/requirements.txt pytest
+      - name: فحص الصياغة (py_compile)
+        run: python -m compileall -q src/
+      - name: تشغيل الاختبارات (pytest)
+        run: python -m pytest -v
+      - name: الاستيراد وتسجيل الوكلاء
+        run: |
+          python -X utf8 -c "
+          import sys; sys.stdout.reconfigure(encoding='utf-8')
+          import src.agents
+          assert sorted(src.agents.AGENT_REGISTRY) == ['analyst','audio','critic','director','render'], src.agents.AGENT_REGISTRY
+          assert sorted(src.agents.validation.STAGE_VALIDATORS) == sorted(src.agents.ceo_agent.STAGE_ORDER), 'مراحل ≠ بوابات'
+          print('✓ الوكلاء والبوابات متطابقان')
+          "
+
+  ts-checks:
+    name: TypeScript — بناء + عقد
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: تثبيت الاعتماديات
+        run: npm ci
+      - name: فحص TypeScript (tsc)
+        run: npx tsc --noEmit
+      - name: فحص مطابقة العقد الموحّد (Python ↔ TypeScript)
+        run: node scripts/check-contract.ts
+
+  secrets:
+    name: حارس الأسرار (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}

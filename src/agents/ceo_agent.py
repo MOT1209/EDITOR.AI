@@ -89,9 +89,11 @@ class CeoOrchestrator:
         verbose: bool = False,
     ) -> None:
         load_env()  # .env.local أولاً (عرف المشروع)
-        disable_crewai_cache_breakpoints()  # توافق مزوّدات OpenAI-compatible (Groq)
         self.logger = get_logger("ceo")
         self.llm = llm if llm is not None else self._default_llm()
+        if self.llm is not None:
+            # فقط عند وجود LLM فعلي — استيراد crewai ثقيل (~100s عبر torch على Windows)
+            disable_crewai_cache_breakpoints()  # توافق مزوّدات OpenAI-compatible (Groq)
         self.pipeline_dir = Path(
             output_dir or env_or_default("MONTAGE_PIPELINE_DIR", ".montage_ai/pipeline")
         )

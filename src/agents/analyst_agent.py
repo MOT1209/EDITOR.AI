@@ -33,13 +33,15 @@ from src.agents.registry import register_agent
 from src.agents.utils import env_or_default, get_logger, load_env, resolve_ffmpeg
 
 try:  # اختياري: pyannote.audio لتمييز المتحدثين (يمكن تثبيته لاحقاً)
-    import pyannote.audio  # noqa: F401
     _HAS_PYNANOTE = True
 
     def _pyannote_pipeline():
-        """ينشئ خط معالجة Diarization — ينزّل النموذج pyannote/speaker-diarization عند الاستدعاء."""
-        from pyannote.audio import Pipeline
-        return Pipeline.from_pretrained("pyannote/speaker-diarization")
+        """ينشئ خط معالجة Diarization — استيراد كسول (المكتبة ثقيلة ~70s عبر lightning/torch)."""
+        try:
+            from pyannote.audio import Pipeline
+            return Pipeline.from_pretrained("pyannote/speaker-diarization")
+        except Exception:
+            return None
 except ImportError:
     _HAS_PYNANOTE = False
 
@@ -258,6 +260,8 @@ class AnalystAgent:
         if _HAS_PYNANOTE:
             try:
                 pipeline = _pyannote_pipeline()
+                if pipeline is None:
+                    raise RuntimeError("pyannote.audio غير متاح — تمييز صامت بديل")
                 wav = self._extract_wav(source_path)
                 try:
                     segments = sorted(pipeline(wav), key=lambda s: s[2])
