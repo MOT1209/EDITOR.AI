@@ -38,6 +38,10 @@ import { DescriptionGenerationSkill } from "./DescriptionGenerationSkill";
 import { HashtagGenerationSkill } from "./HashtagGenerationSkill";
 import { ShortsGenerationSkill } from "./ShortsGenerationSkill";
 import { ExportOptimizationSkill } from "./ExportOptimizationSkill";
+import { TransitionEffectSkill } from "./TransitionEffectSkill";
+import { SpeedRampSkill } from "./SpeedRampSkill";
+import { TextOverlaySkill } from "./TextOverlaySkill";
+import { MusicDuckingSkill } from "./MusicDuckingSkill";
 
 /** كل أصناف الـ Skills المتوفّرة. */
 export const SKILL_CLASSES = [
@@ -77,6 +81,10 @@ export const SKILL_CLASSES = [
   HashtagGenerationSkill,
   ShortsGenerationSkill,
   ExportOptimizationSkill,
+  TransitionEffectSkill,
+  SpeedRampSkill,
+  TextOverlaySkill,
+  MusicDuckingSkill,
 ] as const;
 
 /** إنشاء نسخة جديدة من كل Skill (حالة/سجلات مستقلة لكل مدير). */
@@ -121,4 +129,8 @@ export {
   HashtagGenerationSkill,
   ShortsGenerationSkill,
   ExportOptimizationSkill,
+  TransitionEffectSkill,
+  SpeedRampSkill,
+  TextOverlaySkill,
+  MusicDuckingSkill,
 };

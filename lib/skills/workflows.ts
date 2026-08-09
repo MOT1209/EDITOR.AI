@@ -18,11 +18,14 @@ export function createDefaultWorkflow(): Workflow {
       { skill: "SpeechRecognitionSkill", optional: true },
       { skill: "SilenceDetectionSkill" },
       { skill: "AutoCutSkill" },
+      { skill: "TransitionEffectSkill", optional: true }, // انتقالات بين المقاطع
       { skill: "HighlightDetectionSkill" },
       { skill: "FaceDetectionSkill", optional: true }, // مطلوبة لـ FaceTracking
       { skill: "FaceTrackingSkill", optional: true },
       { skill: "AudioEnhancementSkill", optional: true },
+      { skill: "MusicDuckingSkill", optional: true }, // خفض الموسيقى تحت الكلام
       { skill: "AutoCaptionSkill", optional: true },
+      { skill: "TextOverlaySkill", optional: true }, // نصوص Hook عند اللحظات المميزة
       { skill: "AutoColorGradingSkill", optional: true },
       { skill: "ThumbnailGenerationSkill", optional: true },
       { skill: "ExportOptimizationSkill" },
@@ -42,9 +45,12 @@ export function createShortsWorkflow(): Workflow {
       { skill: "HighlightDetectionSkill" },
       { skill: "FaceDetectionSkill", optional: true },
       { skill: "ViralMomentSkill" },
+      { skill: "SpeedRampSkill", optional: true }, // تباطؤ قبل الـ Hook وتسريع بعده
+      { skill: "TransitionEffectSkill", optional: true },
       { skill: "AutoReframeSkill", optional: true },
       { skill: "ShortsGenerationSkill" },
       { skill: "TitleGenerationSkill", optional: true },
+      { skill: "TextOverlaySkill", optional: true },
       { skill: "HashtagGenerationSkill", optional: true },
       { skill: "ThumbnailGenerationSkill", optional: true },
       { skill: "ExportOptimizationSkill" },
