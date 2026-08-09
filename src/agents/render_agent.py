@@ -299,10 +299,14 @@ class RenderAgent:
         # والمسارات النسبية في الخطة تنكسر مع تغيير cwd — الإطلاق يحل المشكلة.
         output = os.path.abspath(rp.output_path)
         cmd: List[str] = []
+        skip = -1  # عنصر المدخل (-i <path>) يُعالج مرة واحدة: لا يُكرَّر كعنصر مستقل
         for i, part in enumerate(list(rp.command)):
+            if i == skip:
+                continue
             if part == "-i" and i + 1 < len(rp.command):
                 cmd.append(part)
                 cmd.append(os.path.abspath(rp.command[i + 1]))
+                skip = i + 1
             elif part == rp.output_path:
                 cmd.append(output)
             else:
