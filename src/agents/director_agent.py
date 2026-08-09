@@ -32,10 +32,12 @@ from src.agents.edl_schema import (
     CropZoomEvent,
     EdlPlan,
     EdlSource,
+    FaceTrack,
     MusicMood,
     OverlayPosition,
     PlanOverlay,
     PlanSegment,
+    SpeakerSegment,
     VideoStyle,
     WordTiming,
     normalize_plan,
@@ -121,6 +123,10 @@ class DirectorAgent:
         if plan is None:
             plan = self._rule_based_plan(ctx, report)
             self.logger.info("خطة محلية جاهزة: «%s»", plan.title)
+
+        # المرحلة 2: قص ذكي يتبع الوجه + تلوين ترجمات المتحدثين (إن توفرت البيانات)
+        plan = self._apply_face_tracks(plan, report)
+        plan = self._annotate_speakers(plan, report)
 
         if getattr(ctx, "enable_b_roll", True):
             plan = await self.enrich_b_roll(plan)
@@ -262,6 +268,16 @@ class DirectorAgent:
             if report and report.highlights
             else "[]"
         )
+        faces = (
+            json.dumps([f.model_dump(by_alias=True) for f in report.face_tracks], ensure_ascii=False)
+            if report and report.face_tracks
+            else "[]"
+        )
+        speakers = (
+            json.dumps([s.model_dump(by_alias=True) for s in report.speakers], ensure_ascii=False)
+            if report and report.speakers
+            else "[]"
+        )
         feedback_note = (
             "ملاحظات تصحيح من المديرة التنفيذية على المحاولة السابقة — عالجها:\n"
             + "\n".join(f"- {f}" for f in feedback[:8])
@@ -277,6 +293,8 @@ class DirectorAgent:
 - فترات الصمت: {silences}
 - كلمات التفريغ (أول 200): {words}
 - لحظات مميزة (Hooks): {hints}
+- مسارات الوجه (لقص ذكي 9:16): {faces}
+- فترات المتحدثين: {speakers}
 
 {feedback_note}
 
@@ -288,6 +306,8 @@ class DirectorAgent:
 2. قصّ فترات الصمت (keep=false) وقيّم المقاطع المتبقية.
 3. سرعة 0.25..4 فقط؛ التوقف عند اللحظات المهمة (speed<1) وتسريع البطيء (speed>1).
 4. إن كان المصدر أفقياً والهدف عمودياً، أضف crop لكل مقطع إبقاء (zoom>=1.05).
+   إذا وُجدت مسارات وجه (faces) فاجعل centerX/centerY يقتربان من مركز الوجه خلال المقطع —
+   وإلا فاستخدم centerX=0.5 و centerY=0.42.
 5. لكل 3-5 ثوانٍ مملة محتملة اقترح b_roll بكلمات مفتاحية إنجليزية (pexels).
 6. captionStyle ضمن: default, bold, highlight, karaoke — ومفعّل افتراضياً.
 7. حد أقصى 60 مقطعاً.
@@ -364,7 +384,79 @@ class DirectorAgent:
         )
 
     # ------------------------------------------------------------------
-    # 3) ترجمات كلمة-بكلمة (word-by-word animated captions)
+    # 3) المرحلة 2: قص ذكي يتبع الوجه + تلوين ترجمات المتحدثين
+    # ------------------------------------------------------------------
+
+    def _face_center_at(self, t: float, tracks: List[FaceTrack]) -> Optional[tuple[float, float]]:
+        """يعيد مركز الوجه (x, y) عند الزمن t مع استيفاء بين مسارات متداخلة.
+
+        يوزّن المسارات المتداخلة بمدى تغطيتها؛ يرجع None إن لم يغطِّ أي مسار t.
+        """
+        hits = [tk for tk in tracks if tk.start - 1e-6 <= t <= tk.end + 1e-6]
+        if not hits:
+            return None
+        weight = sum(tk.end - tk.start for tk in hits) or 1.0
+        cx = sum(tk.center_x * (tk.end - tk.start) for tk in hits) / weight
+        cy = sum(tk.center_y * (tk.end - tk.start) for tk in hits) / weight
+        return (cx, cy)
+
+    def _apply_face_tracks(self, plan: EdlPlan, report: object) -> EdlPlan:
+        """يجعل أحداث القص/الزوم تتبع وجه المتحدث إن وجد تتبع في تقرير المحلل.
+
+        - لكل مقطع إبقاء بحدث قص، يبحث عن مسارات وجه متداخلة ويحرّك المركز
+          نحو الوجه (مع استيفاء وتنعيم EMA بين المقاطع لمنع القفزات).
+        - بلا وجوه: يبقي المركز الافتراضي (0.5, 0.42) — لا تغيير في السلوك.
+        """
+        tracks: List[FaceTrack] = list(getattr(report, "face_tracks", None) or [])
+        if not tracks:
+            return plan
+        prev: Optional[tuple[float, float]] = None
+        for seg in plan.segments:
+            if not seg.keep or seg.crop is None:
+                continue
+            mid = (seg.start + seg.end) / 2.0
+            center = self._face_center_at(mid, tracks)
+            if center is None:
+                # جرّب بداية المقطع كاحتياط (وجه يبدأ بعد المنتصف بقليل)
+                center = self._face_center_at(seg.start, tracks)
+            if center is None:
+                continue
+            cx, cy = center
+            # تنعيم EMA: يمنع قفزات المركز بين المقاطع المتجاورة
+            if prev is not None:
+                cx = 0.6 * prev[0] + 0.4 * cx
+                cy = 0.6 * prev[1] + 0.4 * cy
+            prev = (cx, cy)
+            # تقييد إلى نطاق آمن (لا يقصّ الوجه من الإطار)
+            seg.crop.center_x = round(min(0.85, max(0.15, cx)), 4)
+            seg.crop.center_y = round(min(0.85, max(0.2, cy)), 4)
+            self.logger.info(
+                "قص يتبع الوجه [%.1f–%.1f]: مركز (%.2f, %.2f)",
+                seg.start, seg.end, seg.crop.center_x, seg.crop.center_y,
+            )
+        return plan
+
+    def _annotate_speakers(self, plan: EdlPlan, report: object) -> EdlPlan:
+        """يربط كل سطر ترجمة بتسمية المتحدث الذي ينطقه (للتلوين في الرندر).
+
+        يختار مقطع المتحدث ذا التغطية الأكبر على زمن السطر؛ بلا بيانات متحدث
+        يترك الحقل فارغاً (لا تأثير على الترجمات).
+        """
+        speakers: List[SpeakerSegment] = list(getattr(report, "speakers", None) or [])
+        if not speakers or not plan.captions:
+            return plan
+        for cap in plan.captions:
+            best, best_overlap = None, 0.0
+            for sp in speakers:
+                overlap = min(cap.end, sp.end) - max(cap.start, sp.start)
+                if overlap > best_overlap:
+                    best, best_overlap = sp.label, overlap
+            if best_overlap > 0:
+                cap.speaker = best
+        return plan
+
+    # ------------------------------------------------------------------
+    # 4) ترجمات كلمة-بكلمة (word-by-word animated captions)
     # ------------------------------------------------------------------
 
     def build_caption_lines(

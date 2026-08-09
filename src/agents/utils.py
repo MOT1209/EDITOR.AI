@@ -86,6 +86,46 @@ def env_or_default(key: str, default: str = "") -> str:
     return os.environ.get(key, default)
 
 
+# مزوّدات معروفة → بادئة LiteLLM (تتجاهل الحالة والحواف). المزوّد المخصص
+# (OpenAI-compatible بلا بادئة) يُترك كما هو — مثل OpenCode Dev Tier عبر
+# OPENCODE_BASE_URL المخصص.
+_PROVIDER_PREFIXES: tuple[tuple[str, str], ...] = (
+    ("groq.com", "groq/"),
+    ("openrouter.ai", "openrouter/"),
+    ("api.openai.com", "openai/"),
+    ("api.anthropic.com", "anthropic/"),
+    ("generativelanguage.googleapis.com", "gemini/"),
+)
+
+
+def provider_prefix(base_url: str) -> str:
+    """يستنتج بادئة مزوّد LiteLLM من عنوان الأساس (مثل ``groq/``).
+
+    يخدم المرحلة 2.3: تبديل المزود من Groq المجاني (نافذة TPM صغيرة) إلى
+    Dev Tier أو مزوّد آخر عبر OPENCODE_BASE_URL دون تغيير الكود.
+    """
+    url = (base_url or "").strip().lower()
+    for fragment, prefix in _PROVIDER_PREFIXES:
+        if fragment in url:
+            return prefix
+    return ""
+
+
+def build_llm_model(base_url: str, model: str) -> str:
+    """يبني اسم الموديل لـ LiteLLM: يضيف بادئة المزود إن لزم.
+
+    إذا كان الموديل يحمل بادئة صريحة بالفعل (مثل ``qwen/qwen3.6-27b``) أو
+    المزوّد مخصصاً بلا بادئة، يُترك الاسم كما هو.
+    """
+    model = (model or "").strip()
+    if not model:
+        return model
+    prefix = provider_prefix(base_url)
+    if prefix and "/" not in model:
+        return f"{prefix}{model}"
+    return model
+
+
 _JSON_FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
 
 
