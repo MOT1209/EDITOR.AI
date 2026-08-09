@@ -430,6 +430,10 @@ export default function Editor() {
   const [bpmInput, setBpmInput] = useState(120);
   // طلب المستخدم لوكيلة المديرة التنفيذية (المساعد الذكي)
   const [agentRequest, setAgentRequest] = useState("");
+  // المسار الكامل متعدد الوكلاء: نتيجة التخطيط + نتيجة الرندر
+  const [pipelinePlan, setPipelinePlan] = useState<Record<string, unknown> | null>(null);
+  const [pipelineRender, setPipelineRender] = useState<Record<string, unknown> | null>(null);
+  const [showPipelineModal, setShowPipelineModal] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -549,6 +553,59 @@ export default function Editor() {
     },
     [notify]
   );
+
+  /**
+   * المسار الكامل متعدد الوكلاء (1.3): يرفع الفيديو، يحلل (Whisper + مشاهد + وجوه)،
+   * يضع خطة EDL (مخرج) ويوقف قبل الرندر ليعرض التقرير والخطة على المستخدم
+   * ثم يؤكد فيبدأ الرندر الفعلي (ffmpeg) ويعرض الفيديو النهائي.
+   */
+  const aiFullPipeline = async () => {
+    if (!state.videoMeta || !state.videoFile) {
+      return notify("warning", "ارفع فيديو أولاً", "المسار الكامل يحتاج ملف فيديو.");
+    }
+    const videoFile = state.videoFile;
+    await runAIJob("pipeline", "المسار الكامل متعدد الوكلاء", async (update) => {
+      update(4, "رفع الفيديو وتحليل الصوت (Whisper)...");
+      const form = new FormData();
+      form.append("file", videoFile);
+      form.append("request", agentRequest || "فيديو قصير جذاب مع ترجمة");
+      form.append("language", subLang);
+      form.append("aspect", state.project.aspect);
+      form.append("mood", state.aiMood);
+      form.append("phase", "plan");
+      const res = await apiFetch("/api/agents/pipeline", { method: "POST", body: form });
+      const data = (await res.json()) as Record<string, any> & { error?: string };
+      if (data?.error || !data?.edl) throw new Error(data?.error || "فشلت خطة المسار الكامل");
+      update(90, "عرض التقرير والخطة...");
+      setPipelineRender(null);
+      setPipelinePlan(data);
+      setShowPipelineModal(true);
+      update(100, "الخطة جاهزة — انتظر تأكيدك قبل الرندر");
+      return {
+        jobId: data.jobId,
+        title: (data.edl as any)?.title,
+        keeps: (data.edl as any)?.segments?.filter((s: any) => s.keep)?.length || 0,
+        words: (data.analyst as any)?.words?.length || 0,
+      };
+    });
+  };
+
+  /** المرحلة الثانية: تنفيذ الرندر الفعلي للخطة المعتمدة */
+  const aiPipelineRender = async (jobId: string) => {
+    await runAIJob("pipeline-render", "رندر الفيديو النهائي", async (update) => {
+      update(15, "بناء أمر ffmpeg وتنفيذه...");
+      const form = new FormData();
+      form.append("phase", "render");
+      form.append("jobId", jobId);
+      const res = await apiFetch("/api/agents/pipeline", { method: "POST", body: form });
+      const data = (await res.json()) as Record<string, any> & { error?: string };
+      if (data?.error) throw new Error(data.error);
+      update(95, "تحديث النتيجة...");
+      setPipelineRender(data.render || data);
+      update(100, "اكتمل الرندر ✓");
+      return { videoUrl: data.videoUrl, size: data.render?.outputBytes || 0 };
+    });
+  };
 
   const aiFullAuto = async () => {
     if (!state.videoMeta) {
@@ -1633,6 +1690,7 @@ export default function Editor() {
                 setAudio={setAudio}
                 onFullAuto={aiFullAuto}
                 onDirector={aiDirectorAgent}
+                onFullPipeline={aiFullPipeline}
                 agentRequest={agentRequest}
                 setAgentRequest={setAgentRequest}
                 onSilence={aiSilenceRemove}
@@ -1898,6 +1956,19 @@ export default function Editor() {
         />
       )}
 
+      {showPipelineModal && pipelinePlan && (
+        <PipelineModal
+          plan={pipelinePlan}
+          render={pipelineRender}
+          isRendering={state.jobs.some((j) => j.kind === "pipeline-render" && j.status === "running")}
+          onClose={() => setShowPipelineModal(false)}
+          onRender={() => {
+            const jobId = String(pipelinePlan.jobId || "");
+            if (jobId) void aiPipelineRender(jobId);
+          }}
+        />
+      )}
+
     </div>
   );
 }
@@ -1990,6 +2061,7 @@ function LeftPanel(props: {
   setAudio: (a: { url: string; name: string } | null) => void;
   onFullAuto: () => void;
   onDirector: (requestText: string) => void;
+  onFullPipeline: () => void;
   agentRequest: string;
   setAgentRequest: (s: string) => void;
   onSilence: () => void;
@@ -2075,6 +2147,7 @@ function LeftPanel(props: {
             dispatch={dispatch}
             onFullAuto={props.onFullAuto}
             onDirector={props.onDirector}
+            onFullPipeline={props.onFullPipeline}
             agentRequest={props.agentRequest}
             setAgentRequest={props.setAgentRequest}
             onSilence={props.onSilence}
@@ -2187,6 +2260,7 @@ function AIQuickPanel({
   onMusicSync,
   onThumbnail,
   onTitleDesc,
+  onFullPipeline,
   bpmInput,
   setBpmInput,
 }: {
@@ -2194,6 +2268,7 @@ function AIQuickPanel({
   dispatch: React.Dispatch<Action>;
   onFullAuto: () => void;
   onDirector: (requestText: string) => void;
+  onFullPipeline: () => void;
   agentRequest: string;
   setAgentRequest: (s: string) => void;
   onSilence: () => void;
@@ -2221,6 +2296,14 @@ function AIQuickPanel({
       icon: Wand2,
       onClick: onFullAuto,
       tone: "from-brand to-brand-accent",
+    },
+    {
+      id: "pipeline",
+      label: "المسار الكامل (5 وكلاء)",
+      desc: "تحليل + خطة EDL + تأكيدك ثم رندر فعلي — المسار الكامل",
+      icon: Bot,
+      onClick: onFullPipeline,
+      tone: "from-violet-500 to-indigo-500",
     },
     {
       id: "silence",
@@ -3952,4 +4035,188 @@ function Notifications({
   );
 }
 
+/** نافذة المسار الكامل متعدد الوكلاء: التقرير ← الخطة → تأكيد ← الرندر ← الفيديو */
+function PipelineModal({
+  plan,
+  render,
+  isRendering,
+  onClose,
+  onRender,
+}: {
+  plan: Record<string, unknown>;
+  render: Record<string, unknown> | null;
+  isRendering: boolean;
+  onClose: () => void;
+  onRender: () => void;
+}) {
+  const edl = (plan.edl || {}) as Record<string, any>;
+  const analyst = (plan.analyst || {}) as Record<string, any>;
+  const segments = (edl.segments || []) as any[];
+  const keeps = segments.filter((s: any) => s.keep);
+  const cuts = segments.length - keeps.length;
+  const captions = (edl.captions || []) as any[];
+  const overlays = (edl.textOverlays || []) as any[];
+  const style = (edl.style || {}) as Record<string, any>;
+  const jobId = String(plan.jobId || "");
+  const videoUrl = render ? `/api/agents/pipeline?job=${jobId}` : null;
+  const renderOk = render?.rendered === true;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-2xl max-h-[86vh] flex flex-col rounded-xl border border-line bg-bg-panel shadow-2xl">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-line bg-gradient-to-l from-violet-600/10 to-transparent">
+          <div className="flex items-center gap-2">
+            <Bot className="h-4 w-4 text-violet-400" />
+            <h2 className="text-sm font-bold">المسار الكامل متعدد الوكلاء</h2>
+          </div>
+          <button onClick={onClose} className="text-ink-soft hover:text-ink p-1">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {/* الخطوة 1: التقرير والخطة */}
+          <div className="space-y-3">
+            <div>
+              <h3 className="text-xs font-bold text-violet-400 mb-2 flex items-center gap-1.5">
+                <FileText className="h-3.5 w-3.5" /> تقرير التحليل (المحلل)
+              </h3>
+              <div className="grid grid-cols-4 gap-2">
+                <PStat label="المدة" value={`${(analyst.duration || 0).toFixed(1)}s`} />
+                <PStat label="كلمات" value={String(analyst.words?.length || 0)} />
+                <PStat label="صمت" value={String(analyst.silences?.length || 0)} />
+                <PStat label="وجوه" value={String(analyst.faceTracks?.length || 0)} />
+              </div>
+              {(analyst.transcript || "").trim() && (
+                <p className="mt-2 text-[11px] text-ink-soft bg-bg-soft rounded-md p-2 border border-line line-clamp-3">
+                  {String(analyst.transcript).slice(0, 220)}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <h3 className="text-xs font-bold text-indigo-400 mb-2 flex items-center gap-1.5">
+                <Brain className="h-3.5 w-3.5" /> خطة EDL (المخرج)
+              </h3>
+              <div className="rounded-md border border-line bg-bg-soft p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-bold">{edl.title || "بدون عنوان"}</span>
+                  <span className="text-[10px] text-ink-soft">
+                    {keeps.length} إبقاء • {cuts} قص • {captions.length} ترجمة • {overlays.length} نص
+                  </span>
+                </div>
+                {edl.summary && <p className="text-[11px] text-ink-soft leading-relaxed">{edl.summary}</p>}
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/25">
+                    فلتر: {style.colorFilter || "none"}
+                  </span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/25">
+                    ترجمة: {style.captionStyle || "—"} {style.captions ? "" : "(معطلة)"}
+                  </span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/25">
+                    موسيقى: {String(style.musicMood || "—")}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {captions.length > 0 && (
+              <div>
+                <h3 className="text-xs font-bold text-cyan-400 mb-2 flex items-center gap-1.5">
+                  <Captions className="h-3.5 w-3.5" /> الترجمة ({captions.length})
+                </h3>
+                <div className="space-y-1">
+                  {captions.slice(0, 6).map((c: any, i: number) => (
+                    <div key={i} className="flex items-center gap-2 text-[11px] bg-bg-soft border border-line rounded px-2 py-1">
+                      <span className="text-[9px] text-ink-soft tabular-nums shrink-0">
+                        {formatTime(c.start)}–{formatTime(c.end)}
+                      </span>
+                      <span className="truncate">{c.text}</span>
+                    </div>
+                  ))}
+                  {captions.length > 6 && (
+                    <p className="text-[10px] text-ink-soft">+ {captions.length - 6} ترجمة أخرى…</p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* الخطوة 2: نتيجة الرندر */}
+          {render && (
+            <div className="border-t border-line pt-4 space-y-3">
+              <h3 className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+                <Film className="h-3.5 w-3.5" /> الرندر الفعلي
+              </h3>
+              {renderOk && videoUrl ? (
+                <>
+                  <video src={videoUrl} controls className="w-full rounded-lg border border-line bg-black aspect-video" />
+                  <div className="grid grid-cols-3 gap-2">
+                    <PStat label="الحجم" value={formatBytes(Number(render.outputBytes ?? 0))} />
+                    <PStat label="زمن الرندر" value={`${(Number(render.renderSeconds ?? 0)).toFixed(1)}s`} />
+                    <PStat label="المحوّل" value={String(render.encoder || "—")} />
+                  </div>
+                  <a
+                    href={videoUrl}
+                    download={`${jobId}.mp4`}
+                    className="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold transition"
+                  >
+                    <Download className="h-4 w-4" /> تحميل الفيديو النهائي
+                  </a>
+                </>
+              ) : (
+                <div className="flex items-center gap-2 text-[11px] text-ink-soft bg-bg-soft border border-line rounded-md p-3">
+                  {isRendering ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin text-emerald-400" />
+                      جارٍ تنفيذ أمر ffmpeg على الخادم… قد يستغرق عدة ثوانٍ حسب طول الفيديو
+                    </>
+                  ) : (
+                    <>
+                      <AlertCircle className="h-4 w-4 text-rose-400" />
+                      فشل الرندر: {String(render.renderError || render.error || "خطأ غير معروف")}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="px-4 py-3 border-t border-line flex items-center justify-between gap-2">
+          <button onClick={onClose} className="px-3 py-2 rounded-lg text-xs text-ink-soft hover:text-ink border border-line hover:bg-bg-soft transition">
+            إغلاق
+          </button>
+          {!render && (
+            <button
+              onClick={onRender}
+              disabled={isRendering || !jobId}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-l from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed transition"
+            >
+              {isRendering ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" /> جارٍ الرندر…
+                </>
+              ) : (
+                <>
+                  <Film className="h-4 w-4" /> ابدأ الرندر الفعلي
+                </>
+              )}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** بطاقة إحصاء نصية صغيرة (المدة/العدد/الحجم...) */
+function PStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="p-2 rounded-md bg-bg-soft border border-line/50 text-center">
+      <div className="text-xs font-bold text-ink">{value}</div>
+      <div className="text-[9px] text-ink-soft mt-0.5">{label}</div>
+    </div>
+  );
+}
 

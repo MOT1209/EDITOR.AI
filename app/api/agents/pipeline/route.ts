@@ -28,9 +28,58 @@ function resolvePython(): string {
   return candidates.find((c) => existsSync(c)) || "python";
 }
 
+/** يشغّل سطر أوامر Python ويعيد رمز الخروج */
+async function runPython(args: string[]): Promise<number> {
+  return new Promise<number>((resolveExit, rejectExit) => {
+    const proc = spawn(resolvePython(), args, { cwd: process.cwd() });
+    const killer = setTimeout(() => {
+      console.error("[pipeline] انتهت المهلة — قتل العملية");
+      proc.kill();
+    }, TIMEOUT_MS);
+    proc.stdout.on("data", (d: Buffer) => console.log(`[pipeline] ${d.toString().trimEnd()}`));
+    proc.stderr.on("data", (d: Buffer) => console.error(`[pipeline] ${d.toString().trimEnd()}`));
+    proc.on("error", (err) => {
+      clearTimeout(killer);
+      rejectExit(err);
+    });
+    proc.on("close", (code) => {
+      clearTimeout(killer);
+      resolveExit(code ?? -1);
+    });
+  });
+}
+
 export async function POST(req: NextRequest) {
   try {
     const form = await req.formData();
+    const phase = String(form.get("phase") || "plan"); // plan | render
+    const jobId = String(form.get("jobId") || "");
+
+    // المرحلة 2: الرندر الفعلي لخطة محفوظة (بعد تأكيد المستخدم)
+    if (phase === "render") {
+      if (!/^job_\d+$/.test(jobId)) {
+        return NextResponse.json({ error: "jobId غير صالح" }, { status: 400 });
+      }
+      const resumeDir = path.join(PIPELINE_DIR, jobId);
+      const jsonOut = path.join(PIPELINE_DIR, `render_${jobId}.json`);
+      const exitCode = await runPython([
+        "-m", "src.main",
+        "--resume", resumeDir,
+        "--json-out", jsonOut,
+      ]);
+      if (!existsSync(jsonOut)) {
+        return NextResponse.json(
+          { error: `الرندر فشل (رمز ${exitCode})` },
+          { status: 500 }
+        );
+      }
+      const result = JSON.parse(await fsp.readFile(jsonOut, "utf-8"));
+      const videoUrl = result?.render?.rendered
+        ? `/api/agents/pipeline?job=${jobId}`
+        : null;
+      return NextResponse.json({ ...result, jobId, videoUrl });
+    }
+
     const file = form.get("file");
     if (!file || !(file instanceof File)) {
       return NextResponse.json({ error: "ملف الفيديو مطلوب" }, { status: 400 });
@@ -60,28 +109,13 @@ export async function POST(req: NextRequest) {
       "--aspect", aspect,
       "--pipeline-dir", PIPELINE_DIR,
       "--json-out", jsonOut,
+      "--plan-only",
     ];
     if (mood) args.push("--mood", mood);
     if (noBroll) args.push("--no-broll");
     if (demo) args.push("--demo");
 
-    const exitCode = await new Promise<number>((resolveExit, rejectExit) => {
-      const proc = spawn(resolvePython(), args, { cwd: process.cwd() });
-      const killer = setTimeout(() => {
-        console.error("[pipeline] انتهت المهلة — قتل العملية");
-        proc.kill();
-      }, TIMEOUT_MS);
-      proc.stdout.on("data", (d: Buffer) => console.log(`[pipeline] ${d.toString().trimEnd()}`));
-      proc.stderr.on("data", (d: Buffer) => console.error(`[pipeline] ${d.toString().trimEnd()}`));
-      proc.on("error", (err) => {
-        clearTimeout(killer);
-        rejectExit(err);
-      });
-      proc.on("close", (code) => {
-        clearTimeout(killer);
-        resolveExit(code ?? -1);
-      });
-    });
+    const exitCode = await runPython(args);
 
     // 3) اقرأ النتيجة وأعدها
     if (!existsSync(jsonOut)) {
@@ -91,11 +125,13 @@ export async function POST(req: NextRequest) {
       );
     }
     const result = JSON.parse(await fsp.readFile(jsonOut, "utf-8"));
-    const jobId = String(result?.artifactsDir || "").match(/job_\d+/)?.[0] || "";
-    const videoUrl = result?.render?.rendered && jobId
-      ? `/api/agents/pipeline?job=${jobId}`
-      : null;
-    return NextResponse.json({ ...result, jobId, videoUrl });
+    // PipelineResult يسلسل بأسماء snake_case (artifacts_dir/job_id)
+    const finalJobId = String(result?.artifacts_dir || "").match(/job_\d+/)?.[0] || "";
+    return NextResponse.json({
+      ...result,
+      jobId: finalJobId,
+      planReady: finalJobId.length > 0,
+    });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "خطأ غير متوقع";
     return NextResponse.json({ error: msg }, { status: 500 });

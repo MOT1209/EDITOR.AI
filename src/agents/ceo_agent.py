@@ -180,6 +180,7 @@ class CeoOrchestrator:
         enable_b_roll: bool = True,
         target_aspect: Union[AspectRatio, str] = AspectRatio.PORTRAIT,
         duration: float = 0.0,
+        plan_only: bool = False,
     ) -> PipelineResult:
         started = time.monotonic()
         job_id = f"job_{int(time.time() * 1000)}"
@@ -206,7 +207,8 @@ class CeoOrchestrator:
         warnings: List[str] = []
 
         try:
-            for stage in STAGE_ORDER:
+            stages = STAGE_ORDER[:-1] if plan_only else STAGE_ORDER  # بدون الرندر (تخطيط فقط)
+            for stage in stages:
                 outcome = await self._run_stage(stage, ctx, artifacts)
                 warnings.extend(outcome.warnings)
                 if not outcome.ok:

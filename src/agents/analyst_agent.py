@@ -413,7 +413,8 @@ class AnalystAgent:
 
     def _face_model_path(self, name: str) -> Optional[str]:
         """يحل مسار نموذج كاشف الوجوه في .montage_ai/models/ (مخزن مرة واحدة)."""
-        d = os.path.join(self.pipeline_dir, "models") if self.pipeline_dir else ".montage_ai/models"
+        pipeline_dir = getattr(self, "pipeline_dir", None)  # غير إلزامي — افتراضي للمشروع
+        d = os.path.join(pipeline_dir, "models") if pipeline_dir else ".montage_ai/models"
         os.makedirs(d, exist_ok=True)
         p = os.path.join(d, name)
         if name in ("deploy.prototxt", "haarcascade_frontalface.xml"):
