@@ -1,0 +1,75 @@
+# مسار المونتاج المتعدد الوكلاء (Multi-Agent Pipeline)
+
+وحدة Python داخل مشروع **EDITOR.AI** — شبكة وكلاء تقودها **المديرة التنفيذية (CEO Agent)**
+وتنتج خطة قص (EDL) لمحتوى السوشال ميديا العمودي القصير. تعمل **إلى جانب** تطبيق
+Next.js الحالي وتشاركه عقد الخطة نفسه (camelCase مطابق لـ `lib/agents/types.ts`).
+
+```
+src/
+├── main.py                  # نقطة دخول CLI
+├── requirements.txt
+└── agents/
+    ├── __init__.py          # يسجّل الوكلاء تلقائياً
+    ├── registry.py          # سجل الوكلاء (فصل الإشراف عن التنفيذ)
+    ├── edl_schema.py        # مخطط EDL الموحّد (Pydantic) — العقد المشترك
+    ├── validation.py        # بوابات الجودة بين المراحل
+    ├── ceo_agent.py         # المديرة التنفيذية — إشراف وتنسيق
+    ├── analyst_agent.py     # المحلل — ffmpeg حقيقي + نقاط توسعة (Whisper/وجوه/متحدثون)
+    ├── director_agent.py    # المخرج — EDL عبر LLM هرمي + خطة قواعد + B-Roll + ترجمات
+    └── render_agent.py      # الرندر — كشف GPU حقيقي + بناء أوامر ffmpeg
+```
+
+## التشغيل
+
+```bash
+pip install -r src/requirements.txt          # Python 3.10–3.13 موصى به (مع crewai + litellm)
+python -m src.main video.mp4 --request "فيديو حماسي قصير مع ترجمة" --mood "قوي"
+python -m src.main video.mp4 --demo          # ترجمات تجريبية بلا Whisper
+python -m src.main video.mp4 --no-broll      # تعطيل جلب Pexels
+CREWAI_PROCESS=sequential python -m src.main video.mp4   # توفير رموز المزود
+```
+
+التهيئة تُقرأ من `.env.local` (نفس عرف المشروع):
+`OPENCODE_API_KEY` + `OPENCODE_BASE_URL` + `OPENCODE_MODEL` (افتراضي:
+Groq llama-3.3-70b-versatile)، `PEXELS_API_KEY` لـ B-Roll، `FFMPEG_PATH`.
+
+**عملية المرحلة الإبداعية**: `CREWAI_PROCESS` — الافتراضي `hierarchical`
+(المديرة التنفيذية تُفوّض وتُراجع عبر `Process.hierarchical`). نافذة TPM
+المجانية في Groq (12k/دقيقة) قد لا تتسع لاستدعاءات المديرة المتعددة، فيتدهور
+المسار **تلقائياً** إلى `sequential` (يبقى LLM) ثم القواعد المحلية آخر خط
+دفاع. `sequential` الصريح يوفّر الرموز من البداية.
+
+كل مخرجات المراحل تُحفظ في `.montage_ai/pipeline/<job_id>/` (`analyst.json`,
+`director.json`, `edl.json`, `render.json`, `manifest.json`) — أي فشل يُشخَّص
+من الملفات دون إعادة تشغيل المسار.
+
+## لماذا CrewAI (وليس LangGraph)
+
+- **مطابقة للمتطلب**: `Process.hierarchical` بمديرة (CEO) تفوّض وتُراجع — جاهزة.
+- **بوابات الجودة**: CrewAI لا يملك آلية إيقاف تقدم المهام عند رفض مُخرَج، لذا
+  أضفنا البوابات ككود بين المراحل (تحقق + تصحيح محدود + تغذية أخطاء رجوعاً)
+  — وهي مستقلة تماماً عن CrewAI فتبقى صالحة لو استُبدل بالإطار لاحقاً.
+- LangGraph يمنح تحكماً أدق (دوّارات/نقاط تفتيش) لكنه يستلزم إطاراً ثانياً
+  وفوقية إضافية؛ CrewAI يكفي لمرحلة الإبداع (EDL) بينما تبقى مراحل التحليل
+  والرندر **برمجية** (أسرع وأدق بلا LLM).
+
+## التدهور الأنيق (لا يتعطل بلا مفتاح)
+
+| الشرط | السلوك |
+|-------|--------|
+| بلا `crewai` أو بلا LLM | المخرج ينتج خطة قواعد محلية (قص الصمت + ترجمة + موسيقى) |
+| حد معدل المزود (TPM) في `hierarchical` | تدهور تلقائي إلى `sequential` ثم قواعد محلية |
+| فشل استجابة LLM | نفس الرجوع مع تسجيل السبب |
+| بلا `PEXELS_API_KEY` | الاقتراحات تُبقى ككلمات مفتاحية (المخطط يسمح بلا أصل) |
+| لا GPU (NVENC) | فحص تشفير حقيقي ثم libx264 تلقائياً |
+
+## خارطة إكمال الوكلاء (بلا تعديل CEO)
+
+| المرحلة | الحالة | التنفيذ المطلوب |
+|---------|--------|-----------------|
+| `analyst_agent` | صمت/فحص المصدر ✓ | Whisper word-level، Diarization، MediaPipe (نقاط التوسعة موثقة) |
+| `director_agent` | EDL + ترجمات + B-Roll ✓ | ضبط البرومبت/المخطط حسب الحاجة |
+| `render_agent` | أمر ffmpeg + كشف GPU ✓ | تنفيذ الرندر الفعلي (`RenderAgent.render`) |
+
+أي وكيل جديد: عرّف صنفه + `@register_agent("name")` + بوابة في
+`validation.STAGE_VALIDATORS` — تنتهي المهمة بلا لمس `ceo_agent.py`.

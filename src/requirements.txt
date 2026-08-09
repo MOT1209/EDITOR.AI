@@ -1,0 +1,20 @@
+# مسار المونتاج المتعدد الوكلاء — التبعيات
+# التثبيت:  pip install -r src/requirements.txt
+# (يُفضَّل Python 3.10–3.13 — CrewAI لم يتحقق بعد من دعم 3.14)
+
+crewai>=0.89.0            # التنسيق الهرمي (Process.hierarchical) + LLM
+pydantic>=2.7             # مخطط EDL الموحّد (العقد المشترك)
+httpx>=0.27               # جلب B-Roll من Pexels (async)
+python-dotenv>=1.0        # قراءة .env.local (عرف المشروع)
+
+# ---------- مطلوبة لاحقاً (إكمال Analyst) ----------
+# faster-whisper>=1.0     # تفريغ صوتي مع توقيتات كلمات
+# opencv-python-headless>=4.9
+# mediapipe>=0.10         # تتبع الوجه للقص الذكي 9:16
+# numpy>=1.26
+
+# ---------- مطلوبة لاحقاً (إكمال Render) ----------
+# moviepy>=1.0.3          # رندر بديل قابل للبرمجة
+
+# إلزامي لـ CrewAI مع مزوّدات OpenAI-compatible (Groq/OpenRouter...)
+litellm>=1.40
