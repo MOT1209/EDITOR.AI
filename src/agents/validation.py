@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, Optional
 
+from src.agents.audio_agent import AudioPlan
+from src.agents.critic_agent import CritiqueReport
 from src.agents.edl_schema import (
     AnalystReport,
     EdlPlan,
@@ -42,7 +44,7 @@ def validate_edl(plan: Optional[EdlPlan]) -> PlanValidation:
 
 
 def validate_render(rp: Optional[RenderPlan]) -> PlanValidation:
-    """بوابة الرندر: يجب وجود مسار مخرج وأمر ffmpeg غير فارغ."""
+    """بوابة الرندر: خطة صالحة + نتيجة رندر فعلية سليمة (إن كان الرندر منفَّذاً)."""
     if rp is None:
         return PlanValidation(errors=["لا توجد خطة رندر"])
     errors: list[str] = []
@@ -51,12 +53,45 @@ def validate_render(rp: Optional[RenderPlan]) -> PlanValidation:
         errors.append("مسار الإخراج فارغ")
     if not rp.command:
         errors.append("أوامر ffmpeg فارغة")
+    if rp.render_error:
+        errors.append(f"فشل الرندر الفعلي: {rp.render_error}")
+    elif not rp.rendered:
+        warnings.append("الرندر لم يُنفَّذ بعد (خطة فقط)")
     return PlanValidation(errors=errors, warnings=warnings)
+
+
+def validate_critique(critique: Optional[CritiqueReport]) -> PlanValidation:
+    """بوابة الناقد: تحويل حكم النقد (approve/revise) إلى نتيجة البوابة.
+
+    ``revise`` = أخطاء تدفع المديرة لإعادة المخرج بالملاحظات؛ ``approve`` = مرور.
+    أي خلل في بنية التقرير نفسه يُفشل المرحلة (آمن).
+    """
+    if critique is None:
+        return PlanValidation(errors=["لا يوجد تقرير ناقد"])
+    if not (0 <= critique.score <= 100):
+        return PlanValidation(errors=[f"درجة الناقد خارج النطاق 0..100: {critique.score}"])
+    errors: list[str] = []
+    warnings: list[str] = list(critique.notes)
+    if critique.verdict == "revise":
+        errors.append(f"الخطة تحتاج مراجعة إبداعية (الدرجة {critique.score:.0f}/100)")
+    return PlanValidation(errors=errors, warnings=warnings)
+
+
+def validate_audio(audio: Optional[AudioPlan]) -> PlanValidation:
+    """بوابة الصوت: إرشادية فقط — لا تمنع المسار (الخطة الصوتية مواصفة اختيارية)."""
+    if audio is None:
+        return PlanValidation(errors=["لا توجد خطة صوتية"])
+    warnings: list[str] = list(audio.notes)
+    if not audio.ducking:
+        warnings.append("لا نطاقات Ducking — بلا كلمات Whisper ولا ترجمة، قد يطغى الصوت على الموسيقى")
+    return PlanValidation(errors=[], warnings=warnings)
 
 
 # سجل البوابات: الاسم ↔ دالة التحقق (تستخدمه المديرة التنفيذية فقط).
 STAGE_VALIDATORS: Dict[str, Callable[[Any], PlanValidation]] = {
     "analyst": validate_analyst,
     "director": validate_edl,
+    "critic": validate_critique,
+    "audio": validate_audio,
     "render": validate_render,
 }

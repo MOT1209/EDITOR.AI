@@ -130,6 +130,7 @@ class CaptionLine(EdlBase):
     words: List[WordTiming] = Field(default_factory=list)
     style: CaptionStyle = CaptionStyle.HIGHLIGHT
     position: OverlayPosition = OverlayPosition.BOTTOM
+    speaker: Optional[str] = None  # تسمية المتحدث (من تمييز المتحدثين) — لتلوين الترجمة
 
     @field_validator("end")
     @classmethod
@@ -351,7 +352,7 @@ class AnalystReport(EdlBase):
 
 
 class RenderPlan(EdlBase):
-    """مُخرَج وكيل الرندر: أوامر ffmpeg قابلة للتنفيذ + قرار المحوّل."""
+    """مُخرَج وكيل الرندر: أوامر ffmpeg قابلة للتنفيذ + قرار المحوّل + نتيجة الرندر."""
 
     output_path: str
     encoder: EncoderId = EncoderId.AUTO
@@ -360,6 +361,11 @@ class RenderPlan(EdlBase):
     filter_complex: str = ""
     estimated_duration: float = 0.0
     notes: List[str] = Field(default_factory=list)
+    # حقول نتيجة الرندر الفعلي (يملؤها ``RenderAgent.render``)
+    rendered: bool = False
+    render_error: Optional[str] = None
+    output_bytes: Optional[int] = None
+    render_seconds: float = 0.0
 
 
 # --------------------------------------------------------------------------
