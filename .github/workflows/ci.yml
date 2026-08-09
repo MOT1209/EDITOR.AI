@@ -44,9 +44,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
       - name: تثبيت الاعتماديات
-        run: npm ci
+        run: npm install
       - name: فحص TypeScript (tsc)
         run: npx tsc --noEmit
       - name: فحص مطابقة العقد الموحّد (Python ↔ TypeScript)
