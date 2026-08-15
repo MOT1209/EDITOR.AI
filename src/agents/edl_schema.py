@@ -343,6 +343,8 @@ class AnalystReport(EdlBase):
     transcript: str = ""
     words: List[WordTiming] = Field(default_factory=list)
     silences: List[SilenceSpan] = Field(default_factory=list)
+    motion_spans: List[SilenceSpan] = Field(default_factory=list)
+    black_spans: List[SilenceSpan] = Field(default_factory=list)
     speakers: List[SpeakerSegment] = Field(default_factory=list)
     face_tracks: List[FaceTrack] = Field(default_factory=list)
     scenes: List[SceneInfo] = Field(default_factory=list)

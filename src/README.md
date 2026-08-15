@@ -14,11 +14,13 @@ src/
     ├── edl_schema.py        # مخطط EDL الموحّد (Pydantic) — العقد المشترك
     ├── validation.py        # بوابات الجودة بين المراحل
     ├── ceo_agent.py         # المديرة التنفيذية — إشراف وتنسيق
-    ├── analyst_agent.py     # المحلل — ffmpeg حقيقي + نقاط توسعة (Whisper/وجوه/متحدثون)
-    ├── director_agent.py    # المخرج — EDL عبر LLM هرمي + خطة قواعد + B-Roll + ترجمات
+    ├── analyst_agent.py     # المحلل — ffmpeg حقيقي + سكون/سواد (auto-editor) + نقاط توسعة
+    ├── director_agent.py    # المخرج — EDL عبر LLM هرمي + خطة قواعد + طبقات جلوسة + B-Roll + ترجمات
     ├── critic_agent.py      # الناقد الإبداعي — درجة 0-100 + حكم approve/revise + حلقة مراجعة
     ├── audio_agent.py       # مهندس الصوت — خطة موسيقى + Ducking + مؤثرات + LUFS (حتمي)
-    └── render_agent.py      # الرندر — كشف GPU حقيقي + بناء أوامر ffmpeg
+    ├── render_agent.py      # الرندر — كشف GPU حقيقي + بناء أوامر ffmpeg
+    ├── auto_editor_utils.py # غلاف ثنائية auto-editor (اختياري) + احتياطات ffmpeg
+    └── export_nle.py        # تصدير EDL إلى برامج المونتاج (Premiere/Resolve/Shotcut/...)
 ```
 
 ## التشغيل
@@ -31,9 +33,22 @@ python -m src.main video.mp4 --no-broll      # تعطيل جلب Pexels
 CREWAI_PROCESS=sequential python -m src.main video.mp4   # توفير رموز المزود
 ```
 
+**auto-editor (اختياري — يُحسّن التحليل ويفعّل تصدير NLE):**
+
+```bash
+python scripts/install-auto-editor.py        # يُنزّل الثنائية إلى .montage_ai/bin/ (من git)
+python -m src.export_nle video.mp4 premiere plan.json -o out.xml   # تصدير مباشر
+```
+
+بثنائية auto-editor تُضاف: فترات السكون (`motion_spans`) والإطارات السوداء
+(`black_spans`) في تقرير المحلل، وطبقات الجلوسة الحتمية في خطة المخرج (قصّ/
+عادي/سريع)، والتصدير لبرامج المونتاج. بلا الثنائية تتولى احتياطات ffmpeg
+(`freezedetect`/`blackdetect`/`silencedetect`) ما أمكن — التدهور أنيق دائماً.
+
 التهيئة تُقرأ من `.env.local` (نفس عرف المشروع):
 `OPENCODE_API_KEY` + `OPENCODE_BASE_URL` + `OPENCODE_MODEL` (افتراضي:
-Groq llama-3.3-70b-versatile)، `PEXELS_API_KEY` لـ B-Roll، `FFMPEG_PATH`.
+Groq llama-3.3-70b-versatile)، `PEXELS_API_KEY` لـ B-Roll، `FFMPEG_PATH`،
+`AUTO_EDITOR_PATH` (مسار ثابت للثنائية).
 
 **عملية المرحلة الإبداعية**: `CREWAI_PROCESS` — الافتراضي `hierarchical`
 (المديرة التنفيذية تُفوّض وتُراجع عبر `Process.hierarchical`). نافذة TPM
@@ -64,6 +79,7 @@ Groq llama-3.3-70b-versatile)، `PEXELS_API_KEY` لـ B-Roll، `FFMPEG_PATH`.
 | حد معدل المزود (TPM) في `hierarchical` | تدهور تلقائي إلى `sequential` ثم قواعد محلية |
 | فشل استجابة LLM | نفس الرجوع مع تسجيل السبب |
 | بلا `PEXELS_API_KEY` | الاقتراحات تُبقى ككلمات مفتاحية (المخطط يسمح بلا أصل) |
+| بلا auto-editor | سكون/سواد/طبقات تُستكمل باحتياط ffmpeg؛ التصدير NLE يعيد 503 بإرشاد التثبيت |
 | لا GPU (NVENC) | فحص تشفير حقيقي ثم libx264 تلقائياً |
 
 ## خارطة إكمال الوكلاء (بلا تعديل CEO)

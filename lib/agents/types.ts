@@ -70,6 +70,58 @@ export interface TranscriptSegment {
   text: string;
 }
 
+/** كلمة واحدة بتوقيت مطلق (ثوانٍ) — الوحدة الأساسية للترجمات المتحركة. */
+export interface WordTiming {
+  word: string;
+  start: number;
+  end: number;
+  index: number;
+}
+
+/** فترة زمنية عامة (صمت/سكون/سواد) بالثواني. */
+export interface SilenceSpan {
+  start: number;
+  end: number;
+}
+
+/** مقطع متحدث من تمييز المتحدثين. */
+export interface SpeakerSegment {
+  start: number;
+  end: number;
+  label: string;
+  confidence: number;
+}
+
+/** مسار وجه متحدث عبر الزمن — يغذي CropZoomEvent للقص الذكي 9:16. */
+export interface FaceTrack {
+  start: number;
+  end: number;
+  centerX: number;
+  centerY: number;
+  size: number;
+}
+
+/** تقرير وكيل المحلل — المدخل الأساسي للمخرج في مسار المونتاج. */
+export interface AnalystReport {
+  sourcePath: string;
+  duration: number;
+  width: number;
+  height: number;
+  fps: number;
+  hasAudio: boolean;
+  transcript: string;
+  words: WordTiming[];
+  silences: SilenceSpan[];
+  motionSpans: SilenceSpan[];
+  blackSpans: SilenceSpan[];
+  speakers: SpeakerSegment[];
+  faceTracks: FaceTrack[];
+  scenes: SceneInfo[];
+  highlights: HighlightInfo[];
+  quality: QualityInfo;
+  warnings: string[];
+}
+
 export interface SceneInfo {
   start: number;
   end: number;

@@ -73,6 +73,7 @@ class PipelineResult(BaseModel):
     critic: Optional[Any] = None
     audio: Optional[Any] = None
     render: Optional[RenderPlan] = None
+    preview_stats: Optional[Dict[str, Any]] = None
     errors: List[str] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
 
@@ -359,6 +360,7 @@ class CeoOrchestrator:
         (artifacts_dir / "manifest.json").write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
         )
+        preview = self._preview_stats(artifacts.get("director"))
         return PipelineResult(
             job_id=ctx.job_id,
             status=status,  # type: ignore[arg-type]
@@ -369,9 +371,22 @@ class CeoOrchestrator:
             critic=artifacts.get("critic"),
             audio=artifacts.get("audio"),
             render=artifacts.get("render"),
+            preview_stats=preview,
             errors=errors or [],
             warnings=warnings or [],
         )
+
+    @staticmethod
+    def _preview_stats(director: Any) -> Optional[Dict[str, Any]]:
+        """إحصائيات معاينة القص من خطة EDL (حتمية، بلا ثنائية) — أو None. """
+        if not isinstance(director, EdlPlan):
+            return None
+        try:
+            from src.agents.auto_editor_utils import preview_stats
+
+            return preview_stats(director)
+        except Exception:  # noqa: BLE001 — المعاينة اختيارية
+            return None
 
 
 def _coerce_aspect(value: Union[AspectRatio, str]) -> AspectRatio:

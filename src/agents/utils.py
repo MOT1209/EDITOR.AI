@@ -81,6 +81,26 @@ def resolve_ffmpeg() -> str:
     return "ffmpeg"
 
 
+def resolve_auto_editor() -> Optional[str]:
+    """يعثر على ثنائية auto-editor (اختيارية — تُستدعى للتحليل والتصدير).
+
+    الترتيب: ``AUTO_EDITOR_PATH`` ← ``.montage_ai/bin/<اسم المنصة>`` ← ``auto-editor``
+    في PATH. يرجع ``None`` عند الغياب ليتدهور المسار إلى احتياطات ffmpeg/قواعد
+    (مبدأ التدهور الأنيق) — بخلاف ``resolve_ffmpeg`` التي تُلزم ثنائية.
+    """
+    env_path = os.environ.get("AUTO_EDITOR_PATH")
+    if env_path and Path(env_path).exists():
+        return env_path
+    name = "auto-editor.exe" if os.name == "nt" else "auto-editor"
+    local = Path(".montage_ai") / "bin" / name
+    if local.exists():
+        return str(local)
+    which = shutil.which("auto-editor")
+    if which:
+        return which
+    return None
+
+
 def env_or_default(key: str, default: str = "") -> str:
     """قراءة متغير بيئة مع افتراضي آمن (لا ترفع KeyError عند غيابه)."""
     return os.environ.get(key, default)

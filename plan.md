@@ -96,6 +96,43 @@
 
 ---
 
+## المرحلة 4 — تكامل auto-editor (WyattBlue) ✅ (تم)
+
+> دمج ثنائية **auto-editor** (Nim CLI، ترخيص Unlicense) بنمط هجين: استدعاء الباينري
+> للتحليل والتصدير، واحتياطات ffmpeg عند غيابه — التدهور أنيق دائماً (مبدأ 1).
+
+### الإضافات
+- **`scripts/install-auto-editor.py`** — تنزيل متعدد المنصات من GitHub Releases إلى
+  `.montage_ai/bin/` (مستثنى من git)؛ `--force` و`--version` (افتراضي latest).
+- **`src/agents/utils.py::resolve_auto_editor()`** — ترتيب الكشف: `AUTO_EDITOR_PATH`
+  ← `.montage_ai/bin/` ← `PATH`؛ يرجع `None` عند الغياب (بخلاف ffmpeg الإلزامي).
+- **`src/agents/auto_editor_utils.py`** — الغلاف + الاحتياطات:
+  - `detect_motion_spans` (سكون) / `detect_black_spans` (سواد) عبر `--edit` + قراءة v3؛
+    الاحتياط: `freezedetect` / `blackdetect`.
+  - `loudness_tiers` (طبقات قصّ/عادي/سريع عبر `--edit:N/--when:N`)؛
+    الاحتياط: عتبتا `silencedetect` (−30dB/−12dB).
+  - `edl_to_cut_ranges` (بناء `--cut` بالإطارات) + `preview_stats` (حتمية بلا ثنائية).
+- **العقد (مبدأ 3):** `AnalystReport.motion_spans/black_spans` في `edl_schema.py` +
+  `AnalystReport` (مع `WordTiming`/`SilenceSpan`/`SpeakerSegment`/`FaceTrack`) في
+  `lib/agents/types.ts` + تسجيله في `scripts/check-contract.ts` (60 فحصاً متطابقاً).
+- **المخرج:** `_apply_loudness_tiers()` حتمية في `_rule_based_plan` (الصاخب ≥−12dB
+  يُسرَّع 1.3×) + تغذية البرومبت بفترات السكون/السواد (قاعدة 6).
+- **التصدير NLE:** `src/export_nle.py` + `app/api/agents/export/route.ts` +
+  زر «تصدير NLE» في مودال المسار (Premiere/Resolve/Shotcut/Kdenlive/FCP) —
+  غياب الثنائية يعيد 503 بإرشاد التثبيت.
+- **معاينة القص:** `PipelineResult.preview_stats` + `previewStats` في استجابة pipeline
+  + عرضها في مودال المسار (محتفظ به / مقصّ / نسبة / مقاطع).
+- **الاختبارات:** `src/tests/test_auto_editor.py` (14 حالة: v3، طبقات، سكون/سواد
+  بثنائية مقلَّدة، `--cut`، معاينة، تكامل المخرج) — 23/23 ناجحة مع الحالية.
+
+### التشغيل
+```bash
+python scripts/install-auto-editor.py      # تثبيت اختياري للثنائية (~44MB)
+python -m pytest src/tests                 # 23 حالة (بلا ثنائية مضمونة أيضاً)
+```
+
+---
+
 ## المبادئ الثابتة (لا تُنتهك)
 
 1. **التدهور الأنيق إلزامي:** بلا crewai/LLM/Pexels/GPU → المسار لا ينهار أبداً.

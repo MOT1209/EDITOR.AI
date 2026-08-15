@@ -32,6 +32,22 @@ from src.agents.edl_schema import (
 from src.agents.registry import register_agent
 from src.agents.utils import env_or_default, get_logger, load_env, resolve_ffmpeg
 
+try:  # اختياري: غلاف auto-editor (التحليل الدقيق + احتياط ffmpeg)
+    from src.agents.auto_editor_utils import (
+        detect_black_spans,
+        detect_motion_spans,
+        has_auto_editor,
+    )
+except ImportError:  # pragma: no cover — سلامة إضافية عند الحزم المقطوعة
+    def detect_black_spans(source: str, duration: float | None = None, min_duration: float = 0.3):  # type: ignore[misc]
+        return []
+
+    def detect_motion_spans(source: str, threshold: float = 0.02, duration: float | None = None, min_duration: float = 0.3):  # type: ignore[misc]
+        return []
+
+    def has_auto_editor() -> bool:
+        return False
+
 try:  # اختياري: pyannote.audio لتمييز المتحدثين (يمكن تثبيته لاحقاً)
     _HAS_PYNANOTE = True
 
@@ -100,6 +116,26 @@ class AnalystAgent:
             except Exception as exc:  # noqa: BLE001 — فشل التفريغ لا يوقف المسار
                 warnings.append(f"التفريغ النصي غير متاح: {exc}")
 
+        motion_spans: List[SilenceSpan] = []
+        try:
+            motion_spans = detect_motion_spans(
+                ctx.source_path, duration=meta["duration"]
+            )
+            if motion_spans:
+                self.logger.info("فترات سكون: %d (auto-editor/ffmpeg)", len(motion_spans))
+        except Exception as exc:  # noqa: BLE001 — فشل تحليل الحركة لا يوقف المسار
+            warnings.append(f"تحليل السكون غير متاح: {exc}")
+
+        black_spans: List[SilenceSpan] = []
+        try:
+            black_spans = detect_black_spans(
+                ctx.source_path, duration=meta["duration"]
+            )
+            if black_spans:
+                self.logger.info("فترات سواد: %d (auto-editor/ffmpeg)", len(black_spans))
+        except Exception as exc:  # noqa: BLE001
+            warnings.append(f"تحليل السواد غير متاح: {exc}")
+
         speakers: List[SpeakerSegment] = []
         try:
             speakers = self.identify_speakers(ctx.source_path)
@@ -122,6 +158,8 @@ class AnalystAgent:
             transcript=transcript,
             words=words,
             silences=silences,
+            motion_spans=motion_spans,
+            black_spans=black_spans,
             speakers=speakers,
             face_tracks=face_tracks,
             quality=QualityInfo(),  # تقدير لاحق عبر تحليل اللقطات

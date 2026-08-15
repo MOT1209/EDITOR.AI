@@ -71,6 +71,7 @@ import {
   Waves,
   Video,
   Eye,
+  Share2,
 } from "lucide-react";
 
 import {
@@ -4050,8 +4051,42 @@ function PipelineModal({
   onClose: () => void;
   onRender: () => void;
 }) {
+  const [exportFormat, setExportFormat] = useState("premiere");
+  const [exporting, setExporting] = useState(false);
+  const [exportMsg, setExportMsg] = useState("");
+
+  const exportNle = async () => {
+    if (exporting) return;
+    setExporting(true);
+    setExportMsg("");
+    try {
+      const res = await fetch("/api/agents/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId, format: exportFormat, plan: edl }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        setExportMsg(String(err?.error || `فشل التصدير (${res.status})`));
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${jobId}.${exportFormat}.xml`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setExportMsg("تم تصدير الجدول الزمني لبرنامج المونتاج.");
+    } catch {
+      setExportMsg("تعذّر التصدير — تأكد أن auto-editor مثبت.");
+    } finally {
+      setExporting(false);
+    }
+  };
   const edl = (plan.edl || {}) as Record<string, any>;
   const analyst = (plan.analyst || {}) as Record<string, any>;
+  const preview = (plan.previewStats || {}) as Record<string, number>;
   const critic = (plan.critic || {}) as Record<string, any>;
   const audio = (plan.audio || {}) as Record<string, any>;
   const audioMusic = (audio.music || {}) as Record<string, any>;
@@ -4110,6 +4145,14 @@ function PipelineModal({
                   </span>
                 </div>
                 {edl.summary && <p className="text-[11px] text-ink-soft leading-relaxed">{edl.summary}</p>}
+                {preview.keptSeconds != null && (
+                  <div className="grid grid-cols-4 gap-2 pt-1">
+                    <PStat label="المحتفظ به" value={`${preview.keptSeconds}s`} />
+                    <PStat label="المقصّ" value={`${preview.cutSeconds}s`} />
+                    <PStat label="نسبة الإبقاء" value={`${preview.keptPercent}%`} />
+                    <PStat label="مقاطع" value={String(preview.clipCount || 0)} />
+                  </div>
+                )}
                 <div className="flex flex-wrap gap-1.5 pt-1">
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/25">
                     فلتر: {style.colorFilter || "none"}
@@ -4251,24 +4294,58 @@ function PipelineModal({
           <button onClick={onClose} className="px-3 py-2 rounded-lg text-xs text-ink-soft hover:text-ink border border-line hover:bg-bg-soft transition">
             إغلاق
           </button>
-          {!render && (
-            <button
-              onClick={onRender}
-              disabled={isRendering || !jobId}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-l from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed transition"
-            >
-              {isRendering ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" /> جارٍ الرندر…
-                </>
-              ) : (
-                <>
-                  <Film className="h-4 w-4" /> ابدأ الرندر الفعلي
-                </>
-              )}
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {jobId && (
+              <div className="flex items-center gap-2">
+                <select
+                  value={exportFormat}
+                  onChange={(e) => setExportFormat(e.target.value)}
+                  disabled={exporting}
+                  className="px-2 py-2 rounded-lg text-xs bg-bg-soft border border-line text-ink outline-none disabled:opacity-50"
+                  title="تصدير الجدول الزمني لبرنامج مونتاج"
+                >
+                  <option value="premiere">Premiere</option>
+                  <option value="resolve">DaVinci Resolve</option>
+                  <option value="shotcut">Shotcut</option>
+                  <option value="kdenlive">Kdenlive</option>
+                  <option value="final_cut_pro">Final Cut Pro</option>
+                </select>
+                <button
+                  onClick={exportNle}
+                  disabled={exporting}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-violet-500/40 text-violet-300 hover:bg-violet-500/10 text-xs font-bold disabled:opacity-50 transition"
+                >
+                  {exporting ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Share2 className="h-3.5 w-3.5" />
+                  )}
+                  تصدير NLE
+                </button>
+              </div>
+            )}
+            {!render && (
+              <button
+                onClick={onRender}
+                disabled={isRendering || !jobId}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-l from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed transition"
+              >
+                {isRendering ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" /> جارٍ الرندر…
+                  </>
+                ) : (
+                  <>
+                    <Film className="h-4 w-4" /> ابدأ الرندر الفعلي
+                  </>
+                )}
+              </button>
+            )}
+          </div>
         </div>
+        {exportMsg && (
+          <div className="px-4 pb-3 text-[11px] text-ink-soft text-left">{exportMsg}</div>
+        )}
       </div>
     </div>
   );

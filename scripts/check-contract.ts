@@ -45,7 +45,13 @@ function normPyType(raw: string): string {
 }
 
 /** تطبيع نوع TypeScript: union من سلاسل → string، X[] يُبقى، inline object → object */
-const KNOWN_ENUM_TYPES = new Set(["ColorFilterId", "MusicMood", "CaptionStyle", "OverlayPosition"]);
+const KNOWN_ENUM_TYPES = new Set([
+  "ColorFilterId",
+  "MusicMood",
+  "CaptionStyle",
+  "OverlayPosition",
+  "QualityInfo",
+]);
 
 function normTsType(raw: string): string {
   let t = raw.trim();
@@ -161,6 +167,7 @@ const INTERFACE_TO_MODEL: Record<string, string> = {
   SceneInfo: "SceneInfo",
   HighlightInfo: "HighlightInfo",
   QualityInfo: "QualityInfo",
+  AnalystReport: "AnalystReport",
 };
 
 /** الأعدادات المشتركة: TS union name → Python enum name */

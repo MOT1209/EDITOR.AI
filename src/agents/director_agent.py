@@ -45,6 +45,14 @@ from src.agents.edl_schema import (
 from src.agents.registry import register_agent
 from src.agents.utils import env_or_default, extract_json, get_logger
 
+try:  # اختياري: طبقات الجلوسة (auto-editor أو احتياط ffmpeg) — لا توقف الخطة
+    from src.agents.auto_editor_utils import FAST_SPEED, loudness_tiers
+except ImportError:  # pragma: no cover — سلامة إضافية عند الحزم المقطوعة
+    FAST_SPEED = 1.3  # type: ignore[misc]
+
+    def loudness_tiers(source: str, duration: float | None = None, min_duration: float = 0.3):  # type: ignore[misc]
+        return []
+
 # سقف كلمات السطر حسب النمط (أنماط العقد: default/bold/highlight/karaoke)
 MAX_WORDS_PER_LINE: dict[str, int] = {
     CaptionStyle.DEFAULT.value: 5,
@@ -278,6 +286,16 @@ class DirectorAgent:
             if report and report.speakers
             else "[]"
         )
+        motion = (
+            json.dumps([m.model_dump(by_alias=True) for m in report.motion_spans], ensure_ascii=False)
+            if report and report.motion_spans
+            else "[]"
+        )
+        black = (
+            json.dumps([b.model_dump(by_alias=True) for b in report.black_spans], ensure_ascii=False)
+            if report and report.black_spans
+            else "[]"
+        )
         feedback_note = (
             "ملاحظات تصحيح من المديرة التنفيذية على المحاولة السابقة — عالجها:\n"
             + "\n".join(f"- {f}" for f in feedback[:8])
@@ -295,6 +313,8 @@ class DirectorAgent:
 - لحظات مميزة (Hooks): {hints}
 - مسارات الوجه (لقص ذكي 9:16): {faces}
 - فترات المتحدثين: {speakers}
+- فترات السكون (قابلة للقص لحيوية أسرع): {motion}
+- الإطارات السوداء (قابلة للقص): {black}
 
 {feedback_note}
 
@@ -309,8 +329,9 @@ class DirectorAgent:
    إذا وُجدت مسارات وجه (faces) فاجعل centerX/centerY يقتربان من مركز الوجه خلال المقطع —
    وإلا فاستخدم centerX=0.5 و centerY=0.42.
 5. لكل 3-5 ثوانٍ مملة محتملة اقترح b_roll بكلمات مفتاحية إنجليزية (pexels).
-6. captionStyle ضمن: default, bold, highlight, karaoke — ومفعّل افتراضياً.
-7. حد أقصى 60 مقطعاً.
+6. إن ظهرت فترات سكون (motion) أو إطارات سوداء (black)، اقترح قصّها أو تسريعها.
+7. captionStyle ضمن: default, bold, highlight, karaoke — ومفعّل افتراضياً.
+8. حد أقصى 60 مقطعاً.
 """
 
     # ------------------------------------------------------------------
@@ -349,6 +370,15 @@ class DirectorAgent:
         if not segments and duration > 0:
             segments.append(PlanSegment(start=0.0, end=duration, keep=True, reason="فيديو كامل"))
 
+        # طبقات الجلوسة الحتمية: تسريع الصاخب وإبقاء الهادئ 1x (بلا LLM) —
+        # تُحسب من المصدر عبر auto-editor أو احتياط ffmpeg، وتتدهور للصمت فقط عند غيابهما.
+        applied = self._apply_loudness_tiers(ctx, report, segments)
+        if applied:
+            fast = sum(1 for s in segments if s.keep and (s.speed or 1.0) > 1.0)
+            self.logger.info(
+                "طبقات الجلوسة: %d مقطع سريع (الحد الأقصى %.1fx)", fast, FAST_SPEED
+            )
+
         # القص الذكي العمودي: حدث قص/زوم لكل مقطع إبقاء عند التحويل من أفقي.
         portrait = aspect == AspectRatio.PORTRAIT
         source_is_landscape = source.width >= source.height
@@ -382,6 +412,44 @@ class DirectorAgent:
             captions=captions,
             metadata={"fallback": True, "provider": "rule-based"},
         )
+
+    def _apply_loudness_tiers(
+        self, ctx: object, report: object, segments: List[PlanSegment]
+    ) -> bool:
+        """طبقات الجلوسة الحتمية: تسريع فترات الصخب (>= -12dB) وإبقاء الهادئ 1x.
+
+        تُحسب عبر auto-editor (أو احتياط ffmpeg) من المصدر بلا LLM؛ وتتجاهل
+        طبقات القص (الموجودة أصلاً كصمت). تُرجِع False عند غياب البيانات دون خطأ.
+        """
+        if not segments:
+            return False
+        source = getattr(ctx, "source_path", "")
+        duration = getattr(report, "duration", 0.0) or None
+        if not source:
+            return False
+        try:
+            tiers = loudness_tiers(source, duration=duration)
+        except Exception as exc:  # noqa: BLE001 — الفشل لا يوقف الخطة
+            self.logger.info("طبقات الجلوسة غير متاحة: %s", exc)
+            return False
+        if not tiers:
+            return False
+        for seg in segments:
+            if not seg.keep:
+                continue
+            fast = sum(
+                max(0.0, min(t.end, seg.end) - max(t.start, seg.start))
+                for t in tiers
+                if t.tier == "fast"
+            )
+            normal = sum(
+                max(0.0, min(t.end, seg.end) - max(t.start, seg.start))
+                for t in tiers
+                if t.tier == "normal"
+            )
+            if fast > normal and fast > 0:
+                seg.speed = FAST_SPEED
+        return True
 
     # ------------------------------------------------------------------
     # 3) المرحلة 2: قص ذكي يتبع الوجه + تلوين ترجمات المتحدثين

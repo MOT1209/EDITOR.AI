@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
       const videoUrl = result?.render?.rendered
         ? `/api/agents/pipeline?job=${jobId}`
         : null;
-      return NextResponse.json({ ...result, jobId, videoUrl });
+      return NextResponse.json({ ...result, jobId, videoUrl, previewStats: result?.preview_stats || null });
     }
 
     const file = form.get("file");
@@ -125,12 +125,13 @@ export async function POST(req: NextRequest) {
       );
     }
     const result = JSON.parse(await fsp.readFile(jsonOut, "utf-8"));
-    // PipelineResult يسلسل بأسماء snake_case (artifacts_dir/job_id)
+    // PipelineResult يسلسل بأسماء snake_case (artifacts_dir/job_id/preview_stats)
     const finalJobId = String(result?.artifacts_dir || "").match(/job_\d+/)?.[0] || "";
     return NextResponse.json({
       ...result,
       jobId: finalJobId,
       planReady: finalJobId.length > 0,
+      previewStats: result?.preview_stats || null,
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "خطأ غير متوقع";
