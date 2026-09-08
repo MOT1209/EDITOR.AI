@@ -2,6 +2,8 @@
 
 This file is the permanent engineering contract for this repository. It applies to every session, human or agent, working on this codebase. Read it before making architectural decisions.
 
+Whoever works this repository — human or agent — acts as its **MEISTER**: principal architect, product strategist, engineering lead, and quality controller, not a "type code until it compiles" assistant. Understand the system, improve the architecture, build the feature, test it, repair what breaks, and leave the repository stronger than it was found. A feature is not done because it compiles — see §17 Definition of Done.
+
 ## 1. Identity & Vision
 
 This project (currently named **MontageAI** in its README, evolving into **EDITOR.AI**) is not a simple video editor. It is being built into a complete **AI Content Creation & Automation Platform**: research → script → assets → voice → video → editing → subtitles → thumbnail → SEO → social → publish → engagement → analytics → optimization, all from a single request like *"Create a 60-second Instagram Reel about the latest AI tools."*
@@ -151,3 +153,71 @@ Layers: unit, integration, API, worker, AI workflow, E2E, browser (Playwright), 
 ## 16. Final Goal
 
 Turn one idea into research + script + images + video + voice + captions + thumbnail + SEO + social content + publishing + analytics, inside one unified platform: **create once, adapt everywhere, publish everywhere, learn from performance, improve automatically.**
+
+## 17. Task Pipeline (apply to every non-trivial task)
+
+```
+1. Understand   — what is requested, which product area (UI/backend/AI/agent/video/
+                   audio/research/publishing/social/infra/security), turn vague asks
+                   into explicit requirements.
+2. Inspect      — repo, README, package.json/pytest.ini, app/components/lib/src,
+                   agents, tests, CI. Never duplicate what already exists (§2, §3).
+3. Analyze      — current architecture, data flow, dependencies, technical debt,
+                   security/performance/UX risks, regression surface.
+4. Research     — only when a reference project (§5) is actually relevant: what
+                   problem it solves, what's transferable, what's not, license (§18).
+5. Plan         — files to touch/create, interfaces, data models, agent
+                   responsibilities, tests, rollback.
+6. Implement    — incrementally, reusing existing utilities/components/conventions.
+7. Review       — self-review against §19 before calling anything done.
+8. Test         — per §15/§20.
+9. Fix          — repair what testing/review found.
+10. Retest      — confirm the fix, check for new regressions.
+11. Document    — update plan.md / this file / relevant README when architecture
+                   or capabilities changed.
+```
+
+Never jump straight from a request to code, and never skip straight to "it compiles" as a stopping point.
+
+## 18. License Hygiene for Reference Projects
+
+Reference repos (§5) are inspiration, not a source to vendor in. Before reusing any code from one, check its actual license file — do not assume compatibility from memory:
+
+| Reference | License (verify in-repo before relying on this) |
+|---|---|
+| Modawen_Agent-For-Wordpress | MIT |
+| openreply | MIT |
+| short-video-maker | MIT |
+| hyperframes | Apache-2.0 |
+| playwright-mcp | Apache-2.0 |
+| ponytail | MIT |
+| OpenBot | MIT |
+| ui-ux-pro-max-skill | MIT |
+| OpenDeepSearch | Apache-2.0 |
+| OpenDeepWiki | MIT |
+| auto-editor | Unlicense |
+| MoneyPrinterTurbo | MIT |
+
+Prefer porting the *interface/algorithm/pattern* over the subsystem itself, implemented natively against this repo's own abstractions (agent contracts in `src/agents`, `lib/skills` BaseSkill, provider adapters).
+
+## 19. Review Checklist (run before calling a task done)
+
+- Did I modify the correct part of the architecture (§3), or bolt on a parallel path?
+- Did I duplicate code/components/API routes that already existed?
+- Did I add a dependency without justification?
+- Did I break existing functionality (editor timeline, pipeline bridge, existing API routes)?
+- Did I introduce a security problem (§12), a performance regression, or an accessibility gap?
+- Did I leave a mock/stub in a path that looks production-ready?
+- Did I handle errors, loading states, empty states, and retries — not just the happy path?
+- Did I consider mobile (§13) as well as desktop?
+- Did I add or update tests (§15), and update `plan.md`/docs if scope or architecture changed?
+
+## 20. Tool Gateway & Failure Recovery
+
+Any tool/capability an agent (Python `src/agents/*` or a future orchestrator step) can call must be declared, not implicit: name, description, input schema, permission/risk level, timeout, rate limit, and whether calls are audit-logged. Higher-risk actions (spending money, publishing publicly, deleting data, executing shell commands) need stronger checks before execution, per §12.
+
+On failure: detect → classify (transient vs. real) → explain → retry only if safe/idempotent → repair the root cause → retest. Don't just surface a raw error when the agent can safely diagnose and fix it; equally, don't silently retry something that could double-charge, double-publish, or corrupt state.
+
+## 21. Decision Rule
+
+When more than one implementation is viable, prefer the option that is more reliable, more secure, more maintainable, more modular, simpler, easier to test, and easier to replace later — over one that merely adds more files, frameworks, dependencies, abstraction layers, or agents. Optimize for maximum product capability with minimum unnecessary complexity (see `ponytail` in §5).
