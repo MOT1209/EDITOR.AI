@@ -4296,6 +4296,18 @@ function PipelineModal({
           </button>
           <div className="flex items-center gap-2">
             {jobId && (
+              <a
+                href={`/diagnostics?job=${jobId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-line text-ink-soft hover:text-ink hover:bg-bg-soft text-xs transition"
+                title="عرض أدلة تشخيص هذا المسار (تقرير المحلل/الخطة/النقد/الصوت/الرندر)"
+              >
+                <Activity className="h-3.5 w-3.5" />
+                لوحة التشخيص
+              </a>
+            )}
+            {jobId && (
               <div className="flex items-center gap-2">
                 <select
                   value={exportFormat}

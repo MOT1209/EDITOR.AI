@@ -34,10 +34,13 @@ EDITOR.AI/
 │   ├── api/skills/             skill registry endpoint
 │   ├── api/jobs/                async job status endpoint
 │   ├── api/assets/              import, pexels stock search
+│   ├── api/diagnostics/         GET-only: lists/inspects .montage_ai/pipeline/<job_id>/ artifacts
 │   ├── api/export/, ffmpeg/, thumbnail/
+│   ├── diagnostics/             Pipeline diagnostics dashboard UI (job list + per-stage detail)
 │   └── shorts/                 Shorts/Reels workflow UI
 ├── components/editor/          Timeline-based video editor UI
 ├── components/shorts/
+├── components/diagnostics/     DiagnosticsDashboard.tsx — consumes /api/diagnostics
 ├── lib/
 │   ├── agents/types.ts         Shared agent type contracts (TS side)
 │   ├── skills/                 BaseSkill, SkillManager, Workflow, catalog/, registry
