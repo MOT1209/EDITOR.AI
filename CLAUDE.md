@@ -85,20 +85,22 @@ Target module domains (map onto the existing structure above rather than forcing
 
 Study these for patterns; adapt concepts natively into this codebase. Never copy their code wholesale, never add them as dependencies without justification, and always prefer an official API over scraping or browser automation.
 
-| Repo | Study for | Adapt into |
-|---|---|---|
-| Modawen_Agent-For-Wordpress | topic/research/writer/SEO agents, WP + YouTube-to-blog, scheduling | Content Intelligence Engine |
-| openreply | webhooks, campaigns, keyword triggers, DM automation, queues, rate limits | Social Automation Engine |
-| short-video-maker | text→TTS→Whisper→captions→media→music→render pipeline, REST/MCP API | Short Form Video Engine |
-| hyperframes | HTML/CSS deterministic rendering, agentic composition, motion graphics | Agentic Composition + Rendering Engine (complements, does not replace, the existing editor) |
-| playwright-mcp | browser automation for agents, verification, publishing flows | fallback only — Official API > Direct integration > Browser automation |
-| ponytail | "need it? reuse it? standard/native feature? existing dependency? minimal implementation" discipline | Engineering review checklist |
-| OpenBot | agent orchestration, tool gateway, policy enforcement, audit logs, human takeover | Agent Platform direction for `src/agents` + `app/api/agents` |
-| ui-ux-pro-max-skill | design systems, accessibility, anti-patterns | Editor/Dashboard/Studio UI decisions |
-| OpenDeepSearch | deep research, reranking, multi-hop reasoning | Research Intelligence Engine (feeds `analyst_agent.py`) |
-| OpenDeepWiki | knowledge ingestion, incremental indexing, chat-over-knowledge | Content Knowledge Base (brand/style/history memory) |
-| auto-editor | silence/motion detection, automatic cuts, pacing | Automatic Editing Engine (relates to `render_agent.py` / silence detection already in `app/api/ai/silence`) |
-| MoneyPrinterTurbo | topic→script→keywords→media→captions→music→composition pipeline | Content Factory reference for the Shorts workflow |
+**Verified 2026-09 by cloning all 12 and inspecting LICENSE/manifest/README directly** (see §18 for the license corrections this surfaced — two entries below don't match what was previously assumed).
+
+| Repo | Actual stack | Study for | Adapt into |
+|---|---|---|---|
+| Modawen_Agent-For-Wordpress | Python, LangChain + Streamlit, no framework beyond requests/schedule | topic/research/writer/SEO agents, WP + YouTube-to-blog, scheduling | Content Intelligence Engine — **note: scrapes Google Search directly (`googlesearch-python`), no official Search API; do not port that part as-is (ToS risk)** |
+| openreply | Next.js 16 + Prisma/Postgres + BullMQ/Redis, official Meta Instagram API only (no scraping, no browser automation) | webhooks, campaigns, keyword matching, DM automation, per-account rate limiting, workspaces/roles | Social Automation Engine — closest architectural match to this repo's own Next.js stack |
+| short-video-maker | Node/TS + Remotion (React-based renderer) + whisper.cpp + Kokoro TTS, exposes both MCP and REST | text→TTS→Whisper→captions→media(Pexels)→music→render pipeline | Short Form Video Engine — **English-only voiceover today (kokoro-js limitation)**; pattern is portable, the TTS engine choice is not |
+| hyperframes | Bun monorepo, ~10 workspace packages (core/engine/producer/player/studio/cli/sdk/aws-lambda/gcp-cloud-run…), ships mainly as Claude-Code/Cursor/Codex **skills**, not a simple importable lib | HTML/CSS→deterministic-MP4 rendering, agentic production loop (plan→HTML→animate→lint→preview→render) | Agentic Composition + Rendering Engine — **heavier to integrate than a library import; realistic path is invoking its CLI or adopting its skill files, not vendoring the monorepo** |
+| playwright-mcp | Thin official Microsoft npm wrapper around Playwright, accessibility-tree based (no vision model) | structured browser automation for agents, self-healing tests, publish-verification | fallback only — Official API > Direct integration > Browser automation |
+| ponytail | Claude-Code/Codex/Cursor **plugin** (hooks + skills + `AGENTS.md`), no runtime library at all | the 7-rung ladder: needed? reuse? stdlib? native? existing dep? one line? then minimum-that-works | Engineering review discipline — install as a dev-time plugin for this session, not a code dependency |
+| OpenBot | Bun monorepo (app/server/worker/agent-bot/agent-computer/agent-langgraph/supervisor), needs Docker + Postgres + a CopilotKit Intelligence cloud account + a model key; per-agent isolated "computer" container; AG-UI protocol | tool gateway (decide→audit→act), policy/boundaries UI, per-agent container isolation, human takeover | Agent Platform direction for `src/agents` + `app/api/agents` — **this is a full standalone platform requiring external SaaS credentials, not an embeddable module; port the *tool-gateway/audit* pattern only** |
+| ui-ux-pro-max-skill | Claude-Code **skill**: Python reasoning engine + JSON rule data (192 industry rules, 79 UI styles, 192 palettes, 74 font pairings), no runtime app | design-system generation reasoning, anti-pattern checklists, industry-specific rules | Editor/Dashboard/Studio UI decisions — consume as a design-time skill/reference, not a package dependency |
+| OpenDeepSearch | Python (PDM/hatchling), `smolagents` + LiteLLM + Crawl4AI (**pinned to a third-party fork**, `git+https://github.com/salzubi401/crawl4ai`) + a reranker (Jina API or self-hosted Infinity); needs Serper.dev or a SearXNG instance | semantic web search, reranking, multi-hop "Pro Mode" deep search | Research Intelligence Engine (feeds `analyst_agent.py`/a future research agent) — **needs a paid/free-tier search API key (Serper) plus a reranker; no key configured in this repo today, so a real research agent is blocked on credentials, not code** |
+| OpenDeepWiki | **.NET 10 (C#) backend** + Next.js 16 frontend + LibGit2Sharp + SQLite/Postgres | repository ingestion → docs/mindmap/MCP-chat pipeline, incremental updates | Content Knowledge Base — **different language runtime entirely (C#, not Python/TS); only the architecture/pipeline shape is transferable, no code can be ported** |
+| auto-editor | Nim CLI (compiled binary), MIT-adjacent Unlicense (public domain) — **already integrated**, see `plan.md` Phase 4 | silence/motion detection, automatic cuts, pacing, NLE export | Automatic Editing Engine — done: `src/agents/auto_editor_utils.py`, invoked as an optional external binary with an ffmpeg fallback |
+| MoneyPrinterTurbo | Python: FastAPI + Streamlit UI + moviepy + edge-tts/faster-whisper, many pluggable LLM providers | topic→script→keywords(Pexels/Pixabay)→captions→music→composition pipeline | Content Factory reference for the Shorts workflow — closest stack match to this repo's own Python side (FastAPI-shaped, moviepy vs. our ffmpeg-agent approach) |
 
 ## 6. Agent Architecture
 
@@ -184,22 +186,24 @@ Never jump straight from a request to code, and never skip straight to "it compi
 
 ## 18. License Hygiene for Reference Projects
 
-Reference repos (§5) are inspiration, not a source to vendor in. Before reusing any code from one, check its actual license file — do not assume compatibility from memory:
+Reference repos (§5) are inspiration, not a source to vendor in. Before reusing any code from one, check its actual license file — do not assume compatibility from memory. **Verified 2026-09 by cloning all 12 and reading the actual LICENSE file/manifest** — two entries below do NOT match the commonly assumed label, which is exactly the failure mode this section warns against:
 
-| Reference | License (verify in-repo before relying on this) |
+| Reference | Actual license (verified in-repo, 2026-09) |
 |---|---|
-| Modawen_Agent-For-Wordpress | MIT |
-| openreply | MIT |
-| short-video-maker | MIT |
-| hyperframes | Apache-2.0 |
-| playwright-mcp | Apache-2.0 |
-| ponytail | MIT |
-| OpenBot | MIT |
-| ui-ux-pro-max-skill | MIT |
-| OpenDeepSearch | Apache-2.0 |
-| OpenDeepWiki | MIT |
-| auto-editor | Unlicense |
-| MoneyPrinterTurbo | MIT |
+| Modawen_Agent-For-Wordpress | **No LICENSE file in the repository at all** — README badge claims MIT, but there is nothing to enforce or rely on. Treat as "all rights reserved" until the maintainer adds one; do not port code from it under an assumed MIT grant. |
+| openreply | MIT (confirmed — `LICENSE` present, Copyright Anish Raj / forked project, substantially rewritten by Diwen Huang) |
+| short-video-maker | MIT (confirmed) |
+| hyperframes | Apache-2.0 (confirmed) |
+| playwright-mcp | Apache-2.0 (confirmed, `package.json` `"license"` field agrees) |
+| ponytail | MIT (confirmed) |
+| OpenBot | MIT (confirmed) |
+| ui-ux-pro-max-skill | MIT (confirmed) |
+| OpenDeepSearch | **Internally inconsistent**: the `LICENSE` file at repo root is full Apache-2.0 text, but `pyproject.toml` declares `license = {text = "MIT"}`. The repo does not agree with itself — flag this to a human before relying on either label if code from it is ever used, rather than picking the more permissive one. |
+| OpenDeepWiki | MIT (confirmed) |
+| auto-editor | Unlicense / public domain (confirmed) |
+| MoneyPrinterTurbo | MIT (confirmed) |
+
+This is the concrete case §18 was written to prevent: two of twelve labels a plausible prior pass would have assumed correct were wrong. Re-verify before any future reuse — do not copy this table forward from memory either.
 
 Prefer porting the *interface/algorithm/pattern* over the subsystem itself, implemented natively against this repo's own abstractions (agent contracts in `src/agents`, `lib/skills` BaseSkill, provider adapters).
 
