@@ -1,15 +1,18 @@
 """وكيل المحلل — Data & Emotion Analyst.
 
-المسؤوليات (العقد الكامل — يُنفَّذ بالكامل في ممر لاحق):
-1. التفريغ الصوتي Whisper مع توقيتات كلمة-بكلمة (word-level timestamps).
-2. تمييز المتحدثين (Speaker Diarization — e.g. pyannote).
-3. خريطة الصمت (silences > 0.3s) — **منفّذ الآن** عبر ffmpeg silencedetect.
-4. تتبع الوجه (MediaPipe) لتغذية أحداث CropZoomEvent للقص الذكي 9:16.
-5. فحص بيانات المصدر (المدة/الدقة/fps) — **منفّذ الآن** عبر ffmpeg -i.
+المسؤوليات (العقد الكامل):
+1. التفريغ الصوتي Whisper مع توقيتات كلمة-بكلمة — **منفّذ** عبر Groq API.
+2. تمييز المتحدثين (Speaker Diarization) — **منفّذ**: pyannote.audio إن ثُبّت،
+   وإلا تمييز احتياطي مؤقت على حدود الصمت.
+3. خريطة الصمت (silences > 0.3s) — **منفّذ** عبر ffmpeg silencedetect.
+4. تتبع الوجه لتغذية أحداث CropZoomEvent للقص الذكي 9:16 — **منفّذ**:
+   كاشف OpenCV DNN إن توفّرت النماذج المخزّنة، وإلا Haar cascade، وإلا []
+   (المخرج يستخدم عندها المركز الافتراضي).
+5. فحص بيانات المصدر (المدة/الدقة/fps) — **منفّذ** عبر ffmpeg -i.
 
-التنفيذ في هذا الممر: الخطوات 3 و5 حقيقية وقابلة للتشغيل، بينما 1 و2 و4
-معلّقة برفع NotImplementedError تُلتقط داخلياً كتحذيرات في التقرير حتى لا
-يتعطل المسار — والمخرجات تمر عبر بوابة ``validate_analyst`` في validation.py.
+كل خطوة تتدهور بأناقة عند غياب تبعية/مفتاح (مبدأ التدهور الأنيق الإلزامي):
+تُلتقط أي أخطاء داخلياً كتحذيرات في التقرير حتى لا يتعطل المسار كاملاً —
+والمخرجات تمر عبر بوابة ``validate_analyst`` في validation.py.
 """
 from __future__ import annotations
 
@@ -139,14 +142,14 @@ class AnalystAgent:
         speakers: List[SpeakerSegment] = []
         try:
             speakers = self.identify_speakers(ctx.source_path)
-        except NotImplementedError as exc:
-            warnings.append(f"تمييز المتحدثين معلّق: {exc}")
+        except Exception as exc:  # noqa: BLE001 — فشل التمييز لا يوقف المسار
+            warnings.append(f"تمييز المتحدثين غير متاح: {exc}")
 
         face_tracks: List[FaceTrack] = []
         try:
             face_tracks = self.track_faces(ctx.source_path)
-        except NotImplementedError as exc:
-            warnings.append(f"تتبع الوجه معلّق: {exc}")
+        except Exception as exc:  # noqa: BLE001 — فشل تتبع الوجه لا يوقف المسار
+            warnings.append(f"تتبع الوجه غير متاح: {exc}")
 
         report = AnalystReport(
             source_path=ctx.source_path,
