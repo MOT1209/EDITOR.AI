@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>مراجعة مشروع MontageAI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Reem+Kufi:wght@500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --paper:#f5f2ea;
+  --paper-2:#efebe0;
+  --card:#fbf9f4;
+  --ink:#1c1e22;
+  --ink-soft:#4a4d54;
+  --line:#ddd6c6;
+  --line-strong:#c9c0aa;
+  --accent:#c85a2b;        /* splice orange */
+  --accent-soft:#e7d3c4;
+  --teal:#1c6b64;
+  --good:#3f7d4f;
+  --warn:#b9781f;
+  --crit:#b23b30;
+  --shadow:0 1px 2px rgba(28,30,34,.06),0 8px 24px rgba(28,30,34,.05);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#15171b;
+    --paper-2:#1b1e23;
+    --card:#1e2126;
+    --ink:#ece7dd;
+    --ink-soft:#a7a498;
+    --line:#2e323a;
+    --line-strong:#3c414b;
+    --accent:#e2733f;
+    --accent-soft:#3a2a20;
+    --teal:#4fb3a6;
+    --good:#6bb47a;
+    --warn:#d69a45;
+    --crit:#e07a6d;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#15171b;--paper-2:#1b1e23;--card:#1e2126;--ink:#ece7dd;--ink-soft:#a7a498;
+  --line:#2e323a;--line-strong:#3c414b;--accent:#e2733f;--accent-soft:#3a2a20;--teal:#4fb3a6;
+  --good:#6bb47a;--warn:#d69a45;--crit:#e07a6d;--shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35);
+}
+*{box-sizing:border-box}
+body{
+  margin:0;background:var(--paper);color:var(--ink);
+  font-family:"IBM Plex Sans Arabic",system-ui,sans-serif;
+  font-size:17px;line-height:1.75;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:860px;margin:0 auto;padding:0 22px}
+code,kbd,.mono{font-family:"IBM Plex Mono","IBM Plex Sans Arabic",monospace;font-size:.86em;direction:ltr;unicode-bidi:isolate}
+h1,h2,h3{font-family:"Reem Kufi","IBM Plex Sans Arabic",sans-serif;font-weight:600;line-height:1.3;text-wrap:balance}
+a{color:var(--accent)}
+
+/* header */
+header.top{border-bottom:1px solid var(--line);background:var(--paper-2)}
+header.top .wrap{padding-top:52px;padding-bottom:40px}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--accent);margin:0 0 14px}
+h1{font-size:2.5rem;margin:0 0 10px;font-weight:700}
+.sub{font-size:1.05rem;color:var(--ink-soft);margin:0}
+.verdict{display:inline-flex;align-items:center;gap:9px;margin-top:26px;padding:8px 15px;border:1px solid var(--line-strong);border-radius:999px;background:var(--card);font-size:.9rem}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--good);box-shadow:0 0 0 4px color-mix(in srgb,var(--good) 22%,transparent)}
+
+/* fact strip */
+.facts{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin:34px 0 8px}
+.facts div{background:var(--card);padding:16px 14px}
+.facts b{display:block;font-family:"IBM Plex Mono",monospace;font-size:1.35rem;font-weight:500;font-variant-numeric:tabular-nums}
+.facts span{font-size:.8rem;color:var(--ink-soft)}
+@media(max-width:640px){.facts{grid-template-columns:repeat(2,1fr)}h1{font-size:2rem}}
+
+/* sections */
+section{padding:44px 0;border-bottom:1px solid var(--line)}
+section h2{font-size:1.5rem;margin:0 0 6px;display:flex;align-items:baseline;gap:12px}
+section h2 .n{font-family:"IBM Plex Mono",monospace;font-size:.8rem;color:var(--ink-soft);font-weight:400}
+section > .wrap > p:first-of-type{margin-top:14px}
+h3{font-size:1.12rem;margin:30px 0 8px}
+p{margin:12px 0}
+ul{padding-inline-start:1.2em;margin:12px 0}
+li{margin:7px 0}
+strong{font-weight:600}
+
+/* pipeline diagram */
+.pipe{display:flex;flex-wrap:wrap;gap:8px;margin:22px 0;padding:18px;background:var(--paper-2);border:1px solid var(--line);border-radius:12px}
+.pipe .stage{flex:1;min-width:120px;text-align:center;padding:12px 8px;background:var(--card);border:1px solid var(--line-strong);border-radius:9px;position:relative}
+.pipe .stage b{display:block;font-family:"Reem Kufi",sans-serif;font-size:.98rem}
+.pipe .stage span{font-size:.74rem;color:var(--ink-soft)}
+.pipe .stage::after{content:"‹";position:absolute;left:-9px;top:50%;transform:translateY(-50%);color:var(--line-strong);font-size:1.2rem}
+.pipe .stage:first-child::after{display:none}
+
+/* two column cards */
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:22px 0}
+@media(max-width:640px){.cols{grid-template-columns:1fr}}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 18px 6px;box-shadow:var(--shadow)}
+.panel h3{margin-top:4px;font-size:1rem;color:var(--teal)}
+.panel .tag{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-soft)}
+
+/* findings table */
+table{width:100%;border-collapse:collapse;margin:20px 0;font-size:.94rem}
+th,td{text-align:right;padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft);font-weight:500}
+.sev{font-family:"IBM Plex Mono",monospace;font-size:.72rem;padding:3px 8px;border-radius:5px;white-space:nowrap;display:inline-block}
+.s-high{background:color-mix(in srgb,var(--crit) 16%,transparent);color:var(--crit)}
+.s-med{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+.s-low{background:color-mix(in srgb,var(--ink-soft) 15%,transparent);color:var(--ink-soft)}
+
+.rec{counter-reset:r;list-style:none;padding:0}
+.rec li{counter-increment:r;padding:14px 0 14px 0;border-bottom:1px solid var(--line);padding-inline-start:44px;position:relative}
+.rec li::before{content:counter(r);position:absolute;right:0;top:12px;width:28px;height:28px;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent);border-radius:7px;font-family:"IBM Plex Mono",monospace;font-size:.85rem}
+
+.check{color:var(--good);font-weight:600}
+footer{padding:40px 0 70px;color:var(--ink-soft);font-size:.85rem}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <p class="eyebrow">مراجعة تقنية شاملة · 2026-09-09</p>
+    <h1>مراجعة مشروع MontageAI</h1>
+    <p class="sub">محرّر فيديو بالذكاء الاصطناعي — واجهة Next.js 14 + مسار مونتاج متعدد الوكلاء بلغة Python. مستودع <code>MOT1209/EDITOR.AI</code>، فرع <code>main</code>.</p>
+    <div class="verdict"><span class="dot"></span> الحالة العامة: <strong>نموذج أوّلي متقدّم وسليم بنيوياً</strong> — يعمل محلياً، تغطية اختبار وCI جيدة، مع ملاحظات توثيق وتشغيل قابلة للمعالجة.</div>
+
+    <div class="facts">
+      <div><b>~17.3k</b><span>سطر كود (‏12.7k‏ TS/TSX + ‏4.6k‏ Python)</span></div>
+      <div><b>24</b><span>حالة اختبار pytest — كلها ناجحة</span></div>
+      <div><b>60</b><span>فحص تطابق عقد Python ↔ TypeScript</span></div>
+      <div><b>40</b><span>مهارة (Skill) في الكتالوج + مساران</span></div>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <h2><span class="n">01</span> ملخص تنفيذي</h2>
+    <p>المشروع تطبيق سطح مكتب/محلي لتحرير الفيديو آلياً. يتكوّن من جبهتين متكاملتين تتشاركان «عقد» بيانات واحداً (مخطط EDL):</p>
+    <ul>
+      <li><strong>واجهة Next.js 14</strong> (App Router + TypeScript + Tailwind): محرّر تايملاين تفاعلي، ‏23‏ مسار API، ونظام مهارات (Skills) قابل للتوسعة.</li>
+      <li><strong>مسار وكلاء Python</strong> في <code>src/agents/</code>: خمسة وكلاء تقودهم «المديرة التنفيذية» (CEO) عبر CrewAI، مع بوابات جودة مستقلة عن الإطار، وتدهور أنيق كامل عند غياب المفاتيح أو الشبكة أو GPU.</li>
+    </ul>
+    <p>جودة الهندسة أعلى من المتوقّع لمشروع بهذا الحجم: فصل واضح للمسؤوليات، عقد بيانات مُتحقَّق منه آلياً بين اللغتين، CI بثلاث وظائف (اختبارات + بناء + حارس أسرار)، وتوثيق عربي غني (<code>plan.md</code>، ‏README‏ في الجذر و<code>src/</code>). النواقص الأساسية ليست في البنية بل في: تناقض بين وعد «المعالجة المحلية بالكامل» والاستدعاءات الفعلية لمزوّد LLM خارجي، وملف واجهة ضخم أحادي، وغياب اختبارات لطبقة TypeScript.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2><span class="n">02</span> المعمار</h2>
+    <p>مسار الوكلاء يمثّل سلسلة معالجة حقيقية — الترتيب يحمل معلومة، لذا يُعرض مرقّماً:</p>
+    <div class="pipe">
+      <div class="stage"><b>Analyst</b><span>ffmpeg probe · صمت · Whisper كلمة-بكلمة · سكون/سواد · وجوه</span></div>
+      <div class="stage"><b>Director</b><span>خطة EDL عبر LLM هرمي + خطة قواعد · طبقات جلوسة · B-Roll · ترجمات</span></div>
+      <div class="stage"><b>Critic</b><span>درجة إبداعية ‏0–100‏ + حكم approve/revise + حلقة مراجعة</span></div>
+      <div class="stage"><b>Audio</b><span>خطة موسيقى + Ducking + مؤثرات + هدف LUFS (حتمي)</span></div>
+      <div class="stage"><b>Render</b><span>كشف GPU حقيقي + بناء أوامر ffmpeg + تنفيذ الرندر</span></div>
+    </div>
+    <p>بين كل مرحلتين <strong>بوابة تحقّق</strong> (<code>validation.STAGE_VALIDATORS</code>) — دوال نقية على مُخرَج الوكيل، لا تعرف شيئاً عن CrewAI، وتبقى صالحة لو استُبدل الإطار. يتحقّق CI أن مجموعة البوابات مطابقة تماماً لترتيب المراحل.</p>
+
+    <div class="cols">
+      <div class="panel">
+        <p class="tag">FRONTEND · app/ · components/ · lib/</p>
+        <h3>واجهة Next.js</h3>
+        <ul>
+          <li><code>components/editor/Editor.tsx</code> — المحرّر الكامل (تايملاين، معاينة، أدوات).</li>
+          <li>‏23‏ مسار API: <code>/api/ai/*</code> (تفريغ، ترجمة، مشاهد، وجوه، TTS…)، <code>/api/agents/*</code> (المسار الكامل)، <code>/api/export/*</code>، <code>/api/skills</code>.</li>
+          <li>نظام Skills: <code>BaseSkill</code> + ‏40‏ مهارة + <code>SkillManager</code> + <code>Workflow</code> (مسار افتراضي + Viral Shorts).</li>
+          <li>حفظ المشاريع في <code>localStorage</code>.</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <p class="tag">PIPELINE · src/agents/</p>
+        <h3>مسار الوكلاء</h3>
+        <ul>
+          <li><code>ceo_agent.py</code> — تنسيق هرمي، مع تدهور تلقائي <code>hierarchical → sequential →</code> قواعد محلية.</li>
+          <li><code>edl_schema.py</code> — مخطط Pydantic (camelCase) هو العقد المشترك مع <code>lib/agents/types.ts</code>.</li>
+          <li>تكامل <strong>auto-editor</strong> (ثنائية اختيارية) لكشف السكون/السواد وتصدير NLE، مع احتياط ffmpeg كامل عند غيابها.</li>
+          <li>كل مخرجات المراحل تُحفظ في <code>.montage_ai/pipeline/&lt;job&gt;/</code> للتشخيص بلا إعادة تشغيل.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2><span class="n">03</span> الجودة والتحقق</h2>
+    <p>حالة الفحوص وقت المراجعة (شُغّلت محلياً):</p>
+    <ul>
+      <li><span class="check">✓</span> <code>pytest</code> — ‏24‏ حالة، كلها ناجحة (‏test_auto_editor‏ ‏14‏ + ‏test_critic_loop‏ ‏5‏ + ‏test_phase2‏ ‏4‏، بعد جمعها ‏24‏).</li>
+      <li><span class="check">✓</span> <code>tsc --noEmit</code> — نظيف، بلا أخطاء.</li>
+      <li><span class="check">✓</span> <code>node scripts/check-contract.ts</code> — ‏60‏ تحقّقاً، ‏0‏ أخطاء (Python superset مسموح).</li>
+      <li><span class="check">✓</span> CI <code>.github/workflows/ci.yml</code> — ثلاث وظائف: <em>python-checks</em> (compileall + pytest + تطابق الوكلاء/البوابات)، <em>ts-checks</em> (tsc + عقد)، <em>secrets</em> (gitleaks).</li>
+      <li>⚠ لم يُنفَّذ <code>next build</code> الكامل في هذه المراجعة (اكتُفي بـ tsc).</li>
+      <li>⚠ لا اختبارات لطبقة TypeScript إطلاقاً — <code>SkillManager</code>، <code>Workflow</code>، منطق التسميات، ومسارات API بلا تغطية.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2><span class="n">04</span> الأمان</h2>
+    <ul>
+      <li><span class="check">✓</span> لا ملفات أسرار في Git — <code>.env*.local</code> و<code>.env</code> و<code>.venv/</code> و<code>.montage_ai/</code> مستثناة، وحارس gitleaks يعمل على كل دفع.</li>
+      <li><span class="check">✓</span> المفاتيح تُحلّ لكل طلب: ترويسة العميل (<code>x-opencode-key</code>…) ← ثم <code>process.env</code> — يسمح بمفتاح المستخدم دون تخزينه على الخادم.</li>
+      <li>ملاحظة: تمرير المفتاح في ترويسة من المتصفح مقبول لتطبيق محلي أحادي المستخدم، لكنه غير مناسب لأي نشر مشترك. يُنصح بتأكيد عدم كتابة الترويسات في أي سجل.</li>
+      <li>ملاحظة خصوصية: مسارات <code>/api/ai/transcribe*</code> و<code>/api/ai/translate</code> وتفريغ <code>analyst_agent</code> ترسل الصوت/النص إلى مزوّد خارجي (Groq/OpenAI-compatible). راجع البند التالي.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2><span class="n">05</span> الملاحظات والمخاطر</h2>
+    <table>
+      <thead><tr><th>الخطورة</th><th>الملاحظة</th><th>الأثر / التوصية</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="sev s-high">توثيق</span></td>
+          <td>‏README‏ يعِد بأن «كل المعالجة تتم محلياً… بدون رفع ملفات لسيرفرات خارجية»، بينما التفريغ الصوتي والترجمة والتخطيط الإبداعي تستدعي فعلياً مزوّد LLM سحابياً (Groq/OpenAI) وترفع الصوت المستخرج.</td>
+          <td>صحّح صياغة ‏README‏ لتفرّق بين ما يعمل محلياً (ffmpeg، القص، الموسيقى، القواعد) وما يتطلب مفتاحاً سحابياً. مهم للثقة والخصوصية.</td>
+        </tr>
+        <tr>
+          <td><span class="sev s-high">صيانة</span></td>
+          <td><code>components/editor/Editor.tsx</code> ملف واحد بطول <strong>‏4363‏ سطراً</strong> — يحمل الحالة والتايملاين والمعاينة والأدوات والمودالات.</td>
+          <td>قسّمه إلى وحدات (حالة/هوكس، تايملاين، شريط أدوات، لوحة المسار). يعيق المراجعة والاختبار ومساهمة أي مطوّر آخر.</td>
+        </tr>
+        <tr>
+          <td><span class="sev s-med">إعادة إنتاج</span></td>
+          <td>المستودع فيه <code>pnpm-lock.yaml</code> و<code>pnpm-workspace.yaml</code>، لكن CI و‏README‏ الفعلي يستخدمان <code>npm install</code> بلا <code>package-lock.json</code> — بناءات غير مثبّتة الإصدارات.</td>
+          <td>اختر مدير حزم واحداً: إمّا الالتزام بـ pnpm في CI أيضاً، أو حذف ملفات pnpm وإضافة <code>package-lock.json</code>.</td>
+        </tr>
+        <tr>
+          <td><span class="sev s-med">تشغيل</span></td>
+          <td><code>/api/agents/pipeline</code> يشغّل رندر ffmpeg فعلياً عبر <code>child_process.spawn</code> داخل مسار Next مع <code>maxDuration=300</code>. لن يعمل على بيئة serverless (Vercel) — مخصّص للتشغيل المحلي فقط.</td>
+          <td>وثّق صراحةً أن المشروع «محلي التشغيل»، أو افصل المسار الثقيل إلى خدمة/عامل منفصل إن كان النشر السحابي هدفاً.</td>
+        </tr>
+        <tr>
+          <td><span class="sev s-med">اختبار</span></td>
+          <td>لا تغطية اختبار لطبقة TypeScript (Skills، Workflow، API). الاختبارات كلها Python.</td>
+          <td>أضف Vitest/Jest لـ <code>SkillManager</code>/<code>Workflow</code>/<code>lib/captions</code> على الأقل — منطق أساسي بلا شبكة أمان.</td>
+        </tr>
+        <tr>
+          <td><span class="sev s-low">نظافة المستودع</span></td>
+          <td>ملفّا <code>test_video.mp4</code> (الجذر) و<code>test_assets/test_video.mp4</code> ملتزمان في Git كأصول ثنائية مكرّرة.</td>
+          <td>انقلهما خارج Git (Git LFS أو تنزيل عند الحاجة) وأبقِ واحداً فقط.</td>
+        </tr>
+        <tr>
+          <td><span class="sev s-low">ميزات معلّقة</span></td>
+          <td><code>identify_speakers</code>/<code>track_faces</code> منفّذان مع احتياطات، لكن يعتمدان حزماً اختيارية (pyannote / opencv) غير مدرجة افتراضياً في <code>requirements.txt</code> (مُعلّقة كتعليقات).</td>
+          <td>ميزة مقصودة (تدهور أنيق)، لكن وضّح في ‏README‏ ما الذي يتفعّل فقط بعد <code>pip install</code> إضافي.</td>
+        </tr>
+        <tr>
+          <td><span class="sev s-low">توثيق مفقود</span></td>
+          <td><code>plan.md</code> يشير إلى <code>docs/decisions/</code> (ADR) وهو غير موجود.</td>
+          <td>أنشئه أو أزل الإشارة.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2><span class="n">06</span> نقاط القوة</h2>
+    <ul>
+      <li><strong>عقد بيانات مُتحقَّق آلياً</strong> بين Python وTypeScript — نادر في مشاريع بهذا الحجم، ويمنع انحراف الأنواع.</li>
+      <li><strong>تدهور أنيق منهجي</strong> — كل تبعية خارجية (LLM، Pexels، GPU، auto-editor، pyannote) لها مسار احتياطي، والمسار لا ينهار.</li>
+      <li><strong>بوابات جودة مفصولة عن الإطار</strong> — قرار معماري جيّد يبقي المنطق قابلاً للنقل.</li>
+      <li><strong>قابلية تشخيص عالية</strong> — كل مرحلة تحفظ مخرجها JSON، فأي فشل يُحلَّل من الملفات.</li>
+      <li><strong>CI حقيقي</strong> بثلاث طبقات دفاع منذ وقت مبكر، وحارس أسرار.</li>
+      <li><strong>توثيق عربي متّسق</strong> عبر الكود والواجهة والخطط — مطابق للجمهور المستهدف.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2><span class="n">07</span> توصيات مرتّبة بالأولوية</h2>
+    <ol class="rec">
+      <li><strong>صحّح وعد «محلي بالكامل» في README</strong> — فصل الميزات محلية-التنفيذ عن التي تتطلب مفتاح مزوّد سحابي، مع تنبيه خصوصية للصوت المرفوع.</li>
+      <li><strong>فكّك <code>Editor.tsx</code></strong> إلى ‏4–6‏ وحدات بمسؤولية واحدة لكل منها؛ ابدأ باستخراج منطق الحالة إلى هوكس.</li>
+      <li><strong>وحّد مدير الحزم</strong> (pnpm أو npm) بين الجذر وCI وREADME، مع lockfile ملتزم.</li>
+      <li><strong>أضف اختبارات TypeScript</strong> (Vitest) لـ SkillManager وWorkflow وlib/captions، وأدخلها في وظيفة <em>ts-checks</em>.</li>
+      <li><strong>وثّق نموذج التشغيل</strong> صراحةً كـ «تطبيق محلي» (رندر ffmpeg داخل مسار Next لا يصلح لـ serverless)، أو افصل العامل الثقيل.</li>
+      <li><strong>نظّف الأصول الثنائية</strong> من Git وأضِف <code>next build</code> إلى CI لضمان بناء إنتاجي سليم.</li>
+      <li><strong>أنشئ <code>docs/decisions/</code></strong> بـ ADR واحد على الأقل (لماذا CrewAI، لماذا البوابات ككود) — المادة جاهزة في <code>src/README.md</code>.</li>
+    </ol>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2><span class="n">08</span> الخلاصة</h2>
+    <p>MontageAI مشروع <strong>هندسته أنضج من واجهته</strong>: مسار الوكلاء ونظام العقود والتدهور الأنيق والـ CI كلها في مستوى منتج، بينما الواجهة (ملف واحد ضخم، بلا اختبارات) والتوثيق (وعد المحلية) متأخّران قليلاً. لا توجد مخاطر أمنية حرجة. أهم خطوة تالية هي مواءمة الوعود التسويقية مع السلوك الفعلي، ثم تفكيك ملف المحرّر — وبعدها يصبح المشروع جاهزاً لمساهمين إضافيين ولإصدار «منتج كامل» كما يستهدف <code>plan.md</code>.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    تقرير مُولَّد آلياً من مراجعة الشيفرة — <span class="mono">MOT1209/EDITOR.AI @ 84790c2</span>. الفحوص شُغّلت محلياً على الجهاز وقت المراجعة.
+  </div>
+</footer>
+
+</body>
+</html>
