@@ -11,6 +11,7 @@ import { spawn } from "child_process";
 import { promises as fsp, existsSync } from "fs";
 import path from "path";
 import { v4 as uuid } from "uuid";
+import { validateVideoUpload, clampString, pickEnum } from "@/lib/server/validate";
 
 export const runtime = "nodejs";
 export const maxDuration = 300; // 5 دقائق — الرندر الفعلي يأخذ وقتاً
@@ -84,12 +85,14 @@ export async function POST(req: NextRequest) {
     if (!file || !(file instanceof File)) {
       return NextResponse.json({ error: "ملف الفيديو مطلوب" }, { status: 400 });
     }
-    const request = String(form.get("request") || "").slice(0, 800);
-    const language = String(form.get("language") || "ar").slice(0, 10);
-    const mood = String(form.get("mood") || "").slice(0, 20);
-    const aspect = ["9:16", "16:9", "1:1"].includes(String(form.get("aspect") || ""))
-      ? String(form.get("aspect"))
-      : "9:16";
+    const upload = validateVideoUpload(file);
+    if (!upload.ok) {
+      return NextResponse.json({ error: upload.error }, { status: 400 });
+    }
+    const request = clampString(form.get("request"), 800);
+    const language = clampString(form.get("language") || "ar", 10);
+    const mood = clampString(form.get("mood"), 20);
+    const aspect = pickEnum(form.get("aspect"), ["9:16", "16:9", "1:1"] as const, "9:16");
     const noBroll = form.get("noBroll") === "true" || form.get("noBroll") === "1";
     const demo = form.get("demo") === "true" || form.get("demo") === "1";
 

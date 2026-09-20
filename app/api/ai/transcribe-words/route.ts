@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOpencodeKey, getOpencodeBaseUrl, getWhisperModel } from "@/lib/server/api-keys";
 import { guardCost, recordSpend, estimateCostUsd } from "@/lib/server/cost-guard";
+import { validateAudioUpload } from "@/lib/server/validate";
 
 
 export const runtime = "nodejs";
@@ -23,6 +24,10 @@ export async function POST(req: NextRequest) {
     const language = (form.get("language") as string) || "";
     if (!audio) {
       return NextResponse.json({ error: "الملف الصوتي مطلوب" }, { status: 400 });
+    }
+    const audioCheck = validateAudioUpload(audio);
+    if (!audioCheck.ok) {
+      return NextResponse.json({ error: audioCheck.error }, { status: 400 });
     }
 
     if (!OPENCODE_API_KEY) {
