@@ -284,6 +284,24 @@ class RenderAgent:
         base.mkdir(parents=True, exist_ok=True)
         return str(base / "final.mp4")
 
+    def _review_output(self, rp: RenderPlan) -> None:
+        """مراجعة ما بعد الرندر على المخرَج الفعلي (ffprobe + سواد + صوت)."""
+        try:
+            from src.agents.render_review import review_render
+
+            expect_audio = "-c:a" in rp.command  # الصوت يُربط فقط عند وجوده
+            passed, issues, _details = review_render(
+                rp.output_path,
+                expect_audio=expect_audio,
+                expected_duration=rp.estimated_duration,
+            )
+            rp.review_passed = passed
+            rp.review_issues = issues
+            if not passed:
+                self.logger.error("مراجعة المخرَج فشلت: %s", "؛ ".join(issues))
+        except Exception as exc:  # noqa: BLE001 — فشل المراجعة لا يُسقط الرندر نفسه
+            self.logger.warning("تعذّرت مراجعة المخرَج: %s", exc)
+
     async def render(self, render_plan: RenderPlan) -> RenderPlan:
         """ينفّذ أمر ffmpeg الفعلي (subprocess مع ``-progress pipe:1``) ويحدّث
         حقول النتيجة: rendered / render_error / output_bytes / render_seconds."""
@@ -368,6 +386,7 @@ class RenderAgent:
                 "الرندر اكتمل: %s (%.1fMB في %.1fs)",
                 rp.output_path, rp.output_bytes / 1e6, rp.render_seconds,
             )
+            self._review_output(rp)
         else:
             detail = "\n".join(tail[-8:])
             rp.render_error = (

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOpencodeKey, getHfToken, getOpencodeBaseUrl, getChatModel } from "@/lib/server/api-keys";
+import { guardCost, recordSpend } from "@/lib/server/cost-guard";
 
 
 export const runtime = "nodejs";
@@ -19,6 +20,11 @@ export async function POST(req: NextRequest) {
     const useOpenAI = !!OPENCODE_API_KEY;
 
     if (useOpenAI) {
+      const joined = JSON.stringify(texts);
+      const guard = guardCost("chat", { chars: joined.length * 2 + 200 });
+      if (!guard.allowed) {
+        return NextResponse.json({ error: guard.reason, budget: guard }, { status: 402 });
+      }
       const res = await fetch(`${OPENCODE_BASE_URL}/chat/completions`, {
         method: "POST",
         headers: {
@@ -44,6 +50,7 @@ export async function POST(req: NextRequest) {
       });
 
       if (res.ok) {
+        recordSpend(guard.estimateUsd);
         const data = await res.json();
         const content = data.choices?.[0]?.message?.content || "{}";
         const parsed = JSON.parse(content);

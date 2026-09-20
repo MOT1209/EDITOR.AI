@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOpencodeKey, getOpencodeBaseUrl } from "@/lib/server/api-keys";
+import { guardCost, recordSpend } from "@/lib/server/cost-guard";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -29,6 +30,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const clipped = String(text).slice(0, 3000);
+    const guard = guardCost("tts", { chars: clipped.length });
+    if (!guard.allowed) {
+      return NextResponse.json({ error: guard.reason, budget: guard }, { status: 402 });
+    }
+
     const res = await fetch(`${OPENCODE_BASE_URL}/audio/speech`, {
       method: "POST",
       headers: {
@@ -37,7 +44,7 @@ export async function POST(req: NextRequest) {
       },
       body: JSON.stringify({
         model: "tts-1",
-        input: String(text).slice(0, 3000),
+        input: clipped,
         voice: VOICE_MAP[voice] || "onyx",
         speed: Math.max(0.5, Math.min(2, Number(speed) || 1)),
       }),
@@ -48,6 +55,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `TTS API error: ${errText}` }, { status: res.status });
     }
 
+    recordSpend(guard.estimateUsd);
     const audioBuf = await res.arrayBuffer();
     const base64 = Buffer.from(audioBuf).toString("base64");
 

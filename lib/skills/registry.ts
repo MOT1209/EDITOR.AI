@@ -1,6 +1,10 @@
 import { SkillManager } from "./SkillManager";
 import { createAllSkills } from "./catalog";
-import { createDefaultWorkflow, createShortsWorkflow } from "./workflows";
+import {
+  createDefaultWorkflow,
+  createShortsWorkflow,
+  createContentFromIdeaWorkflow,
+} from "./workflows";
 
 /**
  * يبني مديراً جديداً مع كل الـ Skills والـ Workflows مُسجّلة.
@@ -11,6 +15,7 @@ export function buildSkillManager(): SkillManager {
   manager.registerAll(createAllSkills());
   manager.registerWorkflow(createDefaultWorkflow());
   manager.registerWorkflow(createShortsWorkflow());
+  manager.registerWorkflow(createContentFromIdeaWorkflow());
   return manager;
 }
 

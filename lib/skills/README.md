@@ -117,12 +117,20 @@ manager.unregister("MySkill");
 manager.getWorkflow("default")?.removeStep("MySkill");
 ```
 
-## قائمة الـ 36 Skill
+## قائمة الـ 41 Skill
 
 تحليل: Scene، Shot، Face، Person، Object، Highlight، ViralMoment ·
 قص: AutoCut، SmartTrim ·
 صوت: SpeechRecognition، Silence، AudioEnhancement، NoiseReduction، Beat، AutoMusicSync، MusicRecommendation، SoundEffects، VoiceCloning، TextToSpeech ·
 صورة: AutoZoom، AutoReframe، VideoStabilization، AutoColorGrading، ColorCorrection، BackgroundRemoval، FaceTracking ·
-نص: AutoCaption، SubtitleTranslation، Hook، Title، Description، Hashtag ·
-توليد: BRoll، Thumbnail، Shorts ·
+نص: AutoCaption، SubtitleTranslation، Hook، Title، Description، Hashtag، ScriptWriter ·
+توليد: BRoll، Thumbnail، Shorts، Storyboard ·
 تصدير: ExportOptimization
+
+## Workflows الجاهزة
+
+| الاسم | البداية | الاستخدام |
+|------|---------|-----------|
+| `default` | فيديو مرفوع | مونتاج كامل تلقائي (تحليل → قص → تحسين → تصدير) |
+| `viral-shorts` | فيديو مرفوع | استخراج مقاطع قابلة للانتشار وتجهيزها للنشر |
+| `content-from-idea` | موضوع نصّي (بلا فيديو) | فكرة → سكربت (`ScriptWriterSkill`) → لوحة مشاهد (`StoryboardGeneratorSkill`) → عنوان/وصف/هاشتاغ، تمهيداً للتصوير أو التوليد |
