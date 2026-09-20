@@ -30,7 +30,15 @@ from src.agents.edl_schema import (
     WordTiming,
 )
 from src.agents.registry import register_agent
-from src.agents.utils import env_or_default, get_logger, load_env, resolve_ffmpeg
+from src.agents.utils import (
+    BudgetExceeded,
+    budget_cap_usd,
+    env_or_default,
+    estimate_cost,
+    get_logger,
+    load_env,
+    resolve_ffmpeg,
+)
 
 try:  # اختياري: غلاف auto-editor (التحليل الدقيق + احتياط ffmpeg)
     from src.agents.auto_editor_utils import (
@@ -193,6 +201,21 @@ class AnalystAgent:
             raise RuntimeError("لا OPENCODE_API_KEY — لا يمكن استدعاء Whisper")
 
         audio_path = self._extract_audio_mp3(source_path)
+        # ضابط تكلفة وقائي: تقدير المدة من حجم الـ mp3 (32kbps ≈ 4KB/ث) ورفض
+        # التفريغ إن تجاوز سقف التكلفة قبل أي استدعاء مدفوع.
+        try:
+            size_bytes = os.path.getsize(audio_path)
+            est_duration = size_bytes / 4000
+            est_cost = estimate_cost("whisper", duration_sec=est_duration)
+            cap = budget_cap_usd()
+            self.logger.info("تقدير تكلفة التفريغ: %.4f$ (~%.0fث)", est_cost, est_duration)
+            if cap > 0 and est_cost > cap:
+                raise BudgetExceeded(
+                    f"تقدير تكلفة التفريغ {est_cost:.4f}$ يتجاوز السقف {cap:.2f}$ "
+                    f"(ارفع MONTAGE_BUDGET_CAP)"
+                )
+        except OSError:
+            pass  # تعذّر قياس الحجم — لا نمنع (تدهور أنيق)
         try:
             return self._whisper_request(api_key, base_url, model, audio_path, language)
         finally:

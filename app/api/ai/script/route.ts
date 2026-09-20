@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getChatModel, getOpencodeKey, getOpencodeBaseUrl } from "@/lib/server/api-keys";
+import { guardCost, recordSpend } from "@/lib/server/cost-guard";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -41,6 +42,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ script: fallbackScript(topic, durationSec) });
     }
 
+    // تقدير المخرج المتوقّع أكبر من المدخل (سكربت كامل) — نضيف هامشاً.
+    const guard = guardCost("chat", { chars: topic.length + 1200 });
+    if (!guard.allowed) {
+      return NextResponse.json({ error: guard.reason, budget: guard }, { status: 402 });
+    }
+
     const res = await fetch(`${OPENCODE_BASE_URL}/chat/completions`, {
       method: "POST",
       headers: {
@@ -70,6 +77,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ script: fallbackScript(topic, durationSec) });
     }
 
+    recordSpend(guard.estimateUsd);
     const data = await res.json();
     const content = data.choices?.[0]?.message?.content || "{}";
     const parsed = JSON.parse(content);

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOpencodeKey, getOpencodeBaseUrl, getWhisperModel } from "@/lib/server/api-keys";
+import { guardCost, recordSpend, estimateCostUsd } from "@/lib/server/cost-guard";
 
 
 export const runtime = "nodejs";
@@ -31,6 +32,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // تقدير المدة من حجم الملف قبل الاستدعاء (~4KB/ث لصوت مضغوط) للفحص الوقائي؛
+    // بعد النجاح نسجّل التكلفة الفعلية من data.duration.
+    const estDurationSec = audio.size / 4000;
+    const guard = guardCost("whisper", { durationSec: estDurationSec });
+    if (!guard.allowed) {
+      return NextResponse.json({ error: guard.reason, budget: guard }, { status: 402 });
+    }
+
     const whisperForm = new FormData();
     whisperForm.append("file", audio);
     whisperForm.append("model", getWhisperModel());
@@ -54,6 +63,12 @@ export async function POST(req: NextRequest) {
     }
 
     const data = await res.json();
+    // تسجيل التكلفة الفعلية من المدة المُعادة (أدق من تقدير الحجم).
+    recordSpend(
+      typeof data.duration === "number"
+        ? estimateCostUsd("whisper", { durationSec: data.duration })
+        : guard.estimateUsd
+    );
 
     const rawWords: Array<{ word?: string; text?: string; start: number; end: number }> =
       data.words || [];

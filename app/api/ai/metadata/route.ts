@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getChatModel, getOpencodeKey, getOpencodeBaseUrl } from "@/lib/server/api-keys";
+import { guardCost, recordSpend } from "@/lib/server/cost-guard";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -25,6 +26,12 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    const promptText = String(transcript).slice(0, 3000);
+    const guard = guardCost("chat", { chars: promptText.length + 400 });
+    if (!guard.allowed) {
+      return NextResponse.json({ error: guard.reason, budget: guard }, { status: 402 });
+    }
+
     const res = await fetch(`${OPENCODE_BASE_URL}/chat/completions`, {
       method: "POST",
       headers: { Authorization: `Bearer ${OPENCODE_API_KEY}`, "Content-Type": "application/json" },
@@ -44,6 +51,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `GPT-4o error: ${errText}` }, { status: res.status });
     }
 
+    recordSpend(guard.estimateUsd);
     const data = await res.json();
     const content = data.choices?.[0]?.message?.content || "{}";
     const result = JSON.parse(content);
