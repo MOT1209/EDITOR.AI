@@ -368,6 +368,9 @@ class RenderPlan(EdlBase):
     render_error: Optional[str] = None
     output_bytes: Optional[int] = None
     render_seconds: float = 0.0
+    # مراجعة ما بعد الرندر (يملؤها ``RenderAgent`` عبر render_review)
+    review_passed: Optional[bool] = None  # None = لم تُجرَ (لا رندر أو تعذّر الفحص)
+    review_issues: List[str] = Field(default_factory=list)
 
 
 # --------------------------------------------------------------------------

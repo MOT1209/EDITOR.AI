@@ -55,6 +55,11 @@ def validate_render(rp: Optional[RenderPlan]) -> PlanValidation:
         errors.append(f"فشل الرندر الفعلي: {rp.render_error}")
     elif not rp.rendered:
         warnings.append("الرندر لم يُنفَّذ بعد (خطة فقط)")
+    elif rp.review_passed is False:
+        # مراجعة ما بعد الرندر وجدت خللاً حاسماً في المخرَج الفعلي — يمنع التقديم.
+        errors.append(
+            "فشلت مراجعة ما بعد الرندر: " + "؛ ".join(rp.review_issues or ["خلل غير محدد"])
+        )
     return PlanValidation(errors=errors, warnings=warnings)
 
 
