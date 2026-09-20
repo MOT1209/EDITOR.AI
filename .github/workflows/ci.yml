@@ -48,6 +48,8 @@ jobs:
         run: npm install
       - name: فحص TypeScript (tsc)
         run: npx tsc --noEmit
+      - name: اختبارات الواجهة (Vitest)
+        run: npm test
       - name: فحص مطابقة العقد الموحّد (Python ↔ TypeScript)
         run: node scripts/check-contract.ts
 
