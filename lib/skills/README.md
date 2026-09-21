@@ -117,12 +117,12 @@ manager.unregister("MySkill");
 manager.getWorkflow("default")?.removeStep("MySkill");
 ```
 
-## قائمة الـ 41 Skill
+## قائمة المهارات (43)
 
 تحليل: Scene، Shot، Face، Person، Object، Highlight، ViralMoment ·
 قص: AutoCut، SmartTrim ·
 صوت: SpeechRecognition، Silence، AudioEnhancement، NoiseReduction، Beat، AutoMusicSync، MusicRecommendation، SoundEffects، VoiceCloning، TextToSpeech ·
-صورة: AutoZoom، AutoReframe، VideoStabilization، AutoColorGrading، ColorCorrection، BackgroundRemoval، FaceTracking ·
+صورة: AutoZoom، AutoReframe، VideoStabilization، AutoColorGrading، ColorCorrection، BackgroundRemoval، FaceTracking، Upscale ·
 نص: AutoCaption، SubtitleTranslation، Hook، Title، Description، Hashtag، ScriptWriter ·
 توليد: BRoll، Thumbnail، Shorts، Storyboard ·
 تصدير: ExportOptimization
