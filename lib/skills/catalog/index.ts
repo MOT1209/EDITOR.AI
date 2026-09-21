@@ -44,6 +44,7 @@ import { TextOverlaySkill } from "./TextOverlaySkill";
 import { MusicDuckingSkill } from "./MusicDuckingSkill";
 import { ScriptWriterSkill } from "./ScriptWriterSkill";
 import { StoryboardGeneratorSkill } from "./StoryboardGeneratorSkill";
+import { UpscaleSkill } from "./UpscaleSkill";
 
 /** كل أصناف الـ Skills المتوفّرة. */
 export const SKILL_CLASSES = [
@@ -89,6 +90,7 @@ export const SKILL_CLASSES = [
   MusicDuckingSkill,
   ScriptWriterSkill,
   StoryboardGeneratorSkill,
+  UpscaleSkill,
 ] as const;
 
 /** إنشاء نسخة جديدة من كل Skill (حالة/سجلات مستقلة لكل مدير). */
@@ -139,4 +141,5 @@ export {
   MusicDuckingSkill,
   ScriptWriterSkill,
   StoryboardGeneratorSkill,
+  UpscaleSkill,
 };

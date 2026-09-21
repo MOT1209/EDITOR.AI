@@ -4,9 +4,18 @@ import { buildSkillManager } from "./registry";
 describe("skills system", () => {
   it("registers all skills and the three workflows", () => {
     const m = buildSkillManager();
-    expect(m.list().length).toBeGreaterThanOrEqual(42);
+    expect(m.list().length).toBeGreaterThanOrEqual(43);
     const wf = m.listWorkflows().map((w) => w.name).sort();
     expect(wf).toEqual(["content-from-idea", "default", "viral-shorts"]);
+  });
+
+  it("runs UpscaleSkill with heuristic fallback (no API key)", async () => {
+    const m = buildSkillManager();
+    const r = await m.runSkill("UpscaleSkill", { duration: 10, width: 640, height: 360, scale: 2 });
+    expect(r.ok).toBe(true);
+    const plan = (r.output as { upscale?: { targetWidth?: number; scale?: number } }).upscale;
+    expect(plan?.scale).toBe(2);
+    expect(plan?.targetWidth).toBe(1280);
   });
 
   it("runs a single skill and reports a result", async () => {
