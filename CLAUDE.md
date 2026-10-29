@@ -10,7 +10,8 @@
 - **نظام المهارات (TS)**: `lib/skills/*` — `BaseSkill` + `SkillManager` + `Workflow` + كتالوج (43 مهارة) + workflows (`default`, `viral-shorts`, `content-from-idea`).
 - **العقد المشترك**: مخطط EDL موجود بلغتين — `src/agents/edl_schema.py` (Pydantic) ↔ `lib/agents/types.ts` (TypeScript).
 - **محرّك المشروع**: `lib/engine/*` — مخطط `ProjectState` (نسخة 2)، عمليات تايملاين نقية، مساحة عمل على الخادم مع undo/redo، تحليل FFmpeg، رندر+تحقق ffprobe، جسر خطط Python.
-- **خادم MCP**: `mcp/*` (stdio، SDK الرسمي، 37 أداة) — `docs/MCP_SETUP.md` و`docs/architecture/MCP_ARCHITECTURE.md`.
+- **الإضافات**: `lib/extensions/*` + `mcp/custom-tools.ts` — مهارات وأدوات MCP مخصّصة من سجل دائم (حزم بيانات، سجل إجراءات معتمد، صلاحيات ممنوحة، إصدارات/تراجع)، واجهة `/extensions`، `docs/EXTENSIONS.md`.
+- **خادم MCP**: `mcp/*` (stdio، SDK الرسمي، 37 أداة مدمجة + أدوات مخصّصة ديناميكية `ext_*`) — `docs/MCP_SETUP.md` و`docs/architecture/MCP_ARCHITECTURE.md`.
 
 ## الأوامر (نسخ-لصق)
 
@@ -23,7 +24,8 @@ python -m pytest                  # اختبارات مسار الوكلاء (36
 python -m src.main test_video.mp4 --demo   # تشغيل المسار كاملاً بلا مفاتيح
 pnpm lint                         # ESLint
 pnpm mcp                          # خادم MCP (stdio)
-pnpm mcp:e2e                      # E2E حقيقي لخادم MCP على test_assets/test_video.mp4
+pnpm mcp:e2e                      # E2E حقيقي لخادم MCP على test_assets/test_video.mp4 (يشمل أداة مخصّصة ديناميكية)
+pnpm ext validate <مجلد|ملف>      # فحص/تثبيت/تصدير حزم الإضافات (انظر docs/EXTENSIONS.md)
 pnpm build                        # بناء الإنتاج
 ```
 
@@ -44,7 +46,8 @@ CI (`.github/workflows/ci.yml`) يشغّل: py_compile + pytest + tsc + lint + V
 - **ضابط التكلفة**: أي مسار API يستدعي مزوّداً مدفوعاً (chat/vision/whisper/tts) يجب أن يمرّ عبر `guardCost` + `recordSpend` من `lib/server/cost-guard.ts` قبل/بعد الاستدعاء (النمط في `app/api/ai/tts/route.ts`). النظير في Python: `BudgetTracker` في `src/agents/utils.py`.
 - **تحقق المدخلات**: الملفات المرفوعة عبر `validateVideoUpload`/`validateAudioUpload`، والحقول عبر `clampString`/`pickEnum` من `lib/server/validate.ts`.
 - **مراجعة ما بعد الرندر**: أي تغيير في الرندر يجب أن يبقى متوافقاً مع `src/agents/render_review.py` (المدمج في بوابة `validate_render`) ونظيره في TS `reviewRender` (`lib/engine/media.ts`).
-- **أداة MCP جديدة**: `tool(...)` في `mcp/server.ts` بمخطط مدخلات/مخرجات Zod، منطق في `lib/engine/*`، أخطاء `EngineError`، `requireApproval` للمكلف/المدمّر، واختبار في `mcp/server.test.ts`.
+- **إضافة مخصّصة (مهارة/أداة) بلا تعديل النواة**: حزمة في `/extensions` أو `pnpm ext install` — لا تعدّل `mcp/server.ts`. إجراء إعلاني جديد = إدخال في `lib/extensions/actions.ts` (مخطط + صلاحيات + خطورة)، إدخال أصلي = `lib/extensions/native.ts`؛ ولا تُضف قدرة shell/FFmpeg حرة/ملفات/شبكة لأي إجراء.
+- **أداة MCP مدمجة جديدة**: `tool(...)` في `mcp/server.ts` بمخطط مدخلات/مخرجات Zod، منطق في `lib/engine/*`، أخطاء `EngineError`، `requireApproval` للمكلف/المدمّر، واختبار في `mcp/server.test.ts`.
 - **حدود الملفات**: أي مسار من عميل يمر عبر `isPathInside` ومعرّفات `assertId`؛ لا وسائط ffmpeg من المدخلات — تُبنى في `buildExportPlan`.
 - **إضافة مهارة فيديو**: اتبع `lib/skills/README.md` — ملف في `catalog/` + تسجيل في `catalog/index.ts` + اختبار في `lib/skills/skills.test.ts`.
 - **لا تذكر أي معرّف نموذج** (Sonnet/Opus/gpt-...) في أي التزام أو كود أو PR — يبقى في المحادثة فقط.

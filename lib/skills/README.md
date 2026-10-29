@@ -108,6 +108,10 @@ export class MySkill extends BaseSkill {
 // 3) (اختياري) أضِفها لأي Workflow عبر wf.addStep("MySkill")
 ```
 
+## مهارات مخصّصة بلا كود (الإضافات)
+
+لإضافة مهارة دون لمس الكود: حزمة بيانات من `/extensions` أو `pnpm ext install` (prompt / workflow / native / external). تُسجَّل المفعّلة في نفس `SkillManager` باسم `ext_<id>`. التفاصيل: `docs/EXTENSIONS.md`.
+
 ## حذف Skill
 
 احذف ملفها وأزِلها من `SKILL_CLASSES`، أو في وقت التشغيل:

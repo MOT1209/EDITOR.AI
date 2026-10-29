@@ -62,14 +62,14 @@ export function projectDir(projectId: string): string {
   return dir;
 }
 
-async function writeJsonAtomic(file: string, data: unknown): Promise<void> {
+export async function writeJsonAtomic(file: string, data: unknown): Promise<void> {
   await fsp.mkdir(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
   await fsp.writeFile(tmp, JSON.stringify(data, null, 2), "utf-8");
   await fsp.rename(tmp, file);
 }
 
-async function readJson<T>(file: string): Promise<T | null> {
+export async function readJson<T>(file: string): Promise<T | null> {
   try {
     return JSON.parse(await fsp.readFile(file, "utf-8")) as T;
   } catch (e) {
@@ -80,7 +80,7 @@ async function readJson<T>(file: string): Promise<T | null> {
 
 // قفل بسيط لكل مشروع: يسلسل عمليات القراءة-التعديل-الكتابة داخل العملية.
 const locks = new Map<string, Promise<unknown>>();
-async function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+export async function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const prev = locks.get(key) ?? Promise.resolve();
   const run = prev.catch(() => {}).then(fn);
   locks.set(key, run);

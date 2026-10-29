@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { buildSkillManager } from "@/lib/skills";
+import { buildExtendedSkillManager } from "@/lib/extensions/skills-bridge";
 import type { MediaDocument } from "@/lib/skills";
 import { skillProvenance } from "@/lib/skills/provenance";
 
@@ -21,9 +21,10 @@ function safeConfig(config: unknown): Record<string, unknown> | undefined {
 
 // GET /api/skills            → فهرس كل Skills + Workflows + المقاييس
 export async function GET() {
-  const m = buildSkillManager();
+  const { manager: m, skipped } = await buildExtendedSkillManager(); // المدمجة + المخصّصة المفعّلة (ext_*)
   return NextResponse.json({
     skills: m.catalog(),
+    skippedCustom: skipped,
     workflows: m.listWorkflows().map((w) => ({
       name: w.name,
       description: w.description,
@@ -49,7 +50,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as RunBody;
     // مدير معزول لكل طلب: لا تتسرب إعدادات طلب إلى طلبات أخرى، ولا سجل أخطاء ينمو بلا حد.
-    const m = buildSkillManager();
+    const { manager: m } = await buildExtendedSkillManager();
     const config = safeConfig(body.config);
     const doc: MediaDocument = { duration: 30, ...(body.document ?? {}) };
 

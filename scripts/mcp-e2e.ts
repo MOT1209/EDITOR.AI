@@ -7,6 +7,8 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { spawnSync } from "child_process";
 import { mkdtempSync, rmSync } from "fs";
 import { parseToolError } from "../mcp/server";
+import { readFileSync } from "fs";
+import * as ext from "../lib/extensions/service";
 import os from "os";
 import path from "path";
 
@@ -104,6 +106,42 @@ async function main() {
   check(bad.data.error?.code === "OUT_OF_RANGE", "رفض قص خارج المصدر", bad.data.error?.code);
   const unknown = await call("split_clip", { projectId: pid, clipId: "nope", atSeconds: 1 });
   check(unknown.data.error?.code === "NOT_FOUND", "رفض مقطع غير موجود", unknown.data.error?.code);
+
+  // ---- أداة مخصّصة تُضاف أثناء تشغيل الخادم (بلا إعادة تشغيل ولا تعديل server.ts) ----
+  process.env.MONTAGE_WORKSPACE = ws; // نفس مساحة عمل الخادم الفرعي: السجل الدائم مشترك
+  const toolPkg = JSON.parse(readFileSync(path.join(root, "examples", "extensions", "silence-report.tool.json"), "utf-8"));
+  await ext.saveExtension(toolPkg, { origin: "imported", update: false });
+  await ext.grantPermissions("tool", "silence_report", ["media.read"]);
+  const t = await ext.runExtension("tool", "silence_report", { projectId: pid }, { mode: "test" });
+  check(t.ok && t.provenance === "real-analysis", "اختبار الأداة المخصّصة قبل التفعيل (FFmpeg حقيقي)", t.provenance);
+  await ext.setEnabled("tool", "silence_report", true);
+  let seen = false;
+  for (let i = 0; i < 20 && !seen; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    seen = (await client.listTools()).tools.some((x) => x.name === "ext_silence_report");
+  }
+  check(seen, "ظهور ext_silence_report في tools/list بعد تفعيلها (فحص السجل الدوري)");
+  const cust = await call("ext_silence_report", { projectId: pid });
+  check(!cust.isError && cust.data.provenance === "real-analysis" && Array.isArray(cust.data.result.silences), "استدعاء الأداة المخصّصة عبر stdio", cust.data.provenance);
+  const badArg = await client.callTool({ name: "ext_silence_report", arguments: { projectId: pid, ffmpegArgs: "-f lavfi" } }).catch((e) => e);
+  check(badArg instanceof Error || (badArg as { isError?: boolean }).isError === true, "رفض وسيط غير معرّف في الأداة المخصّصة");
+  await ext.setEnabled("tool", "silence_report", false);
+  let gone = false;
+  for (let i = 0; i < 20 && !gone; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    gone = !(await client.listTools()).tools.some((x) => x.name === "ext_silence_report");
+  }
+  check(gone, "اختفاء الأداة من tools/list بعد تعطيلها");
+
+  // ---- أداة مخصّصة مكلفة (render.export): موافقة + تصدير حقيقي + مراجعة ffprobe ----
+  const expPkg = JSON.parse(readFileSync(path.join(root, "examples", "extensions", "export-video.tool.json"), "utf-8"));
+  await ext.saveExtension(expPkg, { origin: "imported", update: false });
+  await ext.grantPermissions("tool", "export_video", ["render.export"]);
+  await ext.setEnabled("tool", "export_video", true, { acknowledgeUntested: true });
+  for (let i = 0; i < 20 && !(await client.listTools()).tools.some((x) => x.name === "ext_export_video"); i++) await new Promise((r) => setTimeout(r, 500));
+  const ce = await client.callTool({ name: "ext_export_video", arguments: { projectId: pid, waitSeconds: 100 } }, undefined, { timeout: 200_000 });
+  const ced = (ce.structuredContent ?? {}) as Json;
+  check(!ce.isError && ced.result?.status === "completed" && ced.result?.review?.passed === true && ced.provenance === "real-analysis", "تصدير عبر أداة مخصّصة (render.export): completed + مراجعة ffprobe", ced.result?.status);
 
   await client.close();
 }

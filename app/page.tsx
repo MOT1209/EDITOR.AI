@@ -23,6 +23,12 @@ export default function HomePage() {
       >
         ✨ استوديو Shorts
       </Link>
+      <Link
+        href="/extensions"
+        className="fixed top-2 left-[calc(50%+7.5rem)] z-50 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-bg-elev/90 hover:bg-bg-soft border border-line text-ink text-xs font-medium shadow-lg backdrop-blur transition"
+      >
+        🧩 الإضافات
+      </Link>
       <Editor />
     </>
   );

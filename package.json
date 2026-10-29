@@ -9,7 +9,8 @@
     "lint": "next lint",
     "test": "vitest run",
     "mcp": "tsx --tsconfig tsconfig.json mcp/stdio.ts",
-    "mcp:e2e": "tsx --tsconfig tsconfig.json scripts/mcp-e2e.ts"
+    "mcp:e2e": "tsx --tsconfig tsconfig.json scripts/mcp-e2e.ts",
+    "ext": "tsx --tsconfig tsconfig.json scripts/extensions.ts"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
