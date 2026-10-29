@@ -14,7 +14,8 @@
 | نظام المهارات | `lib/skills/*` | `BaseSkill` + `SkillManager` + `Workflow` + كتالوج (43 مهارة) |
 | عقد EDL | `src/agents/edl_schema.py` ↔ `lib/agents/types.ts` | مخطط موحّد بلغتين |
 | محرّك المشروع | `lib/engine/*` | مخطط+نسخة، عمليات تايملاين نقية، مساحة عمل (undo/redo)، تحليل FFmpeg، رندر+تحقق، جسر الخطط |
-| خادم MCP | `mcp/*` | stdio، 37 أداة (Zod in/out)، موافقة elicitation، تدقيق — انظر `docs/MCP_SETUP.md` |
+| خادم MCP | `mcp/*` | stdio، 37 أداة مدمجة (Zod in/out) + أدوات مخصّصة ديناميكية `ext_*`، موافقة elicitation، تدقيق — انظر `docs/MCP_SETUP.md` |
+| الإضافات | `lib/extensions/*` + `mcp/custom-tools.ts` | مهارات/أدوات مخصّصة من حزم بيانات، سجل إجراءات معتمد، صلاحيات، عزل وتوقيع — انظر `docs/EXTENSIONS.md` |
 
 ## الأوامر
 
@@ -50,7 +51,8 @@ pnpm mcp:e2e                      # E2E حقيقي لخادم MCP (FFmpeg + ffpr
 
 شغّل: `npx tsc --noEmit` + `pnpm lint` + `pnpm test` + `node scripts/check-contract.ts` + `python -m pytest` + `pnpm mcp:e2e` — كلها تنجح. تغييرات الواجهة تُختبر بصرياً عبر `pnpm dev`.
 
-- **أداة MCP جديدة**: سجّلها في `mcp/server.ts` عبر `tool(...)` بمخطط مدخلات ومخرجات Zod، نفّذ المنطق في `lib/engine/*`، أعد أخطاء `EngineError` (لا `structuredContent` مع الخطأ)، واطلب `requireApproval` للمكلف/المدمّر، وأضف اختباراً في `mcp/server.test.ts`.
+- **إضافة مخصّصة بلا تعديل النواة**: حزمة عبر `/extensions` أو `pnpm ext install` (لا تعدّل `mcp/server.ts`)؛ إجراء إعلاني جديد في `lib/extensions/actions.ts` ولا shell/FFmpeg حرة/ملفات/شبكة.
+- **أداة MCP مدمجة جديدة**: سجّلها في `mcp/server.ts` عبر `tool(...)` بمخطط مدخلات ومخرجات Zod، نفّذ المنطق في `lib/engine/*`، أعد أخطاء `EngineError` (لا `structuredContent` مع الخطأ)، واطلب `requireApproval` للمكلف/المدمّر، وأضف اختباراً في `mcp/server.test.ts`.
 
 ## قيود
 
