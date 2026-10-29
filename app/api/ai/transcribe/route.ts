@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOpencodeKey, getOpencodeBaseUrl, getWhisperModel } from "@/lib/server/api-keys";
+import { guardCost, recordSpend, estimateCostUsd } from "@/lib/server/cost-guard";
+import { validateAudioUpload } from "@/lib/server/validate";
 
 
 export const runtime = "nodejs";
@@ -12,6 +14,8 @@ export async function POST(req: NextRequest) {
     const form = await req.formData();
     const audio = form.get("audio") as File | null;
     if (!audio) return NextResponse.json({ error: "الملف الصوتي مطلوب" }, { status: 400 });
+    const check = validateAudioUpload(audio);
+    if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 });
 
     if (!OPENCODE_API_KEY) {
       return NextResponse.json({
@@ -21,8 +25,13 @@ export async function POST(req: NextRequest) {
           { id: 2, start: 2, end: 4, text: "من الترجمة الصوتية التلقائية", lang: "ar" },
           { id: 3, start: 4, end: 6, text: "اضبط API key للترجمة الحقيقية", lang: "ar" },
         ],
+        simulated: true,
+        warning: "لا مفتاح مزوّد — نص تجريبي وليس تفريغاً للصوت",
       });
     }
+
+    const guard = guardCost("whisper", { durationSec: audio.size / 4000 });
+    if (!guard.allowed) return NextResponse.json({ error: guard.reason, budget: guard }, { status: 402 });
 
     const whisperForm = new FormData();
     whisperForm.append("file", audio);
@@ -41,8 +50,9 @@ export async function POST(req: NextRequest) {
     }
 
     const data = await res.json();
+    recordSpend(typeof data.duration === "number" ? estimateCostUsd("whisper", { durationSec: data.duration }) : guard.estimateUsd);
     const segments = (data.segments || []).map((s: { id?: number; start: number; end: number; text: string }) => ({
-      id: s.id ?? Math.random(),
+      id: s.id ?? 0,
       start: s.start,
       end: s.end,
       text: s.text,

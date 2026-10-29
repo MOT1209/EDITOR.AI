@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
       if (i % 4 !== 0) {
         editPoints.push({
           time: i * beatInterval,
-          strength: 0.4 + Math.random() * 0.3,
+          strength: i % 2 === 0 ? 0.6 : 0.4,
         });
       }
     }
@@ -37,7 +37,12 @@ export async function POST(req: NextRequest) {
       beats,
       editPoints,
       duration,
-      message: `تم تحليل الإيقاع: ${bpm} BPM`,
+      method: "bpm-grid",
+      bpmSource: userBpm ? "user" : "default",
+      message: userBpm
+        ? `شبكة نقاط قطع على ${bpm} BPM (محسوبة من الإيقاع المُدخل، لا كشف من الصوت)`
+        : `شبكة افتراضية على ${bpm} BPM — لم يُكشف الإيقاع من الصوت`,
+      ...(userBpm ? {} : { simulated: true, warning: "BPM افتراضي (120) — للكشف الحقيقي استخدم MCP detect_beats" }),
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "خطأ";

@@ -2,6 +2,7 @@
 // تحليل وسائط حقيقي عبر FFmpeg/FFprobe — بلا أي نتيجة مُختلقة.
 // عند تعذّر التحليل يُرمى EngineError (لا fallback عشوائي).
 // ====================================================================
+import path from "path";
 import { EngineError } from "./errors";
 import { ffmpegPath, ffprobePath, runProcess } from "./process";
 
@@ -27,7 +28,9 @@ export async function probeMedia(file: string, signal?: AbortSignal): Promise<Me
     { timeoutMs: 30_000, signal, maxStdoutBytes: 2 * 1024 * 1024 }
   );
   if (r.code !== 0) {
-    throw new EngineError("EXECUTION_FAILED", `ffprobe لم يتعرّف على الملف: ${r.stderr.trim().slice(-300) || "صيغة غير مدعومة"}`);
+    // لا نكشف مسارات الخادم المطلقة في رسائل الخطأ.
+    const detail = r.stderr.split(file).join(path.basename(file)).trim().slice(-300);
+    throw new EngineError("EXECUTION_FAILED", `ffprobe لم يتعرّف على الملف: ${detail || "صيغة غير مدعومة"}`);
   }
   let data: { format?: Record<string, string>; streams?: Array<Record<string, unknown>> };
   try {

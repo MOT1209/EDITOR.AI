@@ -343,3 +343,45 @@ export function summarizeTimeline(p: ProjectState) {
     effects: p.effects,
   };
 }
+
+// ---------------------------------------------------------------- تشغيل المعاينة
+// المعاينة في المتصفح تشغّل الفيديو المصدر؛ هاتان الدالتان تربطان زمن التايملاين
+// (ما سيُصدَّر) بزمن المصدر حتى يتبع المشغّل خطة التصدير نفسها (يقفز فوق المقطوع).
+
+export interface PlaybackPosition {
+  clip: VideoClip | null;
+  index: number;
+  sourceTime: number;
+}
+
+/** زمن تايملاين → المقطع وزمن المصدر. بلا مقاطع: تطابق مباشر مع المصدر. */
+export function timelineToSource(p: ProjectState, t: number): PlaybackPosition | null {
+  const clips = exportClips(p);
+  if (clips.length === 0) return { clip: null, index: -1, sourceTime: Math.max(0, t) };
+  let acc = 0;
+  for (let i = 0; i < clips.length; i++) {
+    const c = clips[i];
+    const d = clipDuration(c);
+    if (t < acc + d || i === clips.length - 1) {
+      const rel = Math.min(Math.max(0, t - acc), d);
+      return { clip: c, index: i, sourceTime: round(c.inPoint + rel * (c.speed || 1)) };
+    }
+    acc += d;
+  }
+  return null;
+}
+
+/** أثناء التشغيل: زمن المصدر الحالي ضمن المقطع رقم index → زمن التايملاين. */
+export function sourceToTimelineAt(p: ProjectState, index: number, sourceTime: number): number {
+  const clips = exportClips(p);
+  if (index < 0 || clips.length === 0) return sourceTime;
+  let acc = 0;
+  for (let i = 0; i < index; i++) acc += clipDuration(clips[i]);
+  const c = clips[index];
+  return round(acc + Math.max(0, sourceTime - c.inPoint) / (c.speed || 1));
+}
+
+/** نهاية مقطع بزمن المصدر (مع مراعاة مقاطع المشاهد بلا outPoint). */
+export function clipSourceEnd(c: VideoClip): number {
+  return c.outPoint > c.inPoint ? c.outPoint : c.inPoint + c.duration * (c.speed || 1);
+}

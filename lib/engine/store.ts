@@ -22,7 +22,7 @@ import { maxUploadBytes } from "@/lib/server/validate";
 import { EngineError } from "./errors";
 import { parseProject, PROJECT_SCHEMA_VERSION } from "./project-schema";
 import { probeMedia, type MediaInfo } from "./media";
-import { clipDuration, newId } from "./timeline";
+import { clipDuration, newId, timelineDuration } from "./timeline";
 
 export const HISTORY_LIMIT = 50;
 const ID_RE = /^[A-Za-z0-9_-]{1,80}$/;
@@ -124,7 +124,7 @@ export async function listProjects(): Promise<ProjectSummary[]> {
         id: p.id,
         name: p.name,
         aspect: p.aspect,
-        durationSeconds: p.duration,
+        durationSeconds: timelineDuration(p),
         assets: p.assets?.length ?? 0,
         clips: p.clips.length,
         updatedAt: new Date(p.updatedAt).toISOString(),

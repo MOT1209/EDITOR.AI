@@ -23,6 +23,8 @@ export async function POST(req: NextRequest) {
         title: titles[Math.floor(Math.random() * titles.length)],
         description: `في هذا الفيديو أستعرض تجربتي الكاملة على مدار ${Math.round(duration / 60)} دقائق.`,
         tags: ["ذكاء اصطناعي", "AI", "مونتاج", "تعليم", "تقنية", "تجربة"],
+        simulated: true,
+        warning: "عنوان/وصف نموذجي لا يعتمد على محتوى الفيديو — اضبط مفتاح المزوّد لتوليد حقيقي",
       });
     }
 

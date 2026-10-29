@@ -15,16 +15,27 @@ import {
   Type,
   FileVideo,
   AudioLines,
-  SquareSplitHorizontal,
+  Trash2,
+  Undo2,
+  Redo2,
 } from "lucide-react";
 import type { State, Action } from "./state";
 import type { TimelineTrack } from "@/lib/types";
+import { exportClips, timelineDuration } from "@/lib/engine/timeline";
+
+/** طول التايملاين = مدة المخرَج كما سيصدّره المحرّك (لا مدة الفيديو المصدر). */
+export function timelineTotal(state: State): number {
+  if (exportClips(state.project).length > 0) return Math.max(0.1, timelineDuration(state.project));
+  return state.videoMeta?.duration || state.project.duration || 30;
+}
 
 
 export function Timeline({
   state,
   dispatch,
-  videoRef,
+  onSeek,
+  onSplit,
+  onDeleteClip,
   formatTime,
   onSelectClip,
   onSelectSub,
@@ -32,19 +43,22 @@ export function Timeline({
   state: State;
   dispatch: React.Dispatch<Action>;
   videoRef: React.RefObject<HTMLVideoElement>;
+  /** تحريك المؤشر بزمن التايملاين (المحرّر يحوّله لزمن المصدر). */
+  onSeek: (t: number) => void;
+  onSplit: () => void;
+  onDeleteClip: () => void;
   formatTime: (s: number, ms?: boolean) => string;
   onSelectClip: (id: string | null) => void;
   onSelectSub: (id: string | null) => void;
 }) {
-  const total = state.videoMeta?.duration || 30;
+  const total = timelineTotal(state);
   const zoomWidth = state.zoom;
 
   const onTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
+    // المقاطع تُوضع بـ left:% فالزمن يتقدم يساراً→يميناً حتى في واجهة RTL — نقيس من rect.left.
     const x = e.clientX - rect.left;
-    const t = (x / rect.width) * total;
-    if (videoRef.current) videoRef.current.currentTime = t;
-    dispatch({ type: "SET_PLAYHEAD", t });
+    onSeek(Math.max(0, Math.min(total, (x / rect.width) * total)));
   };
 
   const trackColors: Record<string, { bg: string; border: string; text: string; headBg: string }> = {
@@ -71,17 +85,22 @@ export function Timeline({
   const renderTrackContent = (track: TimelineTrack) => {
     const colors = trackColors[track.kind] || trackColors.video;
 
-    if (track.kind === "video") {
+    if (track.kind === "video" || track.kind === "fx") {
+      const isMarker = track.kind === "fx";
       return (
         <div className="relative h-full">
-          {state.project.clips.map((c) => {
+          {state.project.clips.filter((c) => c.trackId === track.id).sort((a, b) => a.start - b.start).map((c, clipIndex) => {
             const left = (c.start / total) * 100;
             const width = (c.duration / total) * 100;
             const selected = state.selectedClipId === c.id;
             return (
               <div
                 key={c.id}
-                onClick={() => onSelectClip(c.id)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!isMarker) onSelectClip(c.id);
+                }}
+                title={isMarker ? "علامة تحليل — لا تدخل التصدير" : `مقطع: مصدر ${c.inPoint.toFixed(2)}→${(c.outPoint > c.inPoint ? c.outPoint : c.inPoint + c.duration).toFixed(2)}s`}
                 className={`absolute top-0.5 bottom-0.5 rounded-sm cursor-pointer transition-all duration-100 border-l-2 ${
                   selected
                     ? "border-white ring-1 ring-white/30 z-10"
@@ -90,7 +109,9 @@ export function Timeline({
                 style={{
                   left: `${left}%`,
                   width: `${width}%`,
-                  background: selected
+                  background: isMarker
+                    ? "linear-gradient(180deg, rgba(168,85,247,0.25), rgba(168,85,247,0.1))"
+                    : selected
                     ? "linear-gradient(180deg, rgba(99,102,241,0.45), rgba(99,102,241,0.25))"
                     : "linear-gradient(180deg, rgba(59,130,246,0.35), rgba(37,99,235,0.15))",
                 }}
@@ -98,7 +119,7 @@ export function Timeline({
                 <div className="flex items-center gap-1 px-1.5 h-full">
                   <FileVideo className="h-3 w-3 text-blue-200 shrink-0" />
                   <span className="text-[9px] truncate text-blue-100 leading-none">
-                    مقطع {c.id.slice(0, 4)}
+                    {isMarker ? `${c.inPoint.toFixed(1)}s` : `مقطع ${clipIndex + 1}`}
                   </span>
                   {c.effects.length > 0 && (
                     <span className="text-[7px] px-1 rounded bg-black/30 text-blue-300 leading-none">
@@ -218,11 +239,36 @@ export function Timeline({
             <ZoomIn className="h-3 w-3" />
           </button>
           <div className="w-px h-4 bg-[#1e1e2e] mx-1" />
-          <button className="text-zinc-500 hover:text-zinc-300 p-0.5" title="قص">
+          <button onClick={onSplit} className="text-zinc-500 hover:text-zinc-300 p-0.5" title="تقسيم عند المؤشر (S)" aria-label="تقسيم عند المؤشر">
             <Scissors className="h-3 w-3" />
           </button>
-          <button className="text-zinc-500 hover:text-zinc-300 p-0.5" title="تقسيم">
-            <SquareSplitHorizontal className="h-3 w-3" />
+          <button
+            onClick={onDeleteClip}
+            disabled={!state.selectedClipId}
+            className="text-zinc-500 hover:text-rose-300 disabled:opacity-30 p-0.5"
+            title="حذف المقطع المحدد (Delete)"
+            aria-label="حذف المقطع المحدد"
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+          <div className="w-px h-4 bg-[#1e1e2e] mx-1" />
+          <button
+            onClick={() => dispatch({ type: "UNDO" })}
+            disabled={state.past.length === 0}
+            className="text-zinc-500 hover:text-zinc-300 disabled:opacity-30 p-0.5"
+            title="تراجع (Ctrl+Z)"
+            aria-label="تراجع"
+          >
+            <Undo2 className="h-3 w-3" />
+          </button>
+          <button
+            onClick={() => dispatch({ type: "REDO" })}
+            disabled={state.future.length === 0}
+            className="text-zinc-500 hover:text-zinc-300 disabled:opacity-30 p-0.5"
+            title="إعادة (Ctrl+Shift+Z)"
+            aria-label="إعادة"
+          >
+            <Redo2 className="h-3 w-3" />
           </button>
         </div>
       </div>
@@ -308,11 +354,10 @@ export function Timeline({
 
 export function Transport({
   state,
-  dispatch,
-  videoRef,
   audio,
   onPlayPause,
   onSkip,
+  onSeek,
   formatTime,
 }: {
   state: State;
@@ -321,9 +366,10 @@ export function Transport({
   audio: { url: string; name: string } | null;
   onPlayPause: () => void;
   onSkip: (d: number) => void;
+  onSeek: (t: number) => void;
   formatTime: (s: number, ms?: boolean) => string;
 }) {
-  const total = state.videoMeta?.duration || 30;
+  const total = timelineTotal(state);
   return (
     <div className="h-11 bg-[#0c0c14] border-t border-[#1e1e2e] flex items-center px-2 gap-1.5">
       <button onClick={() => onSkip(-5)} className="text-zinc-500 hover:text-zinc-300 p-1 transition-colors" title="رجوع 5 ثوان">
@@ -357,14 +403,12 @@ export function Transport({
           onClick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
             const x = e.clientX - rect.left;
-            const t = (x / rect.width) * total;
-            if (videoRef.current) videoRef.current.currentTime = t;
-            dispatch({ type: "SET_PLAYHEAD", t });
+            onSeek(Math.max(0, Math.min(total, (x / rect.width) * total)));
           }}
         >
           <div
             className="h-full bg-gradient-to-r from-blue-600 to-violet-500 rounded-full transition-all"
-            style={{ width: `${(state.playhead / total) * 100}%` }}
+            style={{ width: `${Math.min(100, (state.playhead / total) * 100)}%` }}
           />
           <div className="absolute top-1/2 -translate-y-1/2 right-0 h-3 w-3 rounded-full bg-white shadow-md opacity-0 group-hover:opacity-100 transition-opacity -mr-1.5" />
         </div>

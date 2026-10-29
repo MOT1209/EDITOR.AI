@@ -18,7 +18,7 @@ export async function ensureExportDir() {
 
 export interface ExportJobStatus {
   id: string;
-  status: "running" | "completed" | "failed";
+  status: "running" | "completed" | "failed" | "cancelled";
   progress: number;
   message?: string;
   result?: { path: string; size: number; format: string };

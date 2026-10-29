@@ -46,6 +46,7 @@ import {
 } from "@/lib/engine/timeline";
 import { cancelJob, getJob, listJobs, revalidateJob, startRender, waitForJob, type RenderJob } from "@/lib/engine/jobs";
 import { buildSkillManager } from "@/lib/skills";
+import { skillProvenance } from "@/lib/skills/provenance";
 import type { ProjectState } from "@/lib/types";
 import { elicitationApprover, approvalPolicy, requireApproval, type Approver } from "./approval";
 
@@ -109,8 +110,6 @@ const jobOut = {
   error: z.string().optional(),
 };
 
-// المهارات التي تعطي دائماً نتيجة مصنّعة (لا تحليل حقيقي) — تُوسم صراحة.
-const ALWAYS_SIMULATED = new Set(["SpeechRecognitionSkill"]);
 
 // ---------------------------------------------------------------- أدوات مساعدة
 function ok<T extends Record<string, unknown>>(data: T, summary?: string): CallToolResult {
@@ -693,14 +692,6 @@ export function createMontageServer(opts: MontageServerOptions = {}): McpServer 
   );
 
   // ============================================================ المهارات والمسارات
-  const skillProvenance = (name: string, logs: { message: string }[]) => {
-    if (ALWAYS_SIMULATED.has(name)) return "simulated";
-    const text = logs.map((l) => l.message).join(" ");
-    if (/heuristic/.test(text)) return "simulated";
-    if (/تحليل مسبق|المصدر: API/.test(text)) return "real-analysis";
-    return "computed";
-  };
-
   tool(
     "list_skills",
     {

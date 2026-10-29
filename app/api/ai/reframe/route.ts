@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { guardCost, recordSpend } from "@/lib/server/cost-guard";
 import { getVisionModel,
   getOpencodeKey, getOpencodeBaseUrl } from "@/lib/server/api-keys";
 
@@ -14,6 +15,9 @@ export async function POST(req: NextRequest) {
     const isVertical = targetAspect === "9:16" || targetAspect === "4:5";
 
     if (frames.length > 0 && OPENCODE_API_KEY) {
+      const guard = guardCost("vision", { images: Math.min(2, frames.length), chars: 600 });
+      if (!guard.allowed) return NextResponse.json({ error: guard.reason, budget: guard }, { status: 402 });
+      recordSpend(guard.estimateUsd);
       try {
         const sampleFrames = frames.slice(0, Math.min(2, frames.length));
         for (let fi = 0; fi < sampleFrames.length; fi++) {
@@ -56,15 +60,14 @@ export async function POST(req: NextRequest) {
     }
 
     if (reframePoints.length === 0) {
-      const pointCount = Math.max(3, Math.floor(duration / 4));
-      for (let i = 0; i < pointCount; i++) {
-        reframePoints.push({
-          time: (i / pointCount) * duration,
-          x: 0.3 + Math.random() * 0.4,
-          y: 0.3 + Math.random() * 0.3,
-          zoom: isVertical ? 1.3 + Math.random() * 0.5 : 1.0 + Math.random() * 0.2,
-        });
-      }
+      // بلا تحليل: تأطير مركزي ثابت (افتراض صريح، لا تتبع موضوع).
+      return NextResponse.json({
+        reframePoints: [{ time: 0, x: 0.5, y: 0.42, zoom: isVertical ? 1.5 : 1.0 }],
+        duration,
+        targetAspect,
+        simulated: true,
+        warning: "تأطير مركزي افتراضي — لا تتبع للموضوع بلا مفتاح رؤية",
+      });
     }
 
     return NextResponse.json({ reframePoints, duration, targetAspect });

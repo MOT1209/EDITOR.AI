@@ -27,5 +27,10 @@ export async function POST(req: NextRequest) {
       lang,
     });
   }
-  return NextResponse.json({ cues });
+  // ⚠️ لا يفرّغ أي صوت: عبارات نموذجية فقط. التفريغ الحقيقي عبر /api/ai/transcribe(-words).
+  return NextResponse.json({
+    cues,
+    simulated: true,
+    warning: "ترجمة تجريبية (عبارات نموذجية) — اضبط مفتاح المزوّد لتفريغ الصوت الحقيقي",
+  });
 }

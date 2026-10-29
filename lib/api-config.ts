@@ -38,104 +38,27 @@ export function authHeaders(): Record<string, string> {
   return headers;
 }
 
+/** حدث يُطلق عندما يعيد مسار API نتيجة محاكاة (simulated:true) — المحرّر يعرضه كتحذير. */
+export const SIMULATED_EVENT = "montage-simulated";
+
 export async function apiFetch(url: string, options: RequestInit = {}): Promise<Response> {
-  return fetch(url, {
+  const res = await fetch(url, {
     ...options,
     headers: { ...(options.headers as Record<string, string> | undefined), ...authHeaders() },
   });
+  if (typeof window !== "undefined" && (res.headers.get("content-type") || "").includes("application/json")) {
+    res
+      .clone()
+      .json()
+      .then((data: { simulated?: boolean; warning?: string }) => {
+        if (data?.simulated) {
+          window.dispatchEvent(new CustomEvent(SIMULATED_EVENT, { detail: { url, warning: data.warning ?? "" } }));
+        }
+      })
+      .catch(() => {});
+  }
+  return res;
 }
 
-export async function opencodeChat(
-  messages: { role: "system" | "user" | "assistant"; content: string }[],
-  opts?: { model?: string; maxTokens?: number; responseFormat?: { type: string } },
-) {
-  const key = apiConfig.opencodeKey;
-  if (!key) throw new Error("OPENCODE_API_KEY غير مضبوط");
-  const res = await fetch(`${apiConfig.opencodeBaseUrl}/chat/completions`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: opts?.model || "gpt-4o",
-      messages,
-      max_tokens: opts?.maxTokens || 2048,
-      response_format: opts?.responseFormat,
-    }),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`OpenAI API error ${res.status}: ${text}`);
-  }
-  const json = await res.json();
-  return json.choices?.[0]?.message?.content || "";
-}
-
-export async function opencodeVision(
-  prompt: string,
-  imageBase64: string,
-  opts?: { model?: string; maxTokens?: number },
-) {
-  const key = apiConfig.opencodeKey;
-  if (!key) throw new Error("OPENCODE_API_KEY غير مضبوط");
-  const res = await fetch(`${apiConfig.opencodeBaseUrl}/chat/completions`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: opts?.model || "gpt-4o",
-      messages: [{
-        role: "user",
-        content: [
-          { type: "text", text: prompt },
-          { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
-        ],
-      }],
-      max_tokens: opts?.maxTokens || 2048,
-    }),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`OpenAI Vision error ${res.status}: ${text}`);
-  }
-  const json = await res.json();
-  return json.choices?.[0]?.message?.content || "";
-}
-
-export async function opencodeWhisper(
-  audioBlob: Blob,
-  opts?: { model?: string; language?: string },
-) {
-  const key = apiConfig.opencodeKey;
-  if (!key) throw new Error("OPENCODE_API_KEY غير مضبوط");
-  const form = new FormData();
-  form.append("file", audioBlob, "audio.mp3");
-  form.append("model", opts?.model || "whisper-1");
-  form.append("response_format", "verbose_json");
-  if (opts?.language) form.append("language", opts.language);
-  const res = await fetch(`${apiConfig.opencodeBaseUrl}/audio/transcriptions`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}` },
-    body: form,
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Whisper error ${res.status}: ${text}`);
-  }
-  return res.json();
-}
-
-export async function huggingfaceInference(
-  model: string,
-  inputs: unknown,
-) {
-  const token = apiConfig.hfToken;
-  if (!token) throw new Error("HF_TOKEN غير مضبوط");
-  const res = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ inputs }),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`HF Inference error ${res.status}: ${text}`);
-  }
-  return res.json();
-}
+// ملاحظة: استدعاء المزوّدين مباشرة من المتصفح أُزيل عمداً — كل استدعاء مدفوع يمر عبر
+// مسارات /api/ai/* على الخادم حتى يطبّق ضابط التكلفة (lib/server/cost-guard.ts).

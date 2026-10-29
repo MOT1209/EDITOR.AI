@@ -13,7 +13,7 @@ import {
   ToggleRow,
 } from "./ui";
 import { ApiSettingsModal, ShortcutsModal } from "./modals";
-import { ProjectsModal, ExportModal, ExportResultModal } from "./project-modals";
+import { ProjectsModal, ExportModal, ExportResultModal, type ServerProjectSummary } from "./project-modals";
 import {
   Sparkles,
   Upload,
@@ -77,13 +77,25 @@ import {
 import {
   defaultProject,
   loadProjects,
+  loadProjectsReport,
   upsertProject,
   deleteProject,
   formatTime,
   formatBytes,
 } from "@/lib/project";
 import { EFFECTS_LIBRARY, MUSIC_LIBRARY, aiJobs, generateToneTrack } from "@/lib/mockAi";
-import { apiConfig, apiFetch } from "@/lib/api-config";
+import { apiConfig, apiFetch, SIMULATED_EVENT } from "@/lib/api-config";
+import { parseProject } from "@/lib/engine/project-schema";
+import {
+  clipSourceEnd,
+  deleteClip as deleteClipOp,
+  exportClips,
+  newId,
+  sourceToTimelineAt,
+  splitClip,
+  timelineDuration,
+  timelineToSource,
+} from "@/lib/engine/timeline";
 import {
   analyzeVideo,
   captureFrame,
@@ -132,6 +144,14 @@ export default function Editor() {
   const [savedProjects, setSavedProjects] = useState<ProjectState[]>([]);
   const [exportResult, setExportResult] = useState<{ name: string; size: number; jobId?: string } | null>(null);
   const [serverVideoPath, setServerVideoPath] = useState<string | null>(null);
+  // مشروع مفتوح من مساحة عمل الخادم (MCP) — الحفظ يكتب إليه أيضاً.
+  const [serverProjectId, setServerProjectId] = useState<string | null>(null);
+  const [serverProjects, setServerProjects] = useState<ServerProjectSummary[] | null>(null);
+  // معرّف مهمة التصدير الجارية (للإلغاء الحقيقي من الخادم).
+  const exportJobRef = useRef<string | null>(null);
+  const exportCancelledRef = useRef(false);
+  // فهرس المقطع الذي يشغّله المشغّل الآن (لتتبع خطة التايملاين أثناء التشغيل).
+  const playClipRef = useRef(-1);
   const [subtitleText, setSubtitleText] = useState("");
   const [voiceoverText, setVoiceoverText] = useState("");
   const [translateTarget, setTranslateTarget] = useState("en");
@@ -188,19 +208,56 @@ export default function Editor() {
     }
   }, [state.isPlaying]);
 
-  const handleVideoTimeUpdate = useCallback(() => {
-    if (!videoRef.current) return;
-    const t = videoRef.current.currentTime;
-    dispatch({ type: "SET_PLAYHEAD", t });
-    if (t >= videoRef.current.duration) {
-      dispatch({ type: "TOGGLE_PLAY" });
+  // المعاينة تتبع خطة التصدير: المشغّل يقفز فوق المقاطع المحذوفة، ويطبّق سرعة
+  // وصوت كل مقطع، والمؤشر يعرض زمن التايملاين (لا زمن المصدر).
+  const projectRef = useRef(state.project);
+  projectRef.current = state.project;
+
+  const seekTimeline = useCallback((t: number) => {
+    const v = videoRef.current;
+    const pos = timelineToSource(projectRef.current, t);
+    if (v && pos) {
+      playClipRef.current = pos.index;
+      v.currentTime = pos.sourceTime;
+      v.playbackRate = pos.clip?.speed || 1;
+      v.volume = Math.min(1, pos.clip?.volume ?? 1);
     }
+    dispatch({ type: "SET_PLAYHEAD", t: Math.max(0, t) });
   }, []);
 
-  const handlePlayheadChange = useCallback((t: number) => {
-    if (videoRef.current) videoRef.current.currentTime = t;
-    dispatch({ type: "SET_PLAYHEAD", t });
+  const handleVideoTimeUpdate = useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const p = projectRef.current;
+    const clips = exportClips(p);
+    if (clips.length === 0) {
+      dispatch({ type: "SET_PLAYHEAD", t: v.currentTime });
+      if (v.currentTime >= v.duration) dispatch({ type: "TOGGLE_PLAY" });
+      return;
+    }
+    let idx = playClipRef.current;
+    if (idx < 0 || idx >= clips.length) {
+      idx = Math.max(0, clips.findIndex((c) => v.currentTime >= c.inPoint && v.currentTime < clipSourceEnd(c)));
+      playClipRef.current = idx;
+    }
+    const clip = clips[idx];
+    if (v.currentTime >= clipSourceEnd(clip) - 0.04) {
+      const next = clips[idx + 1];
+      if (!next) {
+        dispatch({ type: "SET_PLAYHEAD", t: timelineDuration(p) });
+        if (!v.paused) dispatch({ type: "TOGGLE_PLAY" });
+        return;
+      }
+      playClipRef.current = idx + 1;
+      v.currentTime = next.inPoint;
+      v.playbackRate = next.speed || 1;
+      v.volume = Math.min(1, next.volume ?? 1);
+      return;
+    }
+    dispatch({ type: "SET_PLAYHEAD", t: sourceToTimelineAt(p, idx, v.currentTime) });
   }, []);
+
+  const handlePlayheadChange = useCallback((t: number) => seekTimeline(t), [seekTimeline]);
 
   const onUpload = useCallback((file: File) => {
     const url = URL.createObjectURL(file);
@@ -216,7 +273,19 @@ export default function Editor() {
       };
       dispatch({ type: "SET_VIDEO", file, url, meta });
       dispatch({ type: "SET_PLAYHEAD", t: 0 });
+      playClipRef.current = -1;
       setServerVideoPath(null);
+      // إعادة ربط الوسائط: مشروع محفوظ مفتوح بلا فيديو + ملف بنفس المدة ⇒ نبقي التعديلات.
+      const p = projectRef.current;
+      const hasEdits = p.clips.length > 0 || p.subtitles.length > 0 || p.textOverlays.length > 0;
+      const sameSource = p.duration > 0 && Math.abs(p.duration - video.duration) < 0.5;
+      if (hasEdits && sameSource && !state.videoMeta) {
+        notify("success", "أُعيد ربط الفيديو بالمشروع", `${file.name} • التعديلات محفوظة`);
+        return;
+      }
+      if (hasEdits && !window.confirm("رفع فيديو جديد سيبدأ مشروعاً جديداً ويستبدل التايملاين الحالي. متابعة؟")) {
+        return;
+      }
       dispatch({
         type: "REPLACE_PROJECT",
         project: {
@@ -230,7 +299,7 @@ export default function Editor() {
       notify("error", "تعذر قراءة الفيديو", "تأكد من أن الملف بصيغة مدعومة.");
     };
     video.src = url;
-  }, [notify]);
+  }, [notify, state.videoMeta]);
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -572,14 +641,17 @@ export default function Editor() {
       state.project.clips.forEach((c) =>
         dispatch({ type: "REMOVE_CLIP", id: c.id })
       );
-      keeps.forEach((k, i) => {
+      let cursor2 = 0;
+      keeps.forEach((k) => {
+        const start = cursor2;
+        cursor2 += Math.max(0.2, k.end - k.start);
         dispatch({
           type: "ADD_CLIP",
           clip: {
             id: uuid(),
             assetId: "main",
             trackId: "t_video",
-            start: i * 0.5, // فجوة بصرية صغيرة بين المقاطع على التايملاين
+            start, // تتابع بلا فجوات = نفس ترتيب ومدد خطة التصدير
             duration: Math.max(0.2, k.end - k.start),
             inPoint: k.start,
             outPoint: k.end,
@@ -887,7 +959,8 @@ export default function Editor() {
         const trackId = `t_scenes_${Date.now()}`;
         dispatch({
           type: "ADD_TRACK",
-          track: { id: trackId, kind: "video", label: "المشاهد", height: 60, muted: false, locked: false },
+          // مسار علامات (fx) لا يدخل التصدير — كان مسار video فيُلصق بداية الفيديو مكرّرة.
+          track: { id: trackId, kind: "fx", label: "المشاهد", height: 40, muted: false, locked: true },
         });
         scenes.forEach((s, i) => {
           dispatch({
@@ -898,8 +971,8 @@ export default function Editor() {
               trackId,
               start: s.start,
               duration: Math.max(0.5, s.end - s.start),
-              inPoint: 0,
-              outPoint: 0,
+              inPoint: s.start,
+              outPoint: s.end,
               effects: ["fx_fade"],
               volume: 1,
               speed: 1,
@@ -1218,6 +1291,12 @@ export default function Editor() {
 
   const startExport = async () => {
     if (!state.videoMeta || !state.videoFile) return notify("warning", "ارفع فيديو أولاً");
+    // لا انحراف صامت: ما تسمعه في المعاينة من موسيقى/تعليق المتصفح لا يصل للمخرَج بعد.
+    if (state.project.audioClips.some((a) => a.url.startsWith("blob:")) || state.project.musicId) {
+      notify("warning", "الموسيقى/التعليق الصوتي لن يُضمَّنا", "الصوت المضاف من المتصفح للمعاينة فقط حالياً — المخرَج يحوي صوت الفيديو الأصلي.");
+    }
+    exportCancelledRef.current = false;
+    exportJobRef.current = null;
     setIsExporting(true);
     setExportProgress(0);
     try {
@@ -1241,15 +1320,33 @@ export default function Editor() {
           colorGrading,
         }),
       }).then((r) => r.json());
-      if (!startRes?.job?.id) throw new Error(startRes?.error || "تعذّر بدء التصدير");
+      if (!startRes?.job?.id) {
+        const details = Array.isArray(startRes?.details) ? ` (${startRes.details.slice(0, 2).join("؛ ")})` : "";
+        throw new Error((startRes?.error || "تعذّر بدء التصدير") + details);
+      }
       const jobId = startRes.job.id as string;
+      exportJobRef.current = jobId;
 
       // Poll the file-backed export status (not the in-memory /api/jobs list,
       // which Next.js dev mode can reset between route module reloads).
+      let misses = 0;
       for (;;) {
         await new Promise((r) => setTimeout(r, 700));
-        const job = await fetch(`/api/export/status/${jobId}`).then((r) => (r.ok ? r.json() : null));
-        if (!job) continue;
+        if (exportCancelledRef.current) return;
+        const job = await fetch(`/api/export/status/${jobId}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null);
+        if (!job) {
+          // حد أقصى للمحاولات بدل حلقة لا تنتهي إن اختفت حالة المهمة.
+          if (++misses > 20) throw new Error("تعذّر متابعة حالة التصدير (الخادم لا يعرف المهمة)");
+          continue;
+        }
+        misses = 0;
+        if (job.status === "cancelled") {
+          setIsExporting(false);
+          notify("info", "أُلغي التصدير");
+          return;
+        }
         setExportProgress(job.progress || 0);
         if (job.status === "completed") {
           setIsExporting(false);
@@ -1273,6 +1370,102 @@ export default function Editor() {
       notify("error", "فشل التصدير", msg);
     }
   };
+
+  const cancelExport = async () => {
+    exportCancelledRef.current = true;
+    setIsExporting(false);
+    const id = exportJobRef.current;
+    if (!id) return;
+    const res = await apiFetch(`/api/export?id=${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => null);
+    notify(res?.ok ? "info" : "warning", res?.ok ? "أُلغي التصدير" : "تعذّر إلغاء التصدير على الخادم");
+  };
+
+  // ---- تعديلات التايملاين عبر عمليات المحرّك المشتركة (نفسها المستخدمة في MCP)
+  const ensureBaseClip = (p: ProjectState): ProjectState => {
+    if (exportClips(p).length > 0) return p;
+    const d = p.duration || totalDuration;
+    return {
+      ...p,
+      clips: [
+        ...p.clips,
+        {
+          id: newId("clip"), assetId: "main", trackId: "t_video", start: 0, duration: d, inPoint: 0, outPoint: d,
+          effects: [], volume: 1, speed: 1, zoom: 1, panX: 0, panY: 0, smartZoom: false, colorFilter: "none",
+        },
+      ],
+    };
+  };
+
+  const splitAtPlayhead = () => {
+    if (!state.videoMeta) return notify("warning", "ارفع فيديو أولاً");
+    try {
+      const p = ensureBaseClip(state.project);
+      const t = state.playhead;
+      const clips = exportClips(p);
+      const selected = clips.find((c) => c.id === state.selectedClipId && t > c.start && t < c.start + c.duration);
+      const target = selected ?? clips.find((c) => t > c.start && t < c.start + c.duration);
+      if (!target) return notify("warning", "ضع المؤشر داخل مقطع للتقسيم");
+      const r = splitClip(p, target.id, t);
+      dispatch({ type: "COMMIT_PROJECT", project: r.project });
+      dispatch({ type: "SELECT_CLIP", id: r.newClipId });
+    } catch (e) {
+      notify("error", "تعذّر التقسيم", e instanceof Error ? e.message : undefined);
+    }
+  };
+
+  const deleteSelectedClip = () => {
+    const id = state.selectedClipId;
+    if (!id) return notify("warning", "حدّد مقطعاً أولاً");
+    try {
+      const p = deleteClipOp(state.project, id);
+      if (exportClips(p).length === 0 && exportClips(state.project).length > 0) {
+        return notify("warning", "لا يمكن حذف آخر مقطع", "التايملاين الفارغ يصدّر الفيديو كاملاً");
+      }
+      dispatch({ type: "COMMIT_PROJECT", project: p });
+      dispatch({ type: "SELECT_CLIP", id: null });
+      notify("info", "حُذف المقطع", "Ctrl+Z للتراجع");
+    } catch (e) {
+      notify("error", "تعذّر الحذف", e instanceof Error ? e.message : undefined);
+    }
+  };
+
+  const editorActionsRef = useRef({ splitAtPlayhead, deleteSelectedClip });
+  editorActionsRef.current = { splitAtPlayhead, deleteSelectedClip };
+
+  // اختصارات لوحة المفاتيح: تراجع/إعادة، تقسيم (S)، حذف (Delete) — لا تعمل داخل حقول الكتابة.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName))) return;
+      const mod = e.ctrlKey || e.metaKey;
+      const key = e.key.toLowerCase();
+      if (mod && key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        dispatch({ type: "UNDO" });
+      } else if (mod && (key === "y" || (key === "z" && e.shiftKey))) {
+        e.preventDefault();
+        dispatch({ type: "REDO" });
+      } else if (!mod && key === "s") {
+        e.preventDefault();
+        editorActionsRef.current.splitAtPlayhead();
+      } else if (!mod && (e.key === "Delete" || e.key === "Backspace")) {
+        e.preventDefault();
+        editorActionsRef.current.deleteSelectedClip();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // نتائج محاكاة من أي مسار API تُعرض كتحذير صريح (لا تُقدَّم كتحليل حقيقي).
+  useEffect(() => {
+    const onSim = (e: Event) => {
+      const detail = (e as CustomEvent<{ url: string; warning: string }>).detail;
+      notify("warning", "نتيجة تقديرية (محاكاة)", detail.warning || detail.url);
+    };
+    window.addEventListener(SIMULATED_EVENT, onSim);
+    return () => window.removeEventListener(SIMULATED_EVENT, onSim);
+  }, [notify]);
 
   const downloadJSON = (data: unknown, name: string) => {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
@@ -1327,36 +1520,114 @@ export default function Editor() {
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        const p = JSON.parse(String(reader.result));
-        dispatch({ type: "REPLACE_PROJECT", project: { ...defaultProject(), ...p } });
-        notify("success", "تم استيراد المشروع");
+        const raw = JSON.parse(String(reader.result));
+        // تحقق المخطط + ترقية النسخ القديمة؛ الحقول الزائدة (videoMeta/audio) تُتجاهل.
+        const r = parseProject({ ...defaultProject(), ...raw });
+        if (!r.ok) {
+          notify("error", "ملف مشروع غير صالح", r.errors.slice(0, 2).join("؛ "));
+          return;
+        }
+        dispatch({ type: "REPLACE_PROJECT", project: r.project });
+        notify("success", "تم استيراد المشروع", "أعد رفع الفيديو المصدر لربطه (الملف لا يُحفظ داخل JSON).");
       } catch {
-        notify("error", "ملف غير صالح");
+        notify("error", "ملف غير صالح", "تعذّرت قراءة JSON");
       }
     };
     reader.readAsText(f);
   };
 
+  const refreshServerProjects = async () => {
+    setServerProjects(null);
+    const r = await apiFetch("/api/projects").then((x) => x.json()).catch(() => null);
+    setServerProjects(Array.isArray(r?.projects) ? r.projects : []);
+  };
+
+  const openServerProject = async (id: string) => {
+    setShowProjects(false);
+    try {
+      const r = await apiFetch(`/api/projects/${encodeURIComponent(id)}`).then((x) => x.json());
+      if (!r?.project) throw new Error(r?.error || "تعذّر تحميل المشروع");
+      const parsed = parseProject(r.project);
+      if (!parsed.ok) throw new Error(parsed.errors.join("؛ "));
+      dispatch({ type: "REPLACE_PROJECT", project: parsed.project });
+      dispatch({ type: "CLEAR_VIDEO" });
+      playClipRef.current = -1;
+      setServerProjectId(parsed.project.id);
+      setServerVideoPath(r.media?.sourcePath ?? null);
+      if (!r.media) {
+        notify("info", "فُتح المشروع", "لا فيديو في هذا المشروع بعد");
+        return;
+      }
+      notify("info", "جارِ تحميل الفيديو من مساحة العمل…", r.media.name);
+      const blob = await fetch(r.media.url).then((x) => {
+        if (!x.ok) throw new Error("تعذّر تحميل الوسيط");
+        return x.blob();
+      });
+      const file = new File([blob], r.media.name, { type: blob.type || "video/mp4" });
+      const url = URL.createObjectURL(file);
+      const v = document.createElement("video");
+      v.preload = "metadata";
+      v.onloadedmetadata = () => {
+        dispatch({
+          type: "SET_VIDEO",
+          file,
+          url,
+          meta: { width: v.videoWidth, height: v.videoHeight, duration: v.duration, size: file.size, name: file.name },
+        });
+        seekTimeline(0);
+        notify("success", "فُتح مشروع مساحة العمل", parsed.project.name);
+      };
+      v.onerror = () => notify("error", "تعذّر تشغيل الوسيط في المتصفح");
+      v.src = url;
+    } catch (e) {
+      notify("error", "تعذّر فتح المشروع", e instanceof Error ? e.message : undefined);
+    }
+  };
+
   const saveProjectToList = () => {
-    const updated = upsertProject({ ...state.project, thumbnail: state.project.thumbnail });
+    if (serverProjectId && serverProjectId === state.project.id) {
+      void apiFetch(`/api/projects/${encodeURIComponent(serverProjectId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project: state.project }),
+      })
+        .then((x) => x.json().then((d) => ({ ok: x.ok, d })))
+        .then(({ ok, d }) =>
+          ok
+            ? notify("success", "حُفظ في مساحة العمل", "قابل للتراجع عبر MCP (undo_edit)")
+            : notify("error", "فشل الحفظ في مساحة العمل", d?.error)
+        )
+        .catch(() => notify("error", "فشل الحفظ في مساحة العمل"));
+    }
+    const { project: updated, result } = upsertProject({ ...state.project, thumbnail: state.project.thumbnail });
     setSavedProjects(loadProjects());
-    notify("success", "تم الحفظ", `المشروع: ${updated.name}`);
+    if (!result.ok) {
+      notify("error", "فشل الحفظ", result.error);
+      return;
+    }
+    notify("success", "تم الحفظ في المتصفح", `${updated.name} — بيانات المشروع فقط؛ الفيديو يبقى ملفاً على جهازك ويُعاد ربطه عند الفتح.`);
   };
 
   const loadProject = (p: ProjectState) => {
     dispatch({ type: "REPLACE_PROJECT", project: p });
+    dispatch({ type: "CLEAR_VIDEO" });
+    setServerVideoPath(null);
+    playClipRef.current = -1;
     setShowProjects(false);
-    notify("info", "تم تحميل المشروع", p.name);
+    notify("info", "تم تحميل المشروع", `${p.name} — ارفع الفيديو المصدر (نفس الملف) لإعادة ربطه.`);
   };
 
   const removeProject = (id: string) => {
-    deleteProject(id);
+    const r = deleteProject(id);
+    if (!r.ok) notify("error", "تعذّر الحذف", r.error);
     setSavedProjects(loadProjects());
   };
 
   useEffect(() => {
-    setSavedProjects(loadProjects());
-  }, []);
+    const { projects, invalid } = loadProjectsReport();
+    setSavedProjects(projects);
+    if (invalid > 0) notify("warning", `تُجوهل ${invalid} مشروع تالف في تخزين المتصفح`);
+  }, [notify]);
 
   const aspectRatio = useMemo(() => {
     switch (state.project.aspect) {
@@ -1385,6 +1656,7 @@ export default function Editor() {
         onSave={saveProjectToList}
         onProjects={() => {
           setSavedProjects(loadProjects());
+          void refreshServerProjects();
           setShowProjects(true);
         }}
         onImport={() => {
@@ -1600,6 +1872,9 @@ export default function Editor() {
             state={state}
             dispatch={dispatch}
             videoRef={videoRef}
+            onSeek={seekTimeline}
+            onSplit={splitAtPlayhead}
+            onDeleteClip={deleteSelectedClip}
             formatTime={formatTime}
             onSelectClip={(id) => dispatch({ type: "SELECT_CLIP", id })}
             onSelectSub={(id) => dispatch({ type: "SELECT_SUBTITLE", id })}
@@ -1612,6 +1887,7 @@ export default function Editor() {
               audio={audio}
               onPlayPause={() => dispatch({ type: "TOGGLE_PLAY" })}
               onSkip={(d) => handlePlayheadChange(Math.max(0, state.playhead + d))}
+              onSeek={seekTimeline}
               formatTime={formatTime}
             />
         </main>
@@ -1640,10 +1916,16 @@ export default function Editor() {
       {showProjects && (
         <ProjectsModal
           projects={savedProjects}
+          serverProjects={serverProjects}
           onClose={() => setShowProjects(false)}
-          onLoad={loadProject}
+          onLoad={(p) => {
+            setServerProjectId(null);
+            loadProject(p);
+          }}
+          onOpenServer={openServerProject}
           onDelete={removeProject}
           onNew={() => {
+            setServerProjectId(null);
             dispatch({ type: "REPLACE_PROJECT", project: defaultProject() });
             setShowProjects(false);
           }}
@@ -1654,7 +1936,7 @@ export default function Editor() {
         <ExportModal
           project={state.project}
           progress={exportProgress}
-          onCancel={() => setIsExporting(false)}
+          onCancel={cancelExport}
         />
       )}
 

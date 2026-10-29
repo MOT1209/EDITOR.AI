@@ -14,6 +14,9 @@ const MIME: Record<string, string> = {
 };
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  if (!/^job_\d+_\d+$/.test(params.id)) {
+    return NextResponse.json({ error: "معرّف مهمة غير صالح" }, { status: 400 });
+  }
   const job = await readJobStatus(params.id);
   if (!job) {
     return NextResponse.json({ error: "المهمة غير موجودة" }, { status: 404 });

@@ -153,3 +153,32 @@ describe("project schema", () => {
     expect(r.ok && (r.project.clips[0] as VideoClip & { _removed?: boolean })._removed).toBe(true);
   });
 });
+
+import { clipSourceEnd, sourceToTimelineAt, timelineToSource } from "./timeline";
+
+describe("preview playback mapping (timeline ↔ source)", () => {
+  const p = (() => {
+    let q = project([clip("c1", 0, 30)]);
+    q = splitClip(q, "c1", 10).project;
+    const second = exportClips(q)[1].id;
+    q = trimClip(q, second, { inPoint: 20 }); // يحذف المصدر 10..20
+    return q;
+  })();
+
+  it("maps timeline time into the kept source ranges, skipping cut material", () => {
+    expect(timelineDuration(p)).toBe(20);
+    expect(timelineToSource(p, 5)).toMatchObject({ index: 0, sourceTime: 5 });
+    expect(timelineToSource(p, 12)).toMatchObject({ index: 1, sourceTime: 22 });
+  });
+
+  it("maps source time back to timeline time per clip", () => {
+    expect(sourceToTimelineAt(p, 1, 22)).toBe(12);
+    expect(clipSourceEnd(exportClips(p)[0])).toBe(10);
+  });
+
+  it("is identity when the timeline has no clips", () => {
+    const empty = { ...project([]), clips: [] };
+    expect(timelineToSource(empty, 7)).toMatchObject({ clip: null, sourceTime: 7 });
+    expect(sourceToTimelineAt(empty, -1, 7)).toBe(7);
+  });
+});

@@ -58,17 +58,13 @@ export async function POST(req: NextRequest) {
     }
 
     if (objects.length === 0) {
-      const labels = ["person", "car", "phone", "laptop", "book", "bottle", "chair", "tv"];
-      const count = Math.max(2, Math.floor(duration / 8));
-      for (let i = 0; i < count; i++) {
-        const start = (i / count) * duration + Math.random() * 2;
-        objects.push({
-          start,
-          end: Math.min(start + 3, duration),
-          label: labels[Math.floor(Math.random() * labels.length)],
-          confidence: 0.5 + Math.random() * 0.5,
-        });
-      }
+      // لا نختلق كائنات: نتيجة فارغة + تحذير.
+      return NextResponse.json({
+        objects: [],
+        duration,
+        simulated: true,
+        warning: "لم يُكشف أي كائن (لا HF_TOKEN أو لا إطارات)",
+      });
     }
 
     return NextResponse.json({ objects, duration });

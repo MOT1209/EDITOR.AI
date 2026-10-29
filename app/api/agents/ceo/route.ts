@@ -12,6 +12,8 @@ import {
   getWhisperModel,
 } from "@/lib/server/api-keys";
 import { hasFfmpeg, resolveFfmpegPath } from "@/lib/server/ffmpeg-export";
+import { guardCost, recordSpend } from "@/lib/server/cost-guard";
+import { validateVideoUpload } from "@/lib/server/validate";
 import type {
   CeoResponse,
   DirectorPlan,
@@ -513,6 +515,9 @@ export async function POST(req: NextRequest) {
     if (!file || !(file instanceof File)) {
       return NextResponse.json({ error: "ملف الفيديو مطلوب" }, { status: 400 });
     }
+    const upload = validateVideoUpload(file);
+    if (!upload.ok) return NextResponse.json({ error: upload.error }, { status: 400 });
+    const warnings: string[] = [];
 
     const apiKey = getOpencodeKey(req);
     const baseUrl = getOpencodeBaseUrl();
@@ -520,7 +525,8 @@ export async function POST(req: NextRequest) {
     // 1) احفظ الفيديو على الخادم
     await ensureDir(UPLOAD_DIR);
     const id = uuid();
-    const ext = path.extname(file.name) || ".mp4";
+    const rawExt = path.extname(file.name).toLowerCase();
+    const ext = [".mp4", ".mov", ".webm", ".mkv", ".avi", ".m4v"].includes(rawExt) ? rawExt : ".mp4";
     const filePath = path.join(UPLOAD_DIR, `${id}${ext}`);
     const buf = Buffer.from(await file.arrayBuffer());
     await fsp.writeFile(filePath, buf);
@@ -541,28 +547,39 @@ export async function POST(req: NextRequest) {
     // 4) التفريغ الصوتي (Word-level) عبر Whisper
     let transcript = "";
     let segments: TranscriptSegment[] = [];
-    if (apiKey) {
+    const whisperGuard = guardCost("whisper", { durationSec: duration });
+    if (apiKey && !whisperGuard.allowed) warnings.push(whisperGuard.reason ?? "تجاوز سقف التكلفة");
+    if (apiKey && whisperGuard.allowed) {
       let audioPath: string | null = null;
       try {
         audioPath = await extractAudioMp3(filePath);
         if (audioPath) {
           const w = await transcribeWhisper(apiKey, baseUrl, audioPath, language);
+          recordSpend(whisperGuard.estimateUsd);
           transcript = w.text;
           segments = w.segments;
         }
       } catch {
-        /* نكمل بدون تفريغ حقيقي */
+        warnings.push("فشل التفريغ الصوتي عبر المزوّد");
       }
       if (audioPath) await fsp.unlink(audioPath).catch(() => {});
     }
+    let transcriptSimulated = false;
     if (segments.length === 0) {
+      // نص نموذجي لتشغيل الخطة المحلية فقط — موسوم صراحة ولا يُعرض كتفريغ حقيقي.
       segments = mockTranscript(duration);
       transcript = segments.map((s) => s.text).join(" ");
+      transcriptSimulated = true;
+      warnings.push("لا تفريغ حقيقي — الترجمات في الخطة نص نموذجي، راجعها قبل التصدير");
     }
 
     // 5) التحليل البصري
     const frames = await captureFrames(filePath, duration);
-    const vision = apiKey ? await analyzeVision(apiKey, baseUrl, frames, duration) : null;
+    const visionGuard = guardCost("vision", { images: frames.length, chars: 3000 });
+    if (apiKey && frames.length && !visionGuard.allowed) warnings.push(visionGuard.reason ?? "تجاوز سقف التكلفة");
+    const vision =
+      apiKey && frames.length && visionGuard.allowed ? await analyzeVision(apiKey, baseUrl, frames, duration) : null;
+    if (vision) recordSpend(visionGuard.estimateUsd);
     const scenes: SceneInfo[] = vision?.scenes || [];
     const highlights: HighlightInfo[] = vision?.highlights || [];
     const quality: QualityInfo =
@@ -572,7 +589,9 @@ export async function POST(req: NextRequest) {
     // 6) قرار المديرة التنفيذية
     let plan: DirectorPlan | null = null;
     let mock = false;
-    if (apiKey) {
+    const chatGuard = guardCost("chat", { chars: transcript.length + 6000 });
+    if (apiKey && !chatGuard.allowed) warnings.push(chatGuard.reason ?? "تجاوز سقف التكلفة");
+    if (apiKey && chatGuard.allowed) {
       try {
         plan = await directorPlan(apiKey, baseUrl, {
           request,
@@ -587,6 +606,7 @@ export async function POST(req: NextRequest) {
           quality,
           contentDesc,
         });
+        recordSpend(chatGuard.estimateUsd);
       } catch {
         plan = null;
       }
@@ -607,6 +627,8 @@ export async function POST(req: NextRequest) {
       quality,
       filePath,
       mock,
+      transcriptSimulated,
+      warnings,
     };
     return NextResponse.json(response);
   } catch (err: unknown) {
