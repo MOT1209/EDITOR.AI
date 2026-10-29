@@ -16,10 +16,12 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // هذا المسار لا يعالج الصوت: التحسين الفعلي (afftdn + loudnorm) يُطبَّق عند التصدير.
     return NextResponse.json({
       ok: true,
-      enhanced: true,
-      message: "تم تحسين جودة الصوت",
+      enhanced: false,
+      simulated: true,
+      message: "إعدادات مقترحة فقط — التحسين الفعلي يُطبَّق عند التصدير (afftdn + loudnorm)",
       settings: { noiseReduction: 0.7, compression: 0.5, eq: "balanced" },
     });
   } catch {

@@ -514,8 +514,11 @@ def normalize_plan(
             if prev.keep and not s.keep:
                 continue  # قطع داخل فترة إبقاء → تجاهل
             if not prev.keep and s.keep:
-                prev.end = max(prev.end, s.end)
-                prev.reason = prev.reason or s.reason
+                # الإبقاء يسيطر: القطع السابق يُقص حتى بداية الإبقاء (لا يبتلعه).
+                prev.end = s.start
+                if prev.end - prev.start < 0.05:
+                    merged.pop()
+                merged.append(s)
                 continue
             if prev.keep and s.keep:
                 prev.end = max(prev.end, s.end)

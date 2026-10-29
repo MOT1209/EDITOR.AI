@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getVisionModel, getOpencodeKey, getHfToken, getOpencodeBaseUrl } from "@/lib/server/api-keys";
+import { guardCost, recordSpend } from "@/lib/server/cost-guard";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -78,6 +79,11 @@ export async function POST(req: NextRequest) {
 
     if (frames.length > 0) {
       const sampleFrames = frames.slice(0, Math.min(3, frames.length));
+      if (OPENCODE_API_KEY) {
+        const guard = guardCost("vision", { images: sampleFrames.length, chars: sampleFrames.length * 300 });
+        if (!guard.allowed) return NextResponse.json({ error: guard.reason, budget: guard }, { status: 402 });
+        recordSpend(guard.estimateUsd); // تقدير وقائي: يُسجَّل قبل الاستدعاءات المتتابعة
+      }
       for (let fi = 0; fi < sampleFrames.length; fi++) {
         // Prefer the vision model: it returns actual face boxes in normalized
         // 0..1 coords. Fall back to the coarse HF person detector only if vision
@@ -115,18 +121,13 @@ export async function POST(req: NextRequest) {
     }
 
     if (faces.length === 0) {
-      const faceCount = Math.max(1, Math.floor(duration / 5));
-      for (let i = 0; i < faceCount; i++) {
-        const start = (i / faceCount) * duration;
-        faces.push({
-          start,
-          end: Math.min(start + 2 + Math.random() * 2, duration),
-          x: 0.2 + Math.random() * 0.4,
-          y: 0.15 + Math.random() * 0.4,
-          w: 0.15 + Math.random() * 0.2,
-          h: 0.2 + Math.random() * 0.25,
-        });
-      }
+      // لا نختلق وجوهاً: نتيجة فارغة + تحذير (التدهور الأنيق).
+      return NextResponse.json({
+        faces: [],
+        duration,
+        simulated: true,
+        warning: "لم يُكشف أي وجه (لا مفتاح رؤية/HF أو لا إطارات) — للكشف المحلي ثبّت opencv واستخدم مسار الوكلاء",
+      });
     }
 
     return NextResponse.json({ faces, duration });

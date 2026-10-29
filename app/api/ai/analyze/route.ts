@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { guardCost, recordSpend } from "@/lib/server/cost-guard";
 import { getVisionModel,
   getOpencodeKey, getOpencodeBaseUrl } from "@/lib/server/api-keys";
 
@@ -14,20 +15,22 @@ export async function POST(req: NextRequest) {
     if (!OPENCODE_API_KEY || !frameBase64) {
       const sceneCount = Math.max(3, Math.floor(duration / 6));
       const scenes = [];
-      const highlights = [];
+      const highlights: { start: number; end: number; reason: string }[] = [];
       for (let i = 0; i < sceneCount; i++) {
         const start = (i / sceneCount) * duration;
         const end = ((i + 1) / sceneCount) * duration;
-        scenes.push({ start, end, score: 0.5 + Math.random() * 0.5 });
-        if (Math.random() > 0.6) {
-          highlights.push({ start, end: Math.min(end, start + 3), reason: "لقطة مميزة" });
-        }
+        scenes.push({ start, end, score: 0.5 });
       }
       return NextResponse.json({
         duration, scenes, highlights,
         quality: { brightness: 0.6, contrast: 0.6, saturation: 0.6, sharpness: 0.6 },
+        simulated: true,
+        warning: "تحليل تقديري بلا نموذج رؤية (لا مفتاح أو لا إطار) — القيم افتراضية وليست قياساً",
       });
     }
+
+    const guard = guardCost("vision", { images: 1, chars: 2500 });
+    if (!guard.allowed) return NextResponse.json({ error: guard.reason, budget: guard }, { status: 402 });
 
     const res = await fetch(`${OPENCODE_BASE_URL}/chat/completions`, {
       method: "POST",
@@ -51,6 +54,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `GPT-4o Vision error: ${errText}` }, { status: res.status });
     }
 
+    recordSpend(guard.estimateUsd);
     const data = await res.json();
     const content = data.choices?.[0]?.message?.content || "{}";
     const result = JSON.parse(content);

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { guardCost, recordSpend } from "@/lib/server/cost-guard";
 import { getVisionModel,
   getOpencodeKey, getOpencodeBaseUrl } from "@/lib/server/api-keys";
 
@@ -12,7 +13,11 @@ export async function POST(req: NextRequest) {
     const { duration = 30, frames } = await req.json();
     const sceneCount = Math.max(2, Math.floor(duration / 5));
 
+    const warnings: string[] = [];
     if (OPENCODE_API_KEY && frames && frames.length > 0) {
+      const sample = Math.min(5, frames.length);
+      const guard = guardCost("vision", { images: sample, chars: sample * 400 });
+      if (!guard.allowed) return NextResponse.json({ error: guard.reason, budget: guard }, { status: 402 });
       try {
         const analysisPromises = frames.slice(0, 5).map(async (frame: string, i: number) => {
           const res = await fetch(`${OPENCODE_BASE_URL}/chat/completions`, {
@@ -40,6 +45,7 @@ export async function POST(req: NextRequest) {
           return JSON.parse(content);
         });
         const analysisResults = await Promise.all(analysisPromises);
+        recordSpend(guard.estimateUsd);
         const validResults = analysisResults.filter(Boolean);
         if (validResults.length > 0) {
           const scenes: { start: number; end: number; score: number; description?: string }[] = [];
@@ -50,14 +56,14 @@ export async function POST(req: NextRequest) {
             scenes.push({
               start,
               end: Math.min(end, duration),
-              score: r.quality || 0.5 + Math.random() * 0.5,
+              score: typeof r.quality === "number" ? r.quality : 0.5,
               description: r.description || `مشهد ${i + 1}`,
             });
           });
           return NextResponse.json({ scenes, duration });
         }
       } catch {
-        /* fall through */
+        warnings.push("فشل تحليل الرؤية — عُرض تقسيم تقديري");
       }
     }
 
@@ -67,11 +73,16 @@ export async function POST(req: NextRequest) {
       scenes.push({
         start: i * segLen + 0.1,
         end: Math.min((i + 1) * segLen, duration),
-        score: 0.5 + Math.random() * 0.5,
+        score: 0.5,
         description: `مشهد ${i + 1}`,
       });
     }
-    return NextResponse.json({ scenes, duration });
+    return NextResponse.json({
+      scenes,
+      duration,
+      simulated: true,
+      warning: warnings[0] ?? "تقسيم زمني متساوٍ (ليس كشف مشاهد حقيقي) — اضبط مفتاح رؤية أو استخدم MCP analyze_scenes",
+    });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "خطأ";
     return NextResponse.json({ error: msg }, { status: 500 });

@@ -8,7 +8,8 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { spawn } from "child_process";
-import { promises as fsp, existsSync } from "fs";
+import { promises as fsp, existsSync, createReadStream } from "fs";
+import { Readable } from "stream";
 import path from "path";
 import { v4 as uuid } from "uuid";
 import { validateVideoUpload, clampString, pickEnum } from "@/lib/server/validate";
@@ -152,13 +153,15 @@ export async function GET(req: NextRequest) {
   if (!existsSync(videoPath)) {
     return NextResponse.json({ error: "الفيديو غير جاهز بعد" }, { status: 404 });
   }
-  const data = await fsp.readFile(videoPath);
-  return new NextResponse(data, {
+  // بث الملف بدل قراءته كاملاً إلى الذاكرة (ملفات الفيديو قد تكون كبيرة).
+  const size = (await fsp.stat(videoPath)).size;
+  const stream = Readable.toWeb(createReadStream(videoPath)) as ReadableStream;
+  return new NextResponse(stream, {
     headers: {
       "Content-Type": "video/mp4",
-      "Content-Length": String(data.length),
+      "Content-Length": String(size),
       "Content-Disposition": `attachment; filename="${job}.mp4"`,
-      "Cache-Control": "public, max-age=3600",
+      "Cache-Control": "private, max-age=3600",
     },
   });
 }

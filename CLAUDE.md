@@ -9,6 +9,8 @@
 - **مسار الوكلاء (Python)**: `src/agents/*` — CEO → Analyst → Director → Critic → Audio → Render، مع بوابات جودة (`validation.py`).
 - **نظام المهارات (TS)**: `lib/skills/*` — `BaseSkill` + `SkillManager` + `Workflow` + كتالوج (43 مهارة) + workflows (`default`, `viral-shorts`, `content-from-idea`).
 - **العقد المشترك**: مخطط EDL موجود بلغتين — `src/agents/edl_schema.py` (Pydantic) ↔ `lib/agents/types.ts` (TypeScript).
+- **محرّك المشروع**: `lib/engine/*` — مخطط `ProjectState` (نسخة 2)، عمليات تايملاين نقية، مساحة عمل على الخادم مع undo/redo، تحليل FFmpeg، رندر+تحقق ffprobe، جسر خطط Python.
+- **خادم MCP**: `mcp/*` (stdio، SDK الرسمي، 37 أداة) — `docs/MCP_SETUP.md` و`docs/architecture/MCP_ARCHITECTURE.md`.
 
 ## الأوامر (نسخ-لصق)
 
@@ -17,11 +19,15 @@ pnpm dev                          # خادم التطوير (المنفذ 3000)
 npx tsc --noEmit                  # فحص أنواع TypeScript
 npm test                          # اختبارات الواجهة (Vitest)
 node scripts/check-contract.ts    # تطابق عقد EDL (Python ↔ TS) — 60 فحصاً
-python -m pytest                  # اختبارات مسار الوكلاء (32 حالة)
+python -m pytest                  # اختبارات مسار الوكلاء (36 حالة)
 python -m src.main test_video.mp4 --demo   # تشغيل المسار كاملاً بلا مفاتيح
+pnpm lint                         # ESLint
+pnpm mcp                          # خادم MCP (stdio)
+pnpm mcp:e2e                      # E2E حقيقي لخادم MCP على test_assets/test_video.mp4
+pnpm build                        # بناء الإنتاج
 ```
 
-CI (`.github/workflows/ci.yml`) يشغّل: py_compile + pytest + tsc + Vitest + check-contract + gitleaks على كل push إلى main.
+CI (`.github/workflows/ci.yml`) يشغّل: py_compile + pytest + tsc + lint + Vitest (مع FFmpeg) + check-contract + E2E MCP + build + gitleaks على كل push/PR إلى main.
 
 ## المبادئ التي لا تُنتهك
 
@@ -30,12 +36,16 @@ CI (`.github/workflows/ci.yml`) يشغّل: py_compile + pytest + tsc + Vitest +
 3. **عقد EDL موحّد**: أي تغيير في `edl_schema.py` يُطبَّق في `lib/agents/types.ts` **معاً**، ثم `node scripts/check-contract.ts` يجب أن يمرّ (Python superset مسموح).
 4. **حماية المفاتيح**: لا أسرار في git. المفاتيح تُقرأ عبر `lib/server/api-keys.ts` (header ثم env). `.env.local`/`.montage_ai`/`.venv` مستثناة.
 5. **عربية كل الواجهات والتوثيق** (المستخدم النهائي عربي).
+6. **لا نتائج مُختلقة**: البديل التقديري يُوسم `simulated: true` + `warning` (الواجهة تعرضه تلقائياً عبر `apiFetch`)؛ الرندر لا يُعلن ناجحاً إلا بملف يجتاز المراجعة.
+7. **منطق التعديل مصدره واحد**: `lib/engine/timeline.ts` يستخدمه المحرّر وMCP معاً.
 
 ## أعراف إلزامية عند التعديل
 
 - **ضابط التكلفة**: أي مسار API يستدعي مزوّداً مدفوعاً (chat/vision/whisper/tts) يجب أن يمرّ عبر `guardCost` + `recordSpend` من `lib/server/cost-guard.ts` قبل/بعد الاستدعاء (النمط في `app/api/ai/tts/route.ts`). النظير في Python: `BudgetTracker` في `src/agents/utils.py`.
 - **تحقق المدخلات**: الملفات المرفوعة عبر `validateVideoUpload`/`validateAudioUpload`، والحقول عبر `clampString`/`pickEnum` من `lib/server/validate.ts`.
-- **مراجعة ما بعد الرندر**: أي تغيير في الرندر يجب أن يبقى متوافقاً مع `src/agents/render_review.py` (المدمج في بوابة `validate_render`).
+- **مراجعة ما بعد الرندر**: أي تغيير في الرندر يجب أن يبقى متوافقاً مع `src/agents/render_review.py` (المدمج في بوابة `validate_render`) ونظيره في TS `reviewRender` (`lib/engine/media.ts`).
+- **أداة MCP جديدة**: `tool(...)` في `mcp/server.ts` بمخطط مدخلات/مخرجات Zod، منطق في `lib/engine/*`، أخطاء `EngineError`، `requireApproval` للمكلف/المدمّر، واختبار في `mcp/server.test.ts`.
+- **حدود الملفات**: أي مسار من عميل يمر عبر `isPathInside` ومعرّفات `assertId`؛ لا وسائط ffmpeg من المدخلات — تُبنى في `buildExportPlan`.
 - **إضافة مهارة فيديو**: اتبع `lib/skills/README.md` — ملف في `catalog/` + تسجيل في `catalog/index.ts` + اختبار في `lib/skills/skills.test.ts`.
 - **لا تذكر أي معرّف نموذج** (Sonnet/Opus/gpt-...) في أي التزام أو كود أو PR — يبقى في المحادثة فقط.
 
@@ -47,4 +57,4 @@ CI (`.github/workflows/ci.yml`) يشغّل: py_compile + pytest + tsc + Vitest +
 
 ## اختبار التغييرات (قبل أي التزام)
 
-شغّل: `npx tsc --noEmit` + `npm test` + `node scripts/check-contract.ts` + `python -m pytest` — كلها يجب أن تنجح. لتغييرات الواجهة، اختبرها بصرياً عبر `pnpm dev` (فحص الأنواع لا يثبت صحة الميزة).
+شغّل: `npx tsc --noEmit` + `pnpm lint` + `npm test` + `node scripts/check-contract.ts` + `python -m pytest` + `pnpm mcp:e2e` — كلها يجب أن تنجح. لتغييرات الواجهة، اختبرها بصرياً عبر `pnpm dev` (فحص الأنواع لا يثبت صحة الميزة).

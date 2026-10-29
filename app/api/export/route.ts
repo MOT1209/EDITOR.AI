@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import path from "path";
 import { aiJobs } from "@/lib/mockAi";
-import type { ProjectState } from "@/lib/types";
+import { parseProject } from "@/lib/engine/project-schema";
+import { workspaceRoot } from "@/lib/engine/store";
 import {
+  ExportCancelledError,
   EXPORT_DIR,
   UPLOAD_DIR,
   ensureExportDir,
@@ -11,25 +13,47 @@ import {
   runExport,
   writeJobStatus,
 } from "@/lib/server/ffmpeg-export";
+import { cancelExport, registerExportController, releaseExportController } from "@/lib/server/export-jobs";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 export const dynamic = "force-dynamic";
 
+/** DELETE /api/export?id=<jobId> → إلغاء تصدير جارٍ (يقتل ffmpeg ويحذف المخرَج الجزئي). */
+export async function DELETE(req: NextRequest) {
+  const id = req.nextUrl.searchParams.get("id") || "";
+  if (!/^job_\d+_\d+$/.test(id)) {
+    return NextResponse.json({ error: "معرّف مهمة غير صالح" }, { status: 400 });
+  }
+  const cancelled = cancelExport(id);
+  if (!cancelled) {
+    return NextResponse.json({ error: "لا توجد مهمة تصدير جارية بهذا المعرّف" }, { status: 404 });
+  }
+  return NextResponse.json({ ok: true, id });
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   const sourcePath = body?.sourcePath;
-  const project = body?.project as ProjectState | undefined;
+  const parsed = body?.project ? parseProject(body.project) : null;
   const videoStabilize = Boolean(body?.videoStabilize);
   const colorGrading =
     typeof body?.colorGrading === "number" ? body.colorGrading : 0.5;
 
-  if (typeof sourcePath !== "string" || !isPathInside(sourcePath, UPLOAD_DIR)) {
+  // المصدر: مرفوعات المتصفح، أو وسائط مشروع في مساحة عمل الخادم (مشاريع MCP).
+  const sourceOk =
+    typeof sourcePath === "string" &&
+    (isPathInside(sourcePath, UPLOAD_DIR) || isPathInside(sourcePath, path.join(workspaceRoot(), "projects")));
+  if (!sourceOk) {
     return NextResponse.json({ error: "مسار الفيديو غير صالح. ارفع الفيديو أولاً." }, { status: 400 });
   }
-  if (!project) {
+  if (!parsed) {
     return NextResponse.json({ error: "بيانات المشروع مطلوبة" }, { status: 400 });
   }
+  if (!parsed.ok) {
+    return NextResponse.json({ error: "بيانات المشروع غير صالحة", details: parsed.errors }, { status: 400 });
+  }
+  const project = parsed.project;
   if (!hasFfmpeg()) {
     return NextResponse.json(
       { error: "ffmpeg غير مثبت على السيرفر. ثبّته ثم أعد المحاولة." },
@@ -41,8 +65,10 @@ export async function POST(req: NextRequest) {
   const job = aiJobs.create("export", "تصدير الفيديو");
   const outputPath = path.join(EXPORT_DIR, `${job.id}.${project.format}`);
   await writeJobStatus({ id: job.id, status: "running", progress: 0 });
+  const controller = registerExportController(job.id);
 
   runExport({
+    signal: controller.signal,
     sourcePath,
     outputPath,
     project,
@@ -64,10 +90,12 @@ export async function POST(req: NextRequest) {
       });
     })
     .catch(async (err: unknown) => {
+      const cancelled = err instanceof ExportCancelledError;
       const message = err instanceof Error ? err.message : "فشل التصدير";
       aiJobs.fail(job.id, message);
-      await writeJobStatus({ id: job.id, status: "failed", progress: 0, message });
-    });
+      await writeJobStatus({ id: job.id, status: cancelled ? "cancelled" : "failed", progress: 0, message });
+    })
+    .finally(() => releaseExportController(job.id));
 
   return NextResponse.json({ ok: true, job });
 }

@@ -7,22 +7,27 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "mcp": "tsx --tsconfig tsconfig.json mcp/stdio.ts",
+    "mcp:e2e": "tsx --tsconfig tsconfig.json scripts/mcp-e2e.ts"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild", "unrs-resolver"]
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "unrs-resolver"
+    ]
   },
   "dependencies": {
-    "fluent-ffmpeg": "^2.1.2",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "framer-motion": "^11.1.7",
     "lucide-react": "^0.378.0",
     "next": "^14.2.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "zod": "4.6.7"
   },
   "devDependencies": {
-    "@types/fluent-ffmpeg": "^2.1.24",
     "@types/node": "^20.12.12",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
@@ -32,6 +37,7 @@
     "eslint-config-next": "^14.2.35",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.3",
+    "tsx": "4.23.15",
     "typescript": "^5.4.5",
     "vitest": "^2.1.9"
   }

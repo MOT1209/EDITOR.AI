@@ -155,4 +155,8 @@ export interface CeoResponse {
   filePath: string;
   /** true عندما لم يتوفر API key واستُخدمت خطة محلية بديلة. */
   mock: boolean;
+  /** true عندما يكون التفريغ نصاً نموذجياً (لا Whisper حقيقي). */
+  transcriptSimulated?: boolean;
+  /** تحذيرات (سقف تكلفة، فشل مزوّد، نص نموذجي...). */
+  warnings?: string[];
 }

@@ -39,6 +39,8 @@ export default function ShortsStudio() {
   const [playing, setPlaying] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState("");
+  // خطوات Skills أعادت بيانات محاكاة (لا تحليل حقيقي) — تُعرض كتحذير صريح.
+  const [simulatedSteps, setSimulatedSteps] = useState<string[]>([]);
   const [meta, setMeta] = useState<Meta | null>(null);
   const [shorts, setShorts] = useState<Short[]>([]);
   const [broll, setBroll] = useState<{ time: number; keyword: string }[]>([]);
@@ -180,6 +182,7 @@ export default function ShortsStudio() {
         }),
       }).then((r) => r.json());
       const doc = wf?.result?.document || {};
+      setSimulatedSteps(Array.isArray(wf?.simulatedSteps) ? wf.simulatedSteps : []);
       setShorts((doc.shorts as Short[]) || []);
 
       // B-roll + مؤثرات صوتية عبر Skills مفردة باستخدام اللحظات المهمة
@@ -313,6 +316,11 @@ export default function ShortsStudio() {
             {err && (
               <div className="text-sm bg-red-500/10 border border-red-500/30 text-red-300 rounded-lg px-3 py-2">
                 {err}
+              </div>
+            )}
+            {simulatedSteps.length > 0 && (
+              <div className="text-xs bg-amber-500/10 border border-amber-500/30 text-amber-200 rounded-lg px-3 py-2">
+                ⚠️ نتائج تقديرية (محاكاة، لا تحليل حقيقي للفيديو) من: {simulatedSteps.join("، ")}
               </div>
             )}
             {busy && (

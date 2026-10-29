@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getBudgetState } from "@/lib/server/cost-guard";
 
 export const runtime = "nodejs";
+// يجب أن يُقرأ عند كل طلب — كان يُبنى ثابتاً فيعرض إنفاق لحظة البناء.
+export const dynamic = "force-dynamic";
 
 /** GET /api/budget → حالة الإنفاق الحالية (للعرض في الواجهة). */
 export async function GET() {
