@@ -55,9 +55,11 @@ export function detectSandboxes(refresh = false): { bwrap: string | null; unshar
 
 const HIDE_SCRIPT = 'while [ "$1" != "--" ]; do [ -d "$1" ] && mount -t tmpfs tmpfs "$1"; shift; done; shift; exec "$@"';
 
+const neededPaths = (command: string, args: string[]) => [command, ...args.filter((a) => path.isAbsolute(a))].map((p) => path.resolve(p));
+
 /** مجلدات حسّاسة تُخفى — ما عدا ما يحتوي البرنامج أو وسائطه المسارية. */
 function hiddenDirs(command: string, args: string[]): string[] {
-  const needed = [command, ...args.filter((a) => path.isAbsolute(a))].map((p) => path.resolve(p));
+  const needed = neededPaths(command, args);
   const cands = [workspaceRoot(), os.homedir(), process.cwd()].map((d) => path.resolve(d));
   return [...new Set(cands)].filter((d) => d !== path.parse(d).root && !needed.some((n) => n === d || n.startsWith(d + path.sep)));
 }
@@ -82,6 +84,8 @@ export function planSandbox(command: string, args: string[], cwd?: string): Sand
   if (pick === "bwrap") {
     const a = ["--unshare-all", "--die-with-parent", "--new-session", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp"];
     for (const d of hide) a.push("--tmpfs", d);
+    // /tmp صار tmpfs فارغاً: نعيد ربط (للقراءة فقط) ما يحتاجه البرنامج من مسارات تحته (السكربت/الوسائط).
+    for (const n of neededPaths(command, args)) if (n.startsWith("/tmp/")) a.push("--ro-bind", n, n);
     if (cwd) a.push("--bind", cwd, cwd, "--chdir", cwd); // /tmp مخفي: نُعيد ربط مجلد العمل المؤقت فقط
     return { kind: "bwrap", command: det.bwrap as string, args: [...a, "--", command, ...args], note: "bwrap: بلا شبكة، نظام ملفات للقراءة فقط، مساحة العمل والمنزل مخفيّان" };
   }

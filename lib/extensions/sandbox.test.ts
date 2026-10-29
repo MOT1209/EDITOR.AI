@@ -44,12 +44,21 @@ describe("external sandbox", () => {
     expect(() => planSandbox("/usr/bin/python3", [])).toThrowError(/غير متاح/);
   });
 
-  it.runIf(CAN)("blocks network and hides the workspace (real process)", async () => {
+  for (const kind of ["bwrap", "unshare"] as const) {
+    const has = kind === "bwrap" ? !!det.bwrap : det.unshare;
+    it.runIf(has)(`${kind}: blocks network and hides the workspace (real process)`, async () => {
+      process.env.MONTAGE_EXT_SANDBOX = kind;
+      const r = await runExternal("probe", {}, opts);
+      const out = r.output as { net: number; secret_visible: boolean };
+      expect(out.net).not.toBe(0); // الاتصال فشل
+      expect(out.secret_visible).toBe(false);
+      expect(r.sandbox).toMatch(new RegExp(`^${kind}`));
+    });
+  }
+
+  it.runIf(CAN)("auto picks an available backend", async () => {
     process.env.MONTAGE_EXT_SANDBOX = "auto";
     const r = await runExternal("probe", {}, opts);
-    const out = r.output as { net: number; secret_visible: boolean };
-    expect(out.net).not.toBe(0); // الاتصال فشل
-    expect(out.secret_visible).toBe(false);
     expect(r.sandbox).toMatch(/^(bwrap|unshare)/);
   });
 
