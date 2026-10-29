@@ -233,7 +233,10 @@ export default function ShortsStudio() {
             <Sparkles size={18} className="text-violet-400" /> استوديو Shorts
           </h1>
         </div>
-        <span className="text-xs text-zinc-500">ترجمة متحركة • Shorts • نشر</span>
+        <div className="flex items-center gap-3">
+          <Link href="/extensions" className="text-xs text-zinc-400 hover:text-white transition">🧩 الإضافات</Link>
+          <span className="text-xs text-zinc-500 hidden sm:inline">ترجمة متحركة • Shorts • نشر</span>
+        </div>
       </header>
 
       {!url ? (
