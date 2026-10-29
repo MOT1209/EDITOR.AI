@@ -18,7 +18,10 @@ export function Tester({ kind, id, inputSchema, version, onDone }: { kind: Kind;
   const [fatal, setFatal] = useState("");
   const [confirm, setConfirm] = useState<string | null>(null);
 
-  useEffect(() => { setText(JSON.stringify(sampleFromSchema(inputSchema), null, 2)); setRes(null); setFatal(""); }, [id, version, inputSchema]);
+  // المفتاح بقيمة المخطط لا بهويته: إعادة تحميل التفاصيل بعد كل تشغيل لا يجب أن تمسح مدخلات المستخدم ونتيجة الاختبار.
+  const schemaKey = JSON.stringify(inputSchema ?? null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { setText(JSON.stringify(sampleFromSchema(inputSchema), null, 2)); setRes(null); setFatal(""); }, [id, version, schemaKey]);
 
   const run = async (confirmed = false) => {
     let input: unknown;
