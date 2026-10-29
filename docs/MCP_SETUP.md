@@ -177,6 +177,13 @@ create_project → import_media(path) → inspect_media → detect_silence / ana
 قواعد للوكيل: لا تعرض خطة كتعديل منجز؛ لا تعلن نجاح تصدير إلا عند `status=completed`
 و`review.passed=true`؛ `provenance=simulated` في نتائج المهارات يعني بيانات تقديرية.
 
+## أدوات مخصّصة (بلا تعديل الخادم)
+
+أدوات يضيفها المالك من `/extensions` (أو `pnpm ext install`) تظهر لعميلك باسم `ext_<id>` بعد تفعيلها وبعد منح صلاحياتها.
+- **التحديث:** الخادم يفحص السجل كل ~2ث ويرسل `notifications/tools/list_changed`. العملاء الداعمون لـ listChanged يحدّثون القائمة تلقائياً؛ غيرهم يعيدون الاتصال أو يستدعون `tools/list` من جديد. لفرض المزامنة: أداة `refresh_custom_tools`.
+- `list_custom_tools` تعرض المكشوف فعلاً والمتخطّى وسببه. الصلاحيات تُفحص عند كل استدعاء؛ الكاتبة/المكلفة تطلب موافقة (elicitation).
+- التفاصيل والأمان: `docs/EXTENSIONS.md`.
+
 ## فتح مشاريع MCP في المحرّر
 
 المحرّر (`pnpm dev`) يقرأ مساحة العمل نفسها: «المشاريع» ← «مساحة العمل على الخادم».

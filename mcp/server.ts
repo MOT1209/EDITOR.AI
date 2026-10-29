@@ -45,10 +45,16 @@ import {
   trimClip,
 } from "@/lib/engine/timeline";
 import { cancelJob, getJob, listJobs, revalidateJob, startRender, waitForJob, type RenderJob } from "@/lib/engine/jobs";
+import { buildSkillDocument } from "@/lib/engine/skill-doc";
 import { buildSkillManager } from "@/lib/skills";
+import { buildExtendedSkillManager } from "@/lib/extensions/skills-bridge";
 import { skillProvenance } from "@/lib/skills/provenance";
 import type { ProjectState } from "@/lib/types";
 import { elicitationApprover, approvalPolicy, requireApproval, type Approver } from "./approval";
+import { ok, fail, parseToolError } from "./results";
+import { attachCustomTools, type CustomToolsControl } from "./custom-tools";
+
+export { parseToolError };
 
 export const SERVER_NAME = "montage-ai";
 export const SERVER_VERSION = "0.2.0";
@@ -112,34 +118,6 @@ const jobOut = {
 
 
 // ---------------------------------------------------------------- أدوات مساعدة
-function ok<T extends Record<string, unknown>>(data: T, summary?: string): CallToolResult {
-  const text = (summary ? summary + "\n" : "") + JSON.stringify(data, null, 2);
-  return { content: [{ type: "text", text: text.length > 60_000 ? text.slice(0, 60_000) + "\n…(مقتطع)" : text }], structuredContent: data };
-}
-
-/**
- * نتيجة خطأ: بلا structuredContent عمداً — عملاء MCP يتحققون من structuredContent
- * مقابل outputSchema (مخطط النجاح) حتى مع isError، فيرفضون أي كائن خطأ.
- * السطر الأخير من النص JSON قابل للقراءة آلياً: {"error":{code,message,hint}}.
- */
-function fail(code: string, message: string, hint?: string): CallToolResult {
-  const error = { code, message, ...(hint ? { hint } : {}) };
-  return {
-    isError: true,
-    content: [{ type: "text", text: `[${code}] ${message}${hint ? `\nتلميح: ${hint}` : ""}\n${JSON.stringify({ error })}` }],
-  };
-}
-
-/** يستخرج كائن الخطأ من نتيجة أداة فاشلة (للعملاء والاختبارات). */
-export function parseToolError(text: string): { code: string; message: string; hint?: string } | null {
-  const last = text.trim().split("\n").pop() ?? "";
-  try {
-    return (JSON.parse(last) as { error: { code: string; message: string; hint?: string } }).error ?? null;
-  } catch {
-    return null;
-  }
-}
-
 function publicJob(job: RenderJob, outputPath: string | null) {
   const { outputFile: _f, ...rest } = job;
   return { ...rest, ...(outputPath && (job.status === "completed" || job.status === "failed_validation") ? { outputPath } : {}) };
@@ -154,9 +132,17 @@ function capJson(value: unknown, maxChars = 40_000): unknown {
 export interface MontageServerOptions {
   /** موافقة مخصّصة (الافتراضي: elicitation حسب MONTAGE_MCP_APPROVAL). */
   approver?: Approver;
+  /** فترة فحص تغيّر سجل الأدوات المخصّصة بالمللي ثانية (0 = بلا فحص دوري؛ الافتراضي 2000). */
+  customToolsPollMs?: number;
+  /** false = بلا ربط الأدوات المخصّصة (لاستخراج قائمة المدمجة فقط دون آثار جانبية). */
+  customTools?: boolean;
 }
 
 export function createMontageServer(opts: MontageServerOptions = {}): McpServer {
+  return createMontageServerWithControls(opts).server;
+}
+
+export function createMontageServerWithControls(opts: MontageServerOptions = {}): { server: McpServer; custom: CustomToolsControl } {
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
     {
@@ -713,12 +699,12 @@ export function createMontageServer(opts: MontageServerOptions = {}): McpServer 
       title: "المهارات",
       description:
         "كتالوج مهارات lib/skills. المهارات تُنتج اقتراحات/حسابات ولا تعدّل المشروع؛ بعضها يعتمد بدائل محاكاة عند غياب تحليل حقيقي — راجع provenance في run_skill.",
-      input: { category: z.enum(["analysis", "editing", "audio", "visual", "text", "generation", "export"]).optional() },
+      input: { category: z.enum(["analysis", "editing", "audio", "visual", "text", "generation", "export", "utility"]).optional() },
       output: { skills: z.array(z.object({ name: z.string(), description: z.string(), category: z.string(), inputSpec: z.record(z.string(), z.string()), outputSpec: z.record(z.string(), z.string()) })) },
       annotations: { readOnlyHint: true },
     },
     async ({ category }) => {
-      const skills = buildSkillManager()
+      const skills = (await buildExtendedSkillManager()).manager
         .catalog()
         .filter((s) => !category || s.category === category)
         .map(({ name, description, category: c, inputSpec, outputSpec }) => ({ name, description, category: c, inputSpec, outputSpec }));
@@ -726,30 +712,7 @@ export function createMontageServer(opts: MontageServerOptions = {}): McpServer 
     }
   );
 
-  async function buildDocument(pid: string | undefined, useRealAnalysis: boolean, extra: Record<string, unknown>, signal: AbortSignal) {
-    const doc: Record<string, unknown> & { duration: number } = { duration: 30, ...extra };
-    const notes: string[] = [];
-    if (pid) {
-      const p = await getProject(pid);
-      doc.duration = timelineDuration(p) || p.duration || 30;
-      doc.aspect = p.aspect;
-      if (useRealAnalysis) {
-        const a = primaryVideoAsset(p);
-        const file = assetPath(pid, a);
-        doc.silences = await detectSilence(file, { durationSeconds: a.duration, signal }).catch((e) => {
-          notes.push(`تعذّر كشف الصمت: ${(e as Error).message}`);
-          return undefined;
-        });
-        const sc = await analyzeScenes(file, a.duration, { signal }).catch((e) => {
-          notes.push(`تعذّر كشف المشاهد: ${(e as Error).message}`);
-          return null;
-        });
-        if (sc) doc.scenes = sc.scenes.map((s) => ({ ...s, score: 0.5 }));
-        doc.duration = a.duration;
-      }
-    }
-    return { doc, notes };
-  }
+  const buildDocument = buildSkillDocument;
 
   const docExtra = z
     .record(z.string().max(64), z.union([z.string().max(2000), z.number(), z.boolean()]))
@@ -764,16 +727,16 @@ export function createMontageServer(opts: MontageServerOptions = {}): McpServer 
       description:
         "يشغّل مهارة واحدة على مستند مبني من المشروع (المدة الحقيقية؛ وصمت/مشاهد حقيقية إن useRealAnalysis). لا يعدّل المشروع. provenance=simulated يعني نتيجة غير مبنية على تحليل حقيقي.",
       input: {
-        skill: z.string().regex(/^[A-Za-z]{3,60}Skill$/),
+        skill: z.string().regex(/^([A-Za-z]{3,60}Skill|ext_[a-z][a-z0-9_]{2,47})$/).describe("مهارة مدمجة (…Skill) أو مخصّصة مفعّلة (ext_<id>)"),
         projectId: projectId.optional(),
         useRealAnalysis: z.boolean().default(true),
         document: docExtra,
       },
-      output: { skill: z.string(), ok: z.boolean(), provenance: z.enum(["simulated", "real-analysis", "computed"]), output: z.unknown(), error: z.string().optional(), logs: z.array(z.string()), notes: z.array(z.string()), durationMs: z.number() },
+      output: { skill: z.string(), ok: z.boolean(), provenance: z.enum(["simulated", "real-analysis", "computed", "ai-model"]), output: z.unknown(), error: z.string().optional(), logs: z.array(z.string()), notes: z.array(z.string()), durationMs: z.number() },
       annotations: { readOnlyHint: true },
     },
     async ({ skill, projectId: pid, useRealAnalysis, document }, signal) => {
-      const m = buildSkillManager(); // مدير معزول لكل استدعاء — لا تلوّث لإعدادات مشتركة.
+      const { manager: m } = await buildExtendedSkillManager(); // مدير معزول لكل استدعاء — لا تلوّث لإعدادات مشتركة.
       if (!m.has(skill)) throw new EngineError("NOT_FOUND", `مهارة غير موجودة: ${skill}`, "استخدم list_skills.");
       const { doc, notes } = await buildDocument(pid, useRealAnalysis, document ?? {}, signal);
       const res = await m.runSkill(skill, doc, m.createContext(doc, { signal }));
@@ -1020,7 +983,14 @@ export function createMontageServer(opts: MontageServerOptions = {}): McpServer 
     }
   );
 
-  return server;
+  // أدوات مخصّصة من السجل الدائم (تسجيل ديناميكي) — بعد كل الأدوات المدمجة كي لا تُسبقها.
+  const custom: CustomToolsControl =
+    opts.customTools === false
+      ? { sync: async () => ({ updatedAt: "", pid: process.pid, exposed: [], skipped: [] }), exposure: () => ({ updatedAt: "", pid: process.pid, exposed: [], skipped: [] }), dispose: () => {} }
+      : attachCustomTools(server, approver, { pollMs: opts.customToolsPollMs });
+  server.server.onclose = () => custom.dispose();
+
+  return { server, custom };
 }
 
 /** مسار نسبي إلى مساحة العمل (لا يكشف مسارات مطلقة خارجها). */
