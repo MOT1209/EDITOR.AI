@@ -9,7 +9,7 @@ import path from "path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { createMontageServer } from "./server";
+import { createMontageServer, parseToolError } from "./server";
 import type { Approver } from "./approval";
 
 const HAS_FFMPEG = spawnSync("ffmpeg", ["-version"]).status === 0 && spawnSync("ffprobe", ["-version"]).status === 0;
@@ -36,9 +36,14 @@ async function connect(opts: { approver?: Approver; elicitation?: boolean } = {}
     });
   }
   await Promise.all([server.connect(st), client.connect(ct)]);
+  // العميل الحقيقي يتحقق من المخرَج مقابل outputSchema بعد listTools — نفعل ذلك دائماً
+  // كي تكشف الاختبارات أي مخرَج لا يطابق مخططه (كما حدث في E2E عبر stdio).
+  await client.listTools();
   const call = async (name: string, args: Json = {}) => {
     const r = await client.callTool({ name, arguments: args });
-    return { isError: !!r.isError, data: (r.structuredContent ?? {}) as Json, text: (r.content as { text: string }[])[0]?.text ?? "" };
+    const text = (r.content as { text: string }[])[0]?.text ?? "";
+    const data = r.isError ? { error: parseToolError(text) } : ((r.structuredContent ?? {}) as Json);
+    return { isError: !!r.isError, data, text };
   };
   return { client, server, call };
 }

@@ -36,22 +36,41 @@ jobs:
           "
 
   ts-checks:
-    name: TypeScript — بناء + عقد
+    name: TypeScript — بناء + عقد + MCP
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: تثبيت الاعتماديات
-        run: npm install
+          cache: pnpm
+      # FFmpeg حقيقي: اختبارات الوسائط/التصدير/MCP تُتخطّى بدونه (skipped لا passed).
+      - name: تثبيت FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      # Python لاختبار جسر الخطط (MCP ↔ مسار الوكلاء) — الحزم الدنيا بلا CrewAI.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: حزم Python الدنيا لمسار الوكلاء
+        run: pip install "pydantic>=2.7" "httpx>=0.27" "python-dotenv>=1.0"
+      - name: تثبيت الاعتماديات (lockfile مجمّد)
+        run: pnpm install --frozen-lockfile
       - name: فحص TypeScript (tsc)
         run: npx tsc --noEmit
-      - name: اختبارات الواجهة (Vitest)
-        run: npm test
+      - name: Lint
+        run: pnpm lint
+      - name: اختبارات الواجهة والمحرّك وMCP (Vitest)
+        run: pnpm test
       - name: فحص مطابقة العقد الموحّد (Python ↔ TypeScript)
         run: node scripts/check-contract.ts
+      - name: E2E خادم MCP عبر stdio (FFmpeg حقيقي + ffprobe)
+        run: pnpm mcp:e2e
+      - name: بناء الإنتاج
+        run: pnpm build
 
   secrets:
     name: حارس الأسرار (gitleaks)

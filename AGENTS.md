@@ -13,6 +13,8 @@
 | مسار الوكلاء | `src/agents/*` | Python: CEO → Analyst → Director → Critic → Audio → Render + بوابات (`validation.py`) |
 | نظام المهارات | `lib/skills/*` | `BaseSkill` + `SkillManager` + `Workflow` + كتالوج (43 مهارة) |
 | عقد EDL | `src/agents/edl_schema.py` ↔ `lib/agents/types.ts` | مخطط موحّد بلغتين |
+| محرّك المشروع | `lib/engine/*` | مخطط+نسخة، عمليات تايملاين نقية، مساحة عمل (undo/redo)، تحليل FFmpeg، رندر+تحقق، جسر الخطط |
+| خادم MCP | `mcp/*` | stdio، 37 أداة (Zod in/out)، موافقة elicitation، تدقيق — انظر `docs/MCP_SETUP.md` |
 
 ## الأوامر
 
@@ -23,6 +25,8 @@ npm test                          # اختبارات الواجهة (Vitest)
 node scripts/check-contract.ts    # تطابق عقد EDL
 python -m pytest                  # اختبارات Python
 python -m src.main <video> --demo # تشغيل المسار كاملاً بلا مفاتيح
+pnpm mcp                          # خادم MCP عبر stdio
+pnpm mcp:e2e                      # E2E حقيقي لخادم MCP (FFmpeg + ffprobe)
 ```
 
 ## المبادئ التي لا تُنتهك
@@ -32,6 +36,8 @@ python -m src.main <video> --demo # تشغيل المسار كاملاً بلا 
 3. **عقد EDL موحّد** — عدّل `edl_schema.py` و`lib/agents/types.ts` معاً، ثم `node scripts/check-contract.ts` يجب أن يمرّ.
 4. **حماية المفاتيح** — لا أسرار في git؛ المفاتيح عبر `lib/server/api-keys.ts` (header ثم env).
 5. **عربية الواجهات والتوثيق**.
+6. **لا نتائج مُختلقة** — أي بديل تقديري يُوسم `simulated: true` + `warning`؛ لا نجاح رندر بلا ملف يجتاز `reviewRender`.
+7. **منطق التعديل في `lib/engine/timeline.ts` فقط** — الواجهة وMCP يستخدمانه؛ لا تكرّره.
 
 ## كيف تضيف بأمان
 
@@ -42,7 +48,9 @@ python -m src.main <video> --demo # تشغيل المسار كاملاً بلا 
 
 ## الاختبار قبل الالتزام
 
-شغّل الأربعة: `npx tsc --noEmit` + `npm test` + `node scripts/check-contract.ts` + `python -m pytest` — كلها تنجح. تغييرات الواجهة تُختبر بصرياً عبر `pnpm dev`.
+شغّل: `npx tsc --noEmit` + `pnpm lint` + `pnpm test` + `node scripts/check-contract.ts` + `python -m pytest` + `pnpm mcp:e2e` — كلها تنجح. تغييرات الواجهة تُختبر بصرياً عبر `pnpm dev`.
+
+- **أداة MCP جديدة**: سجّلها في `mcp/server.ts` عبر `tool(...)` بمخطط مدخلات ومخرجات Zod، نفّذ المنطق في `lib/engine/*`، أعد أخطاء `EngineError` (لا `structuredContent` مع الخطأ)، واطلب `requireApproval` للمكلف/المدمّر، وأضف اختباراً في `mcp/server.test.ts`.
 
 ## قيود
 

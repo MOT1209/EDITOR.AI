@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
-    "mcp": "tsx --tsconfig tsconfig.json mcp/stdio.ts"
+    "mcp": "tsx --tsconfig tsconfig.json mcp/stdio.ts",
+    "mcp:e2e": "tsx --tsconfig tsconfig.json scripts/mcp-e2e.ts"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -18,7 +19,6 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
-    "fluent-ffmpeg": "^2.1.2",
     "framer-motion": "^11.1.7",
     "lucide-react": "^0.378.0",
     "next": "^14.2.3",
@@ -28,7 +28,6 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
-    "@types/fluent-ffmpeg": "^2.1.24",
     "@types/node": "^20.12.12",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
