@@ -116,6 +116,10 @@ export interface ProjectState {
   title?: string;
   description?: string;
   tags?: string[];
+  /** وسائط مُدارة على الخادم (مساحة عمل MCP) — url نسبي داخل مجلد المشروع. اختياري للواجهة. */
+  assets?: MediaAsset[];
+  /** نسخة مخطط المشروع (انظر lib/engine/project-schema.ts). */
+  schemaVersion?: number;
   createdAt: number;
   updatedAt: number;
 }

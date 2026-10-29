@@ -19,6 +19,11 @@ export class SilenceDetectionSkill extends BaseSkill {
 
   protected async execute(input: MediaDocument, ctx: SkillContext) {
     const duration = input.duration ?? 30;
+    // تحليل حقيقي مُسبق (مثلاً من ffmpeg silencedetect عبر MCP) يتقدّم على أي مصدر آخر.
+    if (Array.isArray(input.silences)) {
+      this.log("info", `المصدر: تحليل مسبق — ${input.silences.length} فترة صمت`);
+      return { silences: input.silences as Silence[] };
+    }
     const filePath = input.filePath as string | undefined;
     const api = await this.callEndpoint<{ segments?: Silence[] }>(
       this.cfg("endpoint", "/api/ai/silence"),

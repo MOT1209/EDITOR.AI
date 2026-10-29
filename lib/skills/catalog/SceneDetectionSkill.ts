@@ -18,6 +18,10 @@ export class SceneDetectionSkill extends BaseSkill {
 
   protected async execute(input: MediaDocument, ctx: SkillContext) {
     const duration = input.duration ?? 30;
+    if (Array.isArray(input.scenes) && input.scenes.length > 0) {
+      this.log("info", `المصدر: تحليل مسبق — ${input.scenes.length} مشهد`);
+      return { scenes: input.scenes as Scene[] };
+    }
     const frames = input.frames ?? [];
     const api = await this.callEndpoint<{ scenes?: Scene[] }>(
       this.cfg("endpoint", "/api/ai/scenes"),
