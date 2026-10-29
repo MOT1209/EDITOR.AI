@@ -7,6 +7,7 @@ import { getNativeEntry } from "./native";
 import { lintSchema } from "./schema";
 import { satisfiesRange } from "./semver";
 import { refsOf } from "./template";
+import { planSandbox } from "./sandbox";
 
 export interface Issue {
   level: "error" | "warn";
@@ -170,6 +171,11 @@ async function externalChecks(entry: string, err: (c: Issue["code"], m: string) 
   if (!externalEnabled()) {
     warn("EXTERNAL", "التنفيذ الخارجي معطّل على هذا الخادم (MONTAGE_EXT_EXTERNAL) — لن تعمل الإضافة حتى يفعّله المالك");
     return;
+  }
+  try {
+    planSandbox("/bin/true", []);
+  } catch (e) {
+    warn("EXTERNAL", `لا يتوفر عزل على الخادم: ${(e as Error).message}`);
   }
   try {
     if (!(await loadAllowlist())[entry]) err("EXTERNAL", `الإدخال «${entry}» غير مُدرج في قائمة سماح المالك`);

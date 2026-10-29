@@ -242,3 +242,32 @@ describe("execution honesty and safety", () => {
     expect((res.output as Record<string, { words: number }>).ext_word_stats.words).toBe(3);
   });
 });
+
+describe("resource limits", () => {
+  it("caps concurrency per extension and global, and the per-minute rate; slots are released", async () => {
+    const { registerNativeEntry } = await import("./native");
+    const { resetLimits } = await import("./limits");
+    let gate: () => void = () => {};
+    const open = new Promise<void>((r) => (gate = r));
+    registerNativeEntry({ id: "slow_test", description: "بطيء", permissions: [], provenance: "computed", run: async () => (await open, { ok: 1 }) });
+    resetLimits();
+    process.env.MONTAGE_EXT_MAX_PER_EXT = "2";
+    process.env.MONTAGE_EXT_RATE_PER_MIN = "5";
+    await svc.saveExtension(nativeSkill({ id: "slow_one", execution: { type: "native", entry: "slow_test" }, output: { type: "object", properties: {} } }), { kind: "skill", origin: "user", update: false });
+    const run = () => svc.runExtension("skill", "slow_one", { text: "a" }, { mode: "test" });
+    const a = run(), b = run();
+    await new Promise((r) => setTimeout(r, 30));
+    const c = await run();
+    expect(c.ok).toBe(false);
+    expect(c.error?.code).toBe("LIMIT_EXCEEDED");
+    gate();
+    expect((await a).ok && (await b).ok).toBe(true);
+    expect((await run()).ok).toBe(true); // الخانات أُفرجت
+    // المعدّل: 3 تشغيلات ناجحة حتى الآن + 1 مرفوض لا يُحتسب ⇒ بقي 2 ثم يُرفض السادس
+    await run(); await run();
+    expect((await run()).error?.code).toBe("LIMIT_EXCEEDED");
+    delete process.env.MONTAGE_EXT_MAX_PER_EXT;
+    delete process.env.MONTAGE_EXT_RATE_PER_MIN;
+    resetLimits();
+  });
+});

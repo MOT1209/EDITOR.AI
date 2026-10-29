@@ -19,6 +19,7 @@ import { runExtension, listExtensions } from "@/lib/extensions/service";
 import { listStates, readVersion, registryRev } from "@/lib/extensions/store";
 import { getAction } from "@/lib/extensions/actions";
 import { validatePackage } from "@/lib/extensions/validate";
+import { signatureGate } from "@/lib/extensions/signing";
 import path from "path";
 import { requireApproval, type Approver } from "./approval";
 import { fail, ok } from "./results";
@@ -67,6 +68,8 @@ export function attachCustomTools(server: McpServer, approver: Approver, opts: {
         const m = pkg.manifest as ToolManifest;
         const report = await validatePackage(pkg);
         if (!report.ok) { skipped.push({ id: st.id, reason: report.issues.find((i) => i.level === "error")?.message ?? "غير صالحة" }); continue; }
+        const gate = await signatureGate(pkg, st.origin);
+        if (gate) { skipped.push({ id: st.id, reason: gate }); continue; }
         const missing = report.requiredPermissions.filter((p) => !st.grants.includes(p));
         if (missing.length) { skipped.push({ id: st.id, reason: `صلاحيات غير ممنوحة: ${missing.join(", ")}` }); continue; }
         if (m.execution.type === "executable" && !externalEnabled()) { skipped.push({ id: st.id, reason: "التنفيذ الخارجي معطّل على الخادم" }); continue; }

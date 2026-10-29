@@ -13,6 +13,7 @@ import { buildSkillDocument } from "@/lib/engine/skill-doc";
 import { assetPath, findAsset, getProject, listProjects, mutateProject, primaryVideoAsset } from "@/lib/engine/store";
 import { addTextOverlay, summarizeTimeline } from "@/lib/engine/timeline";
 import { EngineError } from "@/lib/engine/errors";
+import { getJob, startRender, waitForJob, type RenderJob } from "@/lib/engine/jobs";
 import { buildSkillManager } from "@/lib/skills";
 import { skillProvenance, type SkillProvenance } from "@/lib/skills/provenance";
 import type { Permission } from "./manifest";
@@ -183,6 +184,42 @@ const ACTIONS: ActionDef[] = [
     },
   },
 ];
+
+/** ملخص مهمة بلا مسارات خارج مساحة العمل. */
+function jobSummary(job: RenderJob) {
+  const { outputFile, ...rest } = job;
+  return { ...rest, ...(outputFile && (job.status === "completed" || job.status === "failed_validation") ? { outputPath: `projects/${job.projectId}/renders/${job.id}/${outputFile}` } : {}) };
+}
+
+ACTIONS.push(
+  {
+    id: "render.export",
+    title: "تصدير الفيديو",
+    description: "يبدأ تصديراً كاملاً بإعدادات المشروع (FFmpeg حقيقي + مراجعة ffprobe). مكلف زمنياً. النجاح = status=completed فقط.",
+    permissions: ["render.export"],
+    risk: "costly",
+    input: { type: "object", properties: { projectId: ID, waitSeconds: { type: "integer", minimum: 0, maximum: 110, default: 0, description: "0 = ابدأ وعُد فوراً (تابع بـ render.status)" } }, required: ["projectId"] },
+    async run(a) {
+      const pid = str(a, "projectId");
+      let job = await startRender(pid, { kind: "export" });
+      const wait = optNum(a, "waitSeconds") ?? 0;
+      if (wait > 0) job = await waitForJob(pid, job.id, Math.min(wait, 110) * 1000);
+      return { result: jobSummary(job), provenance: job.review ? "real-analysis" : "computed", warnings: job.status === "completed" || !wait ? [] : [`الحالة: ${job.status} — النجاح لا يُعلن إلا عند completed`] };
+    },
+  },
+  {
+    id: "render.status",
+    title: "حالة التصدير",
+    description: "حالة مهمة رندر ونتيجة مراجعة ffprobe.",
+    permissions: ["project.read"],
+    risk: "read",
+    input: { type: "object", properties: { projectId: ID, jobId: ID }, required: ["projectId", "jobId"] },
+    async run(a) {
+      const job = await getJob(str(a, "projectId"), str(a, "jobId"));
+      return { result: jobSummary(job), provenance: job.review ? "real-analysis" : "computed" };
+    },
+  }
+);
 
 const BY_ID = new Map(ACTIONS.map((a) => [a.id, a]));
 

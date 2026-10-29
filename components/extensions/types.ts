@@ -64,7 +64,7 @@ export const LABEL_AR: Record<string, string> = { builtin: "مدمجة", user: "
 export const STATUS_AR: Record<string, string> = { enabled: "مفعّلة", disabled: "معطّلة", needs_grant: "تحتاج صلاحيات", invalid: "غير صالحة", incompatible: "غير متوافقة", unavailable: "غير متاحة" };
 export const EXEC_AR: Record<string, string> = { prompt: "تعليمات/نموذج", workflow: "مسار عمل", native: "TypeScript أصلي", external: "خارجي مقيَّد", declarative: "إعلانية", executable: "برنامج خارجي" };
 export const PERM_AR: Record<string, string> = {
-  "project.read": "قراءة المشاريع", "project.write": "تعديل المشاريع", "media.read": "تحليل الوسائط", "skills.run": "تشغيل مهارات مدمجة",
+  "project.read": "قراءة المشاريع", "project.write": "تعديل المشاريع", "render.export": "تصدير الفيديو", "media.read": "تحليل الوسائط", "skills.run": "تشغيل مهارات مدمجة",
   "ai.invoke": "استدعاء نموذج (مدفوع)", "exec.external": "برنامج خارجي",
 };
 export const CAT_AR: Record<string, string> = { analysis: "تحليل", editing: "تحرير", audio: "صوت", visual: "صورة", text: "نص", generation: "توليد", export: "تصدير", utility: "أدوات" };

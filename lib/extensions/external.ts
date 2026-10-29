@@ -7,7 +7,8 @@
 //    خارج مساحة العمل (فلا تستطيع الواجهة ولا MCP ولا حزمة مستوردة تعديله).
 //  - البيان يشير إلى إدخال بالاسم؛ command/args ثابتة من الملف — لا شيء من المدخلات يصل إليها.
 //  - spawn بلا shell، بيئة مصفّاة (لا مفاتيح)، cwd مؤقت فارغ، مهلة وسقف مخرجات، المدخل عبر stdin JSON.
-//  - ⚠️ ليس sandbox: العملية تعمل بصلاحيات مستخدم الخادم وقد تصل للشبكة. اسمح فقط ببرامج تثق بها.
+//  - العزل (sandbox.ts): bwrap/unshare بلا شبكة وبإخفاء مساحة العمل — مطلوب افتراضياً (MONTAGE_EXT_SANDBOX).
+//    لا حدود ذاكرة/CPU. اسمح فقط ببرامج تثق بها.
 // ====================================================================
 import { promises as fsp } from "fs";
 import os from "os";
@@ -17,6 +18,7 @@ import { EngineError } from "@/lib/engine/errors";
 import { workspaceRoot } from "@/lib/engine/store";
 import { isPathInside } from "@/lib/server/ffmpeg-export";
 import type { Permission } from "./manifest";
+import { planSandbox } from "./sandbox";
 
 export interface ExternalEntry {
   command: string;
@@ -67,19 +69,21 @@ export async function runExternal(
   entryId: string,
   input: Record<string, unknown>,
   opts: { timeoutMs: number; maxOutputBytes: number; signal?: AbortSignal }
-): Promise<{ output: unknown; stderr: string }> {
+): Promise<{ output: unknown; stderr: string; sandbox: string }> {
   if (!externalEnabled()) {
     throw new EngineError("UNSUPPORTED", "التنفيذ الخارجي معطّل", "اضبط MONTAGE_EXT_EXTERNAL=1 و MONTAGE_EXT_ALLOWLIST في بيئة الخادم (بقرار المالك فقط).");
   }
   const entry = await getExternalEntry(entryId);
   if (!entry) throw new EngineError("DEPENDENCY_MISSING", `الإدخال الخارجي غير مُدرج في قائمة السماح: ${entryId}`);
+  planSandbox(entry.command, entry.args); // فحص مبكر: يرمي UNSUPPORTED قبل إنشاء أي شيء إن لم يتوفر عزل والسياسة تطلبه
   const cwd = await fsp.mkdtemp(path.join(os.tmpdir(), "montage_ext_"));
+  const plan = planSandbox(entry.command, entry.args, cwd);
   const env = {} as NodeJS.ProcessEnv;
   for (const k of SAFE_ENV_KEYS) if (process.env[k]) env[k] = process.env[k];
   const timeoutMs = Math.min(opts.timeoutMs, entry.timeoutMs ?? opts.timeoutMs);
   try {
     return await new Promise((resolve, reject) => {
-      const proc = spawn(entry.command, entry.args, { cwd, env, shell: false, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+      const proc = spawn(plan.command, plan.args, { cwd, env, shell: false, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
       let out = "";
       let err = "";
       let over = false;
@@ -111,7 +115,7 @@ export async function runExternal(
         if (why === "cancel") return reject(new EngineError("CANCELLED", "أُلغي التنفيذ الخارجي"));
         if (code !== 0) return reject(new EngineError("EXECUTION_FAILED", `انتهى البرنامج الخارجي بالرمز ${code}`, err.slice(-300) || undefined));
         try {
-          resolve({ output: JSON.parse(out), stderr: err });
+          resolve({ output: JSON.parse(out), stderr: err, sandbox: `${plan.kind}: ${plan.note}` });
         } catch {
           reject(new EngineError("EXECUTION_FAILED", "مخرجات البرنامج الخارجي ليست JSON صالحاً"));
         }

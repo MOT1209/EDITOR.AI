@@ -44,7 +44,7 @@ tagline_prompt/            ← مجلد (pnpm ext install tagline_prompt)
 
 **مجموعة المخطط المدعومة:** `type` (string/number/integer/boolean/array/object)، `enum`، `minimum/maximum`، `minLength/maxLength`، `items/maxItems`، `properties/required`، `default`، `description`. **غير مدعوم عمداً:** `$ref`، `pattern` (ReDoS)، العودية، العمق >3. التحقق **صارم**: الحقول غير المعرّفة تُرفض.
 
-**الصلاحيات:** `project.read` · `project.write` (موافقة) · `media.read` · `skills.run` · `ai.invoke` (ضابط تكلفة) · `exec.external` (موافقة دائماً).
+**الصلاحيات:** `project.read` · `project.write` (موافقة) · `render.export` (تصدير، موافقة) · `media.read` · `skills.run` · `ai.invoke` (ضابط تكلفة) · `exec.external` (موافقة دائماً).
 الإعلان وحده لا يكفي: يجب أن **يمنحها المالك** من الواجهة (`grant`)، ولا يُمنح ما لم يُعلنه البيان، ويُعاد الفحص عند كل تشغيل.
 
 ## 2) أنواع التنفيذ
@@ -68,7 +68,7 @@ tagline_prompt/            ← مجلد (pnpm ext install tagline_prompt)
 | `declarative` | `action` من **سجل الإجراءات** + `args` (قيم ثابتة أو `{{input.x}}`). إجراء غير معروف أو وسيط غير معرّف في الإجراء ⇒ **رفض عند الحفظ وعند التنفيذ** |
 | `executable` | برنامج خارجي من قائمة السماح؛ موافقة عند كل استدعاء |
 
-**الإجراءات المتاحة** (`lib/extensions/actions.ts`): `project.list`, `project.timeline`, `media.probe`, `analysis.silence`, `analysis.scenes`, `analysis.beats`, `skills.run` (مدمجة فقط)، `timeline.add_text` (كتابة، موافقة، قابل للتراجع).
+**الإجراءات المتاحة** (`lib/extensions/actions.ts`): `project.list`, `project.timeline`, `media.probe`, `analysis.silence`, `analysis.scenes`, `analysis.beats`, `skills.run` (مدمجة فقط)، `timeline.add_text` (كتابة، موافقة، قابل للتراجع)، `render.export` (تصدير كامل مكلف، موافقة، يُنجَح فقط بـ completed بعد مراجعة ffprobe)، `render.status`.
 لإضافة إجراء جديد: أضِفه في الملف نفسه بمخطط مدخلات وصلاحيات وخطورة (`read|write|costly`) — هذا قرار مطوّر لا قرار حزمة.
 
 لا يوجد إجراء يقبل shell أو وسائط FFmpeg أو مسار ملف أو عنوان شبكة من المدخلات.
@@ -83,18 +83,45 @@ tagline_prompt/            ← مجلد (pnpm ext install tagline_prompt)
 
 التخزين: `<workspace>/extensions/{skills,tools}/<id>/{state.json, v/<ver>.json, runs.jsonl}` + `rev.json` + `mcp-exposure.json`.
 
-## 4) التنفيذ الخارجي (مقيَّد، معطّل افتراضياً)
+## 4) التنفيذ الخارجي (مقيَّد ومعزول، معطّل افتراضياً)
 
-يتطلب **ثلاثة** قرارات من المالك في بيئة الخادم — لا يمكن للواجهة/MCP/الحزمة تفعيله:
+يتطلب قرارات من المالك في بيئة الخادم — لا يمكن للواجهة/MCP/الحزمة تفعيله:
 ```bash
 MONTAGE_EXT_EXTERNAL=1
 MONTAGE_EXT_ALLOWLIST=/etc/montage/allowlist.json   # خارج مساحة العمل (يُرفض داخلها)
+MONTAGE_EXT_SANDBOX=auto                            # auto (افتراضي) | bwrap | unshare | none
 ```
 ```json
 { "entries": { "my_script": { "command": "/usr/bin/python3", "args": ["/opt/tools/run.py"], "permissions": [], "timeoutMs": 20000 } } }
 ```
 الحزمة تشير إلى `"entry": "my_script"` فقط. التنفيذ: `spawn` بلا shell، `command` مطلق، بيئة مصفّاة (بلا مفاتيح)، cwd مؤقت، مهلة وسقف مخرجات، المدخل JSON عبر stdin والمخرج JSON عبر stdout، **موافقة المستخدم عند كل تشغيل**.
-**⚠️ ليس sandbox:** البرنامج يعمل بصلاحيات مستخدم الخادم وقد يصل للشبكة والملفات. أدرج فقط برامج تثق بها. عزل حقيقي (حاوية/seccomp) غير مُنفَّذ.
+
+**العزل (`lib/extensions/sandbox.ts`)** — مطلوب افتراضياً؛ إن لم يتوفر أي أسلوب **يُرفض التشغيل** (لا تدهور صامت):
+
+| الأسلوب | ما يمنعه فعلاً | ملاحظة |
+|---|---|---|
+| `bwrap` (bubblewrap) | الشبكة، الكتابة على نظام الملفات، رؤية مساحة العمل والمنزل، /tmp مشترك | الأقوى؛ يُفضَّل تثبيته (`apt install bubblewrap`) |
+| `unshare` (user+net+mount ns) | الشبكة، ورؤية مساحة العمل والمنزل وجذر المستودع | **أضعف**: بقية نظام الملفات تبقى مقروءة/قابلة للكتابة بصلاحيات المستخدم |
+| `none` | لا شيء | قرار صريح من المالك؛ يُوسم تحذيراً في كل نتيجة |
+
+مُتحقَّق منه باختبار عملية حقيقية (`sandbox.test.ts`): الاتصال بالشبكة يفشل وملف مساحة العمل غير مرئي، وبدون العزل يُرى. لا حدود ذاكرة/CPU (استخدم حاوية/cgroups لذلك). Linux فقط؛ على غيره اضبط `none` صراحةً أو لا تستخدم التنفيذ الخارجي.
+
+## 4-ب) توقيع الحزم وسياسة الثقة
+
+بصمة SHA-256 تكشف العبث فقط. **توقيع Ed25519** يثبت أن حائز المفتاح وقّع المحتوى نفسه (حقل `signature` على مستوى الحزمة، خارج البيان):
+```bash
+pnpm ext keygen mykey                                   # mykey.key.pem (سرّي، لا يُرفع إلى git) + mykey.pub.json
+pnpm ext sign examples/extensions/tagline_prompt --key mykey.key.pem --signer owner --out signed.json
+MONTAGE_EXT_TRUSTED_KEYS=/etc/montage/trusted.json pnpm ext verify signed.json   # trusted | untrusted | invalid | unsigned
+```
+- `MONTAGE_EXT_TRUSTED_KEYS`: ملف `{ "keys": [{ "name", "publicKey" }] }` **خارج مساحة العمل** (داخلها يُتجاهل).
+- `MONTAGE_EXT_REQUIRE_SIGNED=1`: أي حزمة **مستوردة** يجب أن تكون موقّعة بمفتاح موثوق — يُفحص عند الحفظ والتفعيل **وعند كشف الأداة لـ MCP** (سحب الثقة لاحقاً يوقفها فوراً). الإضافات المنشأة محلياً مستثناة.
+- توقيع غير صالح (محتوى عُدّل بعد التوقيع) يُرفض دائماً. التوقيع **لا يثبت أمان** الحزمة، بل مصدرها وسلامتها.
+- تعديل حزمة موقّعة أو نسخها يُسقط التوقيع (الإصدار الجديد غير موقّع).
+
+## 4-ج) حدود الموارد
+
+`MONTAGE_EXT_MAX_CONCURRENT` (4) تزامن عام · `MONTAGE_EXT_MAX_PER_EXT` (2) لكل إضافة · `MONTAGE_EXT_RATE_PER_MIN` (60) معدّل لكل إضافة. التجاوز ⇒ `LIMIT_EXCEEDED` دون تنفيذ. داخل العملية (محلي)؛ لا يحدّ الذاكرة/CPU.
 
 ## 5) خادم MCP
 
@@ -115,8 +142,8 @@ MONTAGE_EXT_ALLOWLIST=/etc/montage/allowlist.json   # خارج مساحة الع
 
 حدود صريحة:
 - حزمة `prompt` خبيثة قد تحاول التأثير على نموذج؛ لكنها بلا أدوات/أثر جانبي ومخرجاتها تُتحقق بمخطط وتُوسم `ai-model`.
-- التحقق يحمي من الأخطاء والعبث بعد التوقيع، **لا يثبت هوية المؤلف** (بصمة SHA-256 بلا توقيع تشفيري بمفتاح).
-- لا عزل فعلي للبرامج الخارجية (القسم 4). لا حصص موارد لكل إضافة غير المهلة وسقف المخرجات.
+- البصمة وحدها لا تثبت هوية الناشر؛ التوقيع (4-ب) يثبتها لمن يضبط قائمة الثقة، وهو اختياري افتراضياً.
+- عزل البرامج الخارجية بحسب الأسلوب (القسم 4) — `unshare` لا يقيّد نظام الملفات كاملاً. لا حدود ذاكرة/CPU.
 - التطبيق محلي بلا حسابات: «مستخدم آخر» غير موجود؛ الحماية من الكتابة فوق إضافة قائمة قائمة على المعرّف والإصدار.
 
 ## 7) واجهة HTTP

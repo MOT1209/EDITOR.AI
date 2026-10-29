@@ -14,6 +14,7 @@ import {
   type ExtensionState, type Origin, type RunRecord,
 } from "./store";
 import { validatePackage, type ValidationReport } from "./validate";
+import { signatureGate, signatureStatus, type SignatureStatus } from "./signing";
 
 export type ExtensionStatus = "enabled" | "disabled" | "needs_grant" | "invalid" | "incompatible" | "unavailable";
 
@@ -41,6 +42,9 @@ export interface ExtensionSummary {
   lastTest?: ExtensionState["lastTest"];
   issues: ValidationReport["issues"];
   updatedAt: string;
+  /** حالة توقيع الناشر: unsigned | invalid | untrusted | trusted (انظر signing.ts) */
+  signature: SignatureStatus;
+  signer?: string;
 }
 
 const norm = (s: string) => s.toLowerCase();
@@ -48,6 +52,10 @@ const norm = (s: string) => s.toLowerCase();
 async function summarize(state: ExtensionState, pkg: ExtensionPackage): Promise<ExtensionSummary> {
   const report = await validatePackage(pkg);
   const m = pkg.manifest;
+  const sig = await signatureStatus(pkg);
+  const gate = await signatureGate(pkg, state.origin);
+  if (gate) report.issues.push({ level: "error", code: "INTEGRITY", message: gate });
+  report.ok = !report.issues.some((i) => i.level === "error");
   const missingGrant = report.requiredPermissions.filter((p) => !state.grants.includes(p));
   let status: ExtensionStatus;
   if (report.issues.some((i) => i.code === "COMPAT" && i.level === "error")) status = "incompatible";
@@ -61,7 +69,7 @@ async function summarize(state: ExtensionState, pkg: ExtensionPackage): Promise<
     author: m.author, version: state.activeVersion, stability: m.stability, origin: state.origin,
     label: m.stability === "experimental" ? "experimental" : state.origin,
     executionType: m.execution.type, status, enabled: state.enabled, permissions: m.permissions, grants: state.grants,
-    versions: state.versions.map((v) => v.version), lastRun: state.lastRun, lastTest: state.lastTest, issues: report.issues, updatedAt: state.updatedAt,
+    versions: state.versions.map((v) => v.version), lastRun: state.lastRun, lastTest: state.lastTest, issues: report.issues, updatedAt: state.updatedAt, signature: sig.status, signer: sig.signer,
   };
 }
 
@@ -115,7 +123,13 @@ function toPackage(raw: unknown, kindHint?: ExtensionKind): ExtensionPackage {
 export async function validateRaw(raw: unknown, kindHint?: ExtensionKind) {
   try {
     const pkg = toPackage(raw, kindHint);
-    return { parsed: true, ...(await validatePackage(pkg)) };
+    const rep = await validatePackage(pkg);
+    const sg = await signatureStatus(pkg);
+    if (sg.status === "invalid") rep.issues.push({ level: "error", code: "INTEGRITY", message: "توقيع الحزمة غير صالح" });
+    else if (sg.status === "unsigned") rep.issues.push({ level: "warn", code: "INTEGRITY", message: "الحزمة غير موقّعة (لا إثبات لهوية الناشر)" });
+    else if (sg.status === "untrusted") rep.issues.push({ level: "warn", code: "INTEGRITY", message: `موقّعة بمفتاح ${sg.fingerprint} غير موجود في قائمتك الموثوقة` });
+    rep.ok = !rep.issues.some((i) => i.level === "error");
+    return { parsed: true, signature: sg.status, ...rep };
   } catch (e) {
     if (e instanceof EngineError) return { parsed: false, ok: false, issues: [{ level: "error" as const, code: "SCHEMA" as const, message: e.message }], requiredPermissions: [] as Permission[] };
     throw e;
@@ -125,6 +139,8 @@ export async function validateRaw(raw: unknown, kindHint?: ExtensionKind) {
 export async function saveExtension(raw: unknown, opts: { kind?: ExtensionKind; origin: Origin; update: boolean; note?: string }): Promise<{ summary: ExtensionSummary; validation: ValidationReport }> {
   const pkg = toPackage(raw, opts.kind);
   const report = await validatePackage(pkg);
+  const gate = await signatureGate(pkg, opts.origin);
+  if (gate) report.issues.push({ level: "error", code: "INTEGRITY", message: gate }), (report.ok = false);
   if (!report.ok) {
     throw new EngineError("INVALID_INPUT", `فشل التحقق: ${report.issues.filter((i) => i.level === "error").map((i) => i.message).slice(0, 6).join("؛ ")}`, "أصلح الأخطاء ثم أعد المحاولة. لم يُحفظ شيء.");
   }
@@ -175,6 +191,8 @@ export async function setEnabled(kind: ExtensionKind, id: string, enabled: boole
   const { state, pkg } = await readActivePackage(kind, id);
   if (enabled) {
     const report = await validatePackage(pkg);
+    const gate = await signatureGate(pkg, state.origin);
+    if (gate) throw new EngineError("APPROVAL_DENIED", `لا يمكن التفعيل: ${gate}`);
     if (!report.ok) throw new EngineError("INVALID_INPUT", `لا يمكن التفعيل: ${report.issues.filter((i) => i.level === "error")[0]?.message}`, "أصلح أخطاء التحقق أولاً.");
     const missing = report.requiredPermissions.filter((p) => !state.grants.includes(p));
     if (missing.length) throw new EngineError("APPROVAL_DENIED", `امنح الصلاحيات أولاً: ${missing.join(", ")}`);

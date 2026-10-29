@@ -15,6 +15,7 @@ import type { ExtensionPackage, Permission, SkillManifest, ToolManifest } from "
 import { getNativeEntry } from "./native";
 import { validateAgainst, type ObjectSchema } from "./schema";
 import { resolveArgs } from "./template";
+import { acquireSlot } from "./limits";
 import { requiredPermissions } from "./validate";
 
 /** تُرفض بـ APPROVAL_DENIED عند عدم الموافقة. الحقن يتم من الطبقة المستدعية (MCP elicitation / تأكيد الواجهة). */
@@ -133,9 +134,11 @@ export async function executeSkill(pkg: ExtensionPackage, rawInput: unknown, opt
   const started = Date.now();
   const logs: string[] = [];
   const warnings: string[] = [];
+  let release = () => {};
   try {
     const m = pkg.manifest as SkillManifest;
     if (m.kind !== "skill") throw new EngineError("INVALID_INPUT", "الحزمة ليست مهارة");
+    release = acquireSlot(m.id); // تزامن + معدّل قبل أي عمل
     const input = validateInput(m.input, rawInput);
     const config = configFor(m, opts.config);
     const ex = m.execution;
@@ -212,6 +215,8 @@ export async function executeSkill(pkg: ExtensionPackage, rawInput: unknown, opt
         case "external": {
           await approveExternal(ex.entry, opts.approve);
           const r = await runExternal(ex.entry, { input, config }, { timeoutMs: m.limits.timeoutMs, maxOutputBytes: m.limits.maxOutputBytes, signal });
+          logs.push(`عزل: ${r.sandbox}`);
+          if (r.sandbox.startsWith("none")) warnings.push("تشغيل بلا عزل (قرار المالك)");
           if (r.stderr.trim()) logs.push(`stderr: ${r.stderr.trim().slice(0, 300)}`);
           warnings.push("نتيجة برنامج خارجي — مصدرها غير مُتحقَّق منه من المنصة");
           return { output: r.output as Record<string, unknown>, provenance: "computed" as Provenance };
@@ -225,6 +230,8 @@ export async function executeSkill(pkg: ExtensionPackage, rawInput: unknown, opt
     return { ok: true, output, provenance: out.provenance, warnings, logs, durationMs: Date.now() - started };
   } catch (e) {
     return fail(started, e, logs, warnings);
+  } finally {
+    release();
   }
 }
 
@@ -233,9 +240,11 @@ export async function invokeTool(pkg: ExtensionPackage, rawArgs: unknown, opts: 
   const started = Date.now();
   const logs: string[] = [];
   const warnings: string[] = [];
+  let release = () => {};
   try {
     const m = pkg.manifest as ToolManifest;
     if (m.kind !== "tool") throw new EngineError("INVALID_INPUT", "الحزمة ليست أداة");
+    release = acquireSlot(m.id); // تزامن + معدّل قبل أي عمل
     const input = validateInput(m.input, rawArgs);
     const config = configFor(m, opts.config);
     const ex = m.execution;
@@ -252,6 +261,8 @@ export async function invokeTool(pkg: ExtensionPackage, rawArgs: unknown, opts: 
       }
       await approveExternal(ex.entry, opts.approve);
       const r = await runExternal(ex.entry, { input, config }, { timeoutMs: m.limits.timeoutMs, maxOutputBytes: m.limits.maxOutputBytes, signal });
+      logs.push(`عزل: ${r.sandbox}`);
+      if (r.sandbox.startsWith("none")) warnings.push("تشغيل بلا عزل (قرار المالك)");
       if (r.stderr.trim()) logs.push(`stderr: ${r.stderr.trim().slice(0, 300)}`);
       warnings.push("نتيجة برنامج خارجي — مصدرها غير مُتحقَّق منه من المنصة");
       return { output: r.output, provenance: "computed" as Provenance };
@@ -261,5 +272,7 @@ export async function invokeTool(pkg: ExtensionPackage, rawArgs: unknown, opts: 
     return { ok: true, output, provenance: out.provenance, warnings, logs, durationMs: Date.now() - started };
   } catch (e) {
     return fail(started, e, logs, warnings);
+  } finally {
+    release();
   }
 }

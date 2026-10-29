@@ -9,6 +9,7 @@ import { runtimeName, type SkillManifest } from "./manifest";
 import { executeSkill } from "./runtime";
 import { listStates, readVersion, type ExtensionState } from "./store";
 import { validatePackage } from "./validate";
+import { signatureGate } from "./signing";
 import type { ExtensionPackage } from "./manifest";
 import { externalEnabled } from "./external";
 
@@ -53,6 +54,8 @@ export async function buildExtendedSkillManager(): Promise<{ manager: SkillManag
       const pkg = await readVersion("skill", st.id, st.activeVersion);
       const report = await validatePackage(pkg);
       if (!report.ok) { skipped.push({ id: st.id, reason: report.issues.find((i) => i.level === "error")?.message ?? "غير صالحة" }); continue; }
+      const gate = await signatureGate(pkg, st.origin);
+      if (gate) { skipped.push({ id: st.id, reason: gate }); continue; }
       const missing = report.requiredPermissions.filter((p) => !st.grants.includes(p));
       if (missing.length) { skipped.push({ id: st.id, reason: `صلاحيات غير ممنوحة: ${missing.join(", ")}` }); continue; }
       const t = pkg.manifest.execution.type;

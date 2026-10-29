@@ -133,6 +133,16 @@ async function main() {
   }
   check(gone, "اختفاء الأداة من tools/list بعد تعطيلها");
 
+  // ---- أداة مخصّصة مكلفة (render.export): موافقة + تصدير حقيقي + مراجعة ffprobe ----
+  const expPkg = JSON.parse(readFileSync(path.join(root, "examples", "extensions", "export-video.tool.json"), "utf-8"));
+  await ext.saveExtension(expPkg, { origin: "imported", update: false });
+  await ext.grantPermissions("tool", "export_video", ["render.export"]);
+  await ext.setEnabled("tool", "export_video", true, { acknowledgeUntested: true });
+  for (let i = 0; i < 20 && !(await client.listTools()).tools.some((x) => x.name === "ext_export_video"); i++) await new Promise((r) => setTimeout(r, 500));
+  const ce = await client.callTool({ name: "ext_export_video", arguments: { projectId: pid, waitSeconds: 100 } }, undefined, { timeout: 200_000 });
+  const ced = (ce.structuredContent ?? {}) as Json;
+  check(!ce.isError && ced.result?.status === "completed" && ced.result?.review?.passed === true && ced.provenance === "real-analysis", "تصدير عبر أداة مخصّصة (render.export): completed + مراجعة ffprobe", ced.result?.status);
+
   await client.close();
 }
 

@@ -12,6 +12,7 @@ import { createHash } from "crypto";
 import { z } from "zod";
 import { isSemver, isValidRange } from "./semver";
 import { lintSchema, EMPTY_OBJECT_SCHEMA, type ObjectSchema } from "./schema";
+import { SignatureSchema, type PackageSignature } from "./signing";
 
 export const PACKAGE_FORMAT = "montage-extension" as const;
 export const FORMAT_VERSION = 1 as const;
@@ -26,6 +27,7 @@ export const runtimeName = (id: string) => `${RUNTIME_PREFIX}${id}`;
 export const PERMISSIONS = [
   "project.read", // قراءة مشاريع مساحة العمل
   "project.write", // تعديل مشروع (يتطلب موافقة)
+  "render.export", // تصدير فيديو كامل (مكلف زمنياً؛ يتطلب موافقة)
   "media.read", // تحليل وسائط المشروع (ffprobe/ffmpeg ببنية ثابتة)
   "skills.run", // تشغيل مهارات/مسارات مدمجة
   "ai.invoke", // استدعاء نموذج مدفوع (يمرّ عبر ضابط التكلفة)
@@ -134,6 +136,8 @@ export interface ExtensionPackage {
   kind: ExtensionKind;
   manifest: Manifest;
   files: Record<string, string>;
+  /** توقيع Ed25519 اختياري على مستوى الحزمة (signing.ts) — خارج البيان فلا يغيّر البصمة. */
+  signature?: PackageSignature;
 }
 
 export const FILE_LIMITS = { maxFiles: 8, maxFileBytes: 64_000, maxPackageBytes: 256_000 } as const;
@@ -202,5 +206,11 @@ export function parsePackage(raw: unknown): { ok: true; pkg: ExtensionPackage } 
   if (r.kind !== m.manifest.kind) return { ok: false, errors: ["kind لا يطابق manifest.kind"] };
   const f = checkFiles(r.files);
   if (!f.ok) return f;
-  return { ok: true, pkg: { format: PACKAGE_FORMAT, formatVersion: FORMAT_VERSION, kind: m.manifest.kind, manifest: m.manifest, files: f.files } };
+  let signature: PackageSignature | undefined;
+  if (r.signature !== undefined) {
+    const sg = SignatureSchema.safeParse(r.signature);
+    if (!sg.success) return { ok: false, errors: ["signature: صيغة توقيع غير صالحة"] };
+    signature = sg.data;
+  }
+  return { ok: true, pkg: { format: PACKAGE_FORMAT, formatVersion: FORMAT_VERSION, kind: m.manifest.kind, manifest: m.manifest, files: f.files, ...(signature ? { signature } : {}) } };
 }
