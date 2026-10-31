@@ -109,3 +109,10 @@
 - **T-07:** zod لمسارات `silence` و`skills` و`assets/import` (بقي `transcribe*` بمعالجة multipart خاصة).
 - **T-11 (جزئي):** CSP فعلية: `default-src 'self'`، لا سكربتات خارجية، `connect-src` إلى الأصل وhuggingface.co فقط، `object-src 'none'`، `frame-ancestors 'none'`. **ما يزال `'unsafe-inline'` للسكربتات والأنماط** (Next يضمّن سكربتات)، فلا حماية كاملة من XSS المضمّن؛ nonce كاملة مؤجلة. تحقق: ترويسة حية على `next start` + `ui:smoke` و`e2e-ui` بلا أخطاء console (أي انتهاك CSP كان سيظهر).
 - **T-12:** vitest 4.1.12 وESLint 9.39 (flat config، `lint` = `eslint .`) + overrides: `pnpm audit` الكامل من 10 إلى **2 moderate** (`minimatch` عبر `@eslint/eslintrc` — dev فقط، يتطلب minimatch 11 غير متوافق مع eslintrc؛ محجوب خارجياً). `audit --prod` = 0.
+
+## 11. تصحيح وحالة CI (2026-10-31)
+
+- **تصحيح:** ذكرتُ سابقاً أن CI لم يعمل على GitHub. هذا غير دقيق: عمل على PRs #9 و#10 و#11 ونجحت كل وظائفه (Python، TypeScript بما فيها `audit --prod` و`ui:smoke`/E2E الواجهة، gitleaks). تشغيل الدمج #12 كان جارياً عند كتابة هذا السطر (النتيجة النهائية لم أتحقق منها).
+- **قرارات:** يبقى Remotion (طلب المالك دمج كل الفروع) مع تنبيه الترخيص في `docs/SKILLS_PLATFORM.md`؛ وتبقى وثيقة العقد الهندسي القديمة مؤرشفة في `docs/`.
+- **لم يُتحقق منه في المتصفح:** معاينة التأطير الذكي (CSS) ونافذة تأكيد فقدان الصوت — الاختبارات هندسية/وحدات فقط.
+- **ما زال مؤجلاً:** T-09 وT-18/T-19 والمرحلتان 7 و8 (الأسباب في `docs/roadmap/DEVELOPMENT_ROADMAP.md`).
