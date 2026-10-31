@@ -54,10 +54,10 @@ describe("RESOLVED G-3 (T-13): browser export mixes server-side audio assets", (
   });
 });
 
-describe("KNOWN GAP G-4: per-clip zoom/pan/smartZoom are display-only", () => {
-  it("lib/server/ffmpeg-export.ts never reads VideoClip.zoom/panX/panY/smartZoom", () => {
+describe("RESOLVED G-4 (T-15): per-clip framing reaches the export", () => {
+  it("ffmpeg-export.ts reads zoom/pan via clipFraming (smartZoom only); effect verified in tests/export-framing.test.ts", () => {
     const src = readFileSync(path.join(process.cwd(), "lib/server/ffmpeg-export.ts"), "utf-8");
-    expect(src).not.toMatch(/\.(panX|panY|smartZoom)\b/);
-    expect(src).not.toMatch(/\bc\.zoom\b/);
+    expect(src).toMatch(/export function clipFraming/);
+    expect(src).toMatch(/framingCrop/);
   });
 });

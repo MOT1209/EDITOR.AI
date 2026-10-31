@@ -15,7 +15,7 @@
 | صوت إضافي (موسيقى/تعليق) في تصدير الواجهة | ❌ | V: G-3 | `app/api/export/route.ts` | يُسمع في المعاينة ويُفقد في الملف | F-12 |
 | صوت إضافي في تصدير MCP (أصول الخادم) | ✅ | V: اختبار MCP + `jobs.ts` | `lib/engine/jobs.ts` | `blob:` يُرفض بتحذير | — |
 | معالجة audio blob | ✅ (T-13) | V: `tests/export-audio.test.ts` (رفع ffprobe، رفض المزيّف، تصدير حقيقي) | `app/api/assets/audio`, `lib/client/audio-upload.ts` | الواجهة ترفع blob تلقائياً قبل التصدير؛ لم تُجرَّب في متصفح | F-13 |
-| تكبير/تحريك (zoom/pan/smartZoom) للمقطع | ❌ في التصدير | V: G-4 | `VideoClip` ← `ffmpeg-export.ts` | عرض فقط | F-14 |
+| تكبير/تحريك (zoom/pan/smartZoom) للمقطع | ◐ (T-15) | V: `tests/export-framing.test.ts` (لون الإطار) | `clipFraming` في `ffmpeg-export.ts` | يُطبَّق عند `smartZoom=true` فقط؛ **المعاينة لا تعرضه** ⇒ انحراف عكسي جديد (معاينة بلا تأطير، تصدير مؤطَّر) | F-14 |
 | تأثيرات على مستوى المشروع | ✅ | V: `ffmpeg-export.test.ts` (8) | `buildEffectChain` | `clip.effects` للعرض فقط | F-15 |
 | ترجمات/نصوص (ASS) | ✅ | V: اختبارات بانٍ + e2e | `buildAss` | — | — |
 | صور B-roll كطبقات | ✅ | C + اختبار بانٍ | `buildImageOverlays` | مقيّد بـ `ASSETS_DIR` | — |
@@ -42,4 +42,5 @@
 | مصادقة/مستخدمون/أدوار | ❌ → ◐ | V: رمز واحد مشترك | `lib/server/auth.ts` | لا مستخدمين ولا أدوار | SEC-02 |
 | تسجيل مهيكل | ◐ | V: tests/security | `lib/server/logger.ts` | مطبّق على المسارات الجديدة/pipeline؛ باقي `console` في `mcp/stdio.ts` مقصود | D-05 |
 | ترويسات أمان | ✅ | V: curl/اختبار | `next.config.js` | CSP كاملة مؤجلة | SEC-12 |
-| CI | ✅ | C (YAML)؛ NT على GitHub | `.github/workflows/ci.yml` | لا Playwright | F-16 |
+| CI | ✅ | C (YAML)؛ NT على GitHub | `.github/workflows/ci.yml` | يشمل Playwright smoke (T-16) | F-16 |
+| دخان الواجهة (متصفح حقيقي) | ✅ | V: `pnpm ui:smoke` — 9 فحوص: رفع، تقسيم، تراجع/إعادة، إزالة صمت، تصدير، ffprobe، لا أخطاء console | `scripts/ui-smoke.mjs` | لا يغطي رفع الصوت من الواجهة ولا تأكيد فقدان الصوت | F-16 |

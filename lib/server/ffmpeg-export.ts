@@ -359,6 +359,8 @@ interface Segment {
   assetId?: string;
   /** فهرس مدخل ffmpeg (0 = المصدر الأساسي). يُعيَّن في buildExportPlan. */
   sourceIndex?: number;
+  /** تأطير ذكي (T-15): تكبير ≥1 وإزاحة المركز كنسبة من الإطار (-0.5..0.5). يُطبَّق فقط إن smartZoom=true. */
+  framing?: { zoom: number; panX: number; panY: number };
   inPoint: number;
   outPoint: number;
   speed: number;
@@ -370,6 +372,17 @@ export interface ImageOverlay {
   path: string;
   start: number;
   end: number;
+}
+
+/** تأطير المقطع من zoom/panX/panY عند smartZoom فقط؛ null إن لا أثر (zoom≈1 وبلا إزاحة). */
+export function clipFraming(c: Pick<VideoClip, "smartZoom" | "zoom" | "panX" | "panY">): Segment["framing"] | undefined {
+  if (!c.smartZoom) return undefined;
+  const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Number.isFinite(n) ? n : 0));
+  const zoom = clamp(c.zoom, 1, 4);
+  const panX = clamp(c.panX, -0.5, 0.5);
+  const panY = clamp(c.panY, -0.5, 0.5);
+  if (zoom < 1.001 && Math.abs(panX) < 0.001 && Math.abs(panY) < 0.001) return undefined;
+  return { zoom: r3(zoom), panX: r3(panX), panY: r3(panY) };
 }
 
 export function buildSegments(project: ProjectState): Segment[] {
@@ -390,6 +403,7 @@ export function buildSegments(project: ProjectState): Segment[] {
 
   return clips.map((c: VideoClip) => ({
     assetId: c.assetId,
+    framing: clipFraming(c),
     inPoint: Math.max(0, c.inPoint),
     outPoint: c.outPoint > c.inPoint ? c.outPoint : c.inPoint + c.duration * (c.speed || 1),
     speed: clampSpeed(c.speed),
@@ -471,9 +485,15 @@ function buildFilterComplex(o: FilterOptions): { filterComplex: string; audioLab
   segments.forEach((seg, i) => {
     const colorExpr = COLOR_FILTER_FFMPEG[seg.colorFilter || "none"] || "";
     const effectChain = buildEffectChain(effects, durations[i], width, height);
+    const fr = seg.framing;
+    // قصّ نافذة بحجم الإطار/zoom حول المركز المُزاح (مقيّدة داخل الإطار) قبل التوحيد إلى أبعاد الإخراج.
+    const framingCrop = fr
+      ? [`crop=w=iw/${fr.zoom}:h=ih/${fr.zoom}:x='min(max(iw/2+(${fr.panX})*iw-iw/${fr.zoom}/2,0),iw-iw/${fr.zoom})':y='min(max(ih/2+(${fr.panY})*ih-ih/${fr.zoom}/2,0),ih-ih/${fr.zoom})'`]
+      : [];
     const videoChain = [
       `trim=start=${seg.inPoint}:end=${seg.outPoint}`,
       "setpts=(PTS-STARTPTS)" + (seg.speed !== 1 ? `/${seg.speed}` : ""),
+      ...framingCrop,
       // توحيد الأبعاد قبل الدمج: concat/xfade يفشلان مع مقاطع بأبعاد مختلفة (zoompan يغيّرها).
       `scale=${width}:${height}:force_original_aspect_ratio=increase`,
       `crop=${width}:${height}`,
