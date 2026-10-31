@@ -14,6 +14,7 @@ import {
 } from "@/lib/server/api-keys";
 import { hasFfmpeg, resolveFfmpegPath } from "@/lib/server/ffmpeg-export";
 import { guardCost, recordSpend } from "@/lib/server/cost-guard";
+import { uploadRef } from "@/lib/server/media-ref";
 import { saveUpload, rejectOversizedRequest, QuotaError } from "@/lib/server/uploads";
 import { validateVideoUpload } from "@/lib/server/validate";
 import type {
@@ -637,7 +638,7 @@ export async function POST(req: NextRequest) {
       scenes,
       highlights,
       quality,
-      filePath,
+      sourceRef: uploadRef(id),
       mock,
       transcriptSimulated,
       warnings,

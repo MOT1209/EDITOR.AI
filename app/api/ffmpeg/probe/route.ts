@@ -5,6 +5,7 @@ import { validateVideoUpload } from "@/lib/server/validate";
 import { probeMedia } from "@/lib/engine/media";
 import { isEngineError } from "@/lib/engine/errors";
 import { UPLOAD_DIR } from "@/lib/server/ffmpeg-export";
+import { uploadRef } from "@/lib/server/media-ref";
 import { saveUpload, rejectOversizedRequest, QuotaError } from "@/lib/server/uploads";
 import { logger } from "@/lib/server/logger";
 
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest) {
   try {
     const info = await probeMedia(filepath);
     if (!info.video) throw new Error("الملف لا يحتوي مسار فيديو");
-    return NextResponse.json({ id, filename, size: file.size, path: filepath, name: file.name, info });
+    return NextResponse.json({ id, ref: uploadRef(id), filename, size: file.size, name: file.name, info });
   } catch (e) {
     await fs.rm(filepath, { force: true }).catch(() => {});
     logger.warn("upload.rejected", { name: path.basename(file.name), size: file.size });

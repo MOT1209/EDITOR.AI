@@ -5,7 +5,7 @@
 
 | الميزة | الحالة | الدليل | ملفات | ثغرة/ملاحظة | معرّف |
 |--------|--------|--------|-------|-------------|-------|
-| رفع فيديو + تحقق ffprobe + رفض المزيّف | ✅ | V: HTTP حي (200 للعيّنة، 400 للمزيّف ويُحذف) + tests/security | `app/api/ffmpeg/probe/route.ts`, `lib/server/uploads.ts` | الاستجابة تكشف المسار المطلق (SEC-09) | — |
+| رفع فيديو + تحقق ffprobe + رفض المزيّف | ✅ | V: HTTP حي (200 للعيّنة، 400 للمزيّف ويُحذف) + tests/security | `app/api/ffmpeg/probe/route.ts`, `lib/server/uploads.ts` | الاستجابة تعيد `ref` معتماً بلا مسار (T-03) | — |
 | حدود حجم/نوع/تخزين للرفع | ✅ (بعد المرحلة 2) | V: tests/security (413/507/امتداد) | `lib/server/validate.ts`, `storage.ts` | رفع GB ما يزال مكلفاً في الذاكرة (P-1) | P-1 |
 | تنظيف الملفات المؤقتة | ✅ (بعد المرحلة 2) | V: tests/security/storage | `lib/server/storage.ts`, `scripts/cleanup.ts` | لا يغطي `ASSETS_DIR` ولا مساحة العمل عمداً | — |
 | عمليات التايملاين (قص/تقسيم/نقل/حذف/تراجع) | ✅ | V: 16 اختبار وحدة + MCP e2e | `lib/engine/timeline.ts` | واجهة المستخدم: NR | — |

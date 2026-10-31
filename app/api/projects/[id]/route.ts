@@ -1,3 +1,4 @@
+import { projectRef } from "@/lib/server/media-ref";
 import { NextRequest, NextResponse } from "next/server";
 import { isEngineError } from "@/lib/engine/errors";
 import { parseProject } from "@/lib/engine/project-schema";
@@ -19,10 +20,10 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   const params = await ctx.params;
   try {
     const project = await getProject(params.id);
-    let media: { assetId: string; url: string; sourcePath: string; name: string } | null = null;
+    let media: { assetId: string; url: string; sourceRef: string; name: string } | null = null;
     try {
       const a = primaryVideoAsset(project);
-      media = { assetId: a.id, name: a.name, url: `/api/projects/${project.id}/media/${a.id}`, sourcePath: assetPath(project.id, a) };
+      media = { assetId: a.id, name: a.name, url: `/api/projects/${project.id}/media/${a.id}`, sourceRef: projectRef(project.id, a.id) };
     } catch {
       /* مشروع بلا فيديو بعد */
     }

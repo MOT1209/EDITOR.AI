@@ -14,6 +14,7 @@ import {
   writeJobStatus,
 } from "@/lib/server/ffmpeg-export";
 import { checkExportable } from "@/lib/engine/export-guard";
+import { resolveVideoRef } from "@/lib/server/media-ref";
 import { cancelExport, registerExportController, releaseExportController } from "@/lib/server/export-jobs";
 
 export const runtime = "nodejs";
@@ -35,18 +36,15 @@ export async function DELETE(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
-  const sourcePath = body?.sourcePath;
-  const parsed = body?.project ? parseProject(body.project) : null;
+    const parsed = body?.project ? parseProject(body.project) : null;
   const videoStabilize = Boolean(body?.videoStabilize);
   const colorGrading =
     typeof body?.colorGrading === "number" ? body.colorGrading : 0.5;
 
-  // المصدر: مرفوعات المتصفح، أو وسائط مشروع في مساحة عمل الخادم (مشاريع MCP).
-  const sourceOk =
-    typeof sourcePath === "string" &&
-    (isPathInside(sourcePath, UPLOAD_DIR) || isPathInside(sourcePath, path.join(workspaceRoot(), "projects")));
-  if (!sourceOk) {
-    return NextResponse.json({ error: "مسار الفيديو غير صالح. ارفع الفيديو أولاً." }, { status: 400 });
+  // المصدر: مرجع معتمد (upload:/project:) لا مسار — يُحلّ على الخادم حصراً (T-03).
+  const sourcePath = await resolveVideoRef(body?.sourceRef);
+  if (!sourcePath) {
+    return NextResponse.json({ error: "مرجع الفيديو غير صالح أو غير موجود. ارفع الفيديو أولاً.", code: "INVALID_INPUT" }, { status: 400 });
   }
   if (!parsed) {
     return NextResponse.json({ error: "بيانات المشروع مطلوبة" }, { status: 400 });

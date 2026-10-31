@@ -86,3 +86,13 @@
 ## 7. تحذير تشغيلي
 
 الرمز المشترك (`MONTAGE_API_TOKEN`) يحمي من الوصول غير المصرّح لكنه **ليس نظام هوية**. قبل أي نشر عام نفّذ على الأقل T-04 وT-05 وT-09 وT-11، وضع الخادم خلف HTTPS وreverse proxy.
+
+## 8. ملحق: T-01 وT-03 (2026-10-31)
+
+- **T-01** (`lib/engine/export-guard.ts`): `/api/export` يرد 409 عند مقاطع من أصل آخر (للمشاريع المُدارة) أو صوت إضافي سيُفقد ما لم يُرسَل `acknowledgeAudioLoss:true`.
+- **T-03 / SEC-09 مُغلق:** مراجع وسائط معتمة (`lib/server/media-ref.ts`): `upload:<uuid>`، `project:<pid>:<aid>`، `asset:<uuid>.<ext>`. تغيّر العقد:
+  `POST /api/ffmpeg/probe` يعيد `ref` بدل `path` · `/api/export` يقبل `sourceRef` (و`sourcePath` مرفوض 400) · `/api/ai/silence` يقبل `sourceRef` بدل `filePath` ·
+  `GET /api/projects/[id]` يعيد `media.sourceRef` · `/api/assets/import` يعيد `ref` · `/api/agents/ceo` يعيد `sourceRef` بدل `filePath` ·
+  `/api/export/status/[id]` و`/api/jobs` لا يعيدان `result.path`.
+  **تحقق حي** على `next start`: رفع → `ref` بلا مسار → تصدير بالـ`ref` → اكتمال → تنزيل ffprobe 6.0s ✓؛ `sourcePath` القديم ⇒ 400.
+  **توافق:** مشاريع محفوظة فيها `imageUrl` مسار مطلق داخل `ASSETS_DIR` تبقى تعمل. عملاء HTTP خارجيون كانوا يستخدمون `sourcePath`/`filePath` يجب تحديثهم.

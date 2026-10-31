@@ -1,9 +1,8 @@
+import { resolveVideoRef } from "@/lib/server/media-ref";
 import { NextRequest, NextResponse } from "next/server";
 import { detectSilence } from "@/lib/engine/media";
 import { isEngineError } from "@/lib/engine/errors";
-import path from "path";
-import { UPLOAD_DIR, hasFfmpeg, isPathInside } from "@/lib/server/ffmpeg-export";
-import { workspaceRoot } from "@/lib/engine/store";
+import { hasFfmpeg } from "@/lib/server/ffmpeg-export";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,13 +15,9 @@ export const maxDuration = 120;
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const duration = typeof body?.duration === "number" && body.duration > 0 ? body.duration : undefined;
-  const filePath = body?.filePath;
-
-  const allowed =
-    typeof filePath === "string" &&
-    (isPathInside(filePath, UPLOAD_DIR) || isPathInside(filePath, path.join(workspaceRoot(), "projects")));
-  if (!allowed) {
-    return NextResponse.json({ error: "filePath يجب أن يشير إلى فيديو مرفوع (ارفع الفيديو أولاً)" }, { status: 400 });
+  const filePath = await resolveVideoRef(body?.sourceRef);
+  if (!filePath) {
+    return NextResponse.json({ error: "sourceRef يجب أن يشير إلى فيديو مرفوع (ارفع الفيديو أولاً)" }, { status: 400 });
   }
   if (!hasFfmpeg()) {
     return NextResponse.json({ segments: [], duration, warning: "ffmpeg غير مثبت — تعذّر كشف الصمت" });

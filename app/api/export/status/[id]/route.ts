@@ -13,5 +13,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   if (!status) {
     return NextResponse.json({ error: "المهمة غير موجودة" }, { status: 404 });
   }
-  return NextResponse.json(status);
+  // لا مسارات قرص للعميل (T-03): التنزيل يتم بمعرّف المهمة عبر /api/export/download/<id>.
+  const { result, ...rest } = status;
+  return NextResponse.json(result ? { ...rest, result: { size: result.size, format: result.format } } : rest);
 }

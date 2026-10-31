@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
+import { mkdirSync, writeFileSync, rmSync } from "fs";
 import path from "path";
+import { afterAll, beforeAll } from "vitest";
 import { defaultProject } from "@/lib/project";
 import type { AudioClip, MediaAsset, ProjectState, VideoClip } from "@/lib/types";
 import { checkExportable, findForeignClips, findLostAudio } from "./export-guard";
@@ -50,11 +52,14 @@ describe("T-01: lost audio requires explicit acknowledgement", () => {
 });
 
 describe("POST /api/export enforces the guard with 409", () => {
+  const id = "11111111-2222-4333-8444-555555555555";
+  beforeAll(() => { mkdirSync(UPLOAD_DIR, { recursive: true }); writeFileSync(path.join(UPLOAD_DIR, `${id}.mp4`), "x"); });
+  afterAll(() => rmSync(path.join(UPLOAD_DIR, `${id}.mp4`), { force: true }));
   const call = (project: unknown, extra: Record<string, unknown> = {}) =>
     exportPost(new NextRequest("http://localhost/api/export", {
       method: "POST",
       headers: { host: "localhost", "content-type": "application/json" },
-      body: JSON.stringify({ sourcePath: path.join(UPLOAD_DIR, "x.mp4"), project, ...extra }),
+      body: JSON.stringify({ sourceRef: `upload:${id}`, project, ...extra }),
     }));
 
   it("audio clip without acknowledgement → 409 AUDIO_WOULD_BE_LOST", async () => {
