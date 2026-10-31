@@ -13,14 +13,23 @@ const mk = (id: string, assetId: string, trackId: string, start: number, inP: nu
 });
 const track = (id: string): TimelineTrack => ({ id, kind: "video", label: id, height: 60, muted: false, locked: false });
 
-describe("KNOWN GAP G-1: single media source per export", () => {
-  it("clips from two different assets are cut from ONE input (assetId ignored)", () => {
+describe("RESOLVED G-1 (T-02): clips are cut from their own asset's input", () => {
+  it("with extraSources the plan has one -i per source and routes clips by assetId", () => {
     const p: ProjectState = { ...defaultProject("t"), duration: 20, tracks: [track("v1")], clips: [mk("c1", "assetA", "v1", 0, 0, 5), mk("c2", "assetB", "v1", 5, 0, 5)] };
-    const plan = buildExportPlan({ sourcePath: "/ws/a.mp4", outputPath: "/ws/o.mp4", project: p }, { allowNvenc: false });
-    expect(plan.args.filter((a) => a === "-i")).toHaveLength(1); // مدخل فيديو واحد فقط
+    const plan = buildExportPlan({ sourcePath: "/ws/a.mp4", outputPath: "/ws/o.mp4", project: p, extraSources: [{ assetId: "assetB", path: "/ws/b.mp4", hasAudio: true }] }, { allowNvenc: false });
+    expect(plan.args.filter((a) => a === "-i")).toHaveLength(2);
     const fc = plan.args[plan.args.indexOf("-filter_complex") + 1];
-    expect((fc.match(/\[0:v\]/g) || []).length).toBeGreaterThanOrEqual(2); // المقطعان من [0:v] نفسه
-    expect(buildSegments(p).every((s) => !("assetId" in s))).toBe(true);
+    expect(fc).toContain("[0:v]trim=start=0:end=5");
+    expect(fc).toContain("[1:v]trim=start=0:end=5");
+    expect(fc).toContain("[1:a]atrim");
+    expect(buildSegments(p).map((s) => s.assetId)).toEqual(["assetA", "assetB"]);
+  });
+  it("a source without audio gets generated silence, not [k:a]", () => {
+    const p: ProjectState = { ...defaultProject("t"), duration: 20, tracks: [track("v1")], clips: [mk("c1", "assetA", "v1", 0, 0, 5), mk("c2", "assetB", "v1", 5, 0, 5)] };
+    const plan = buildExportPlan({ sourcePath: "/ws/a.mp4", outputPath: "/ws/o.mp4", project: p, extraSources: [{ assetId: "assetB", path: "/ws/b.mp4", hasAudio: false }] }, { allowNvenc: false });
+    const fc = plan.args[plan.args.indexOf("-filter_complex") + 1];
+    expect(fc).not.toContain("[1:a]");
+    expect(fc).toContain("anullsrc");
   });
 });
 

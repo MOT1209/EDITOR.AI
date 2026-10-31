@@ -12,8 +12,10 @@ import {
   hasFfmpeg,
   isPathInside,
   runExport,
+  type ExportSource,
   writeJobStatus,
 } from "@/lib/server/ffmpeg-export";
+import { probeMedia } from "@/lib/engine/media";
 import { checkExportable } from "@/lib/engine/export-guard";
 import { resolveAudioRef, resolveVideoRef } from "@/lib/server/media-ref";
 import { cancelExport, registerExportController, releaseExportController } from "@/lib/server/export-jobs";
@@ -54,7 +56,30 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "بيانات المشروع غير صالحة", details: parsed.errors }, { status: 400 });
   }
   const project = parsed.project;
-  const guard = checkExportable(project, { acknowledgeAudioLoss: body?.acknowledgeAudioLoss === true });
+  // مصادر فيديو إضافية (T-02): [{assetId, ref}] — كل ref يُحلّ على الخادم ويُفحص بـ ffprobe.
+  const extraSources: ExportSource[] = [];
+  if (body?.sources !== undefined) {
+    if (!Array.isArray(body.sources) || body.sources.length > 16) {
+      return NextResponse.json({ error: "sources يجب أن تكون مصفوفة (≤16)", code: "INVALID_INPUT" }, { status: 400 });
+    }
+    for (const s of body.sources as { assetId?: unknown; ref?: unknown }[]) {
+      if (typeof s?.assetId !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(s.assetId)) {
+        return NextResponse.json({ error: "sources[].assetId غير صالح", code: "INVALID_INPUT" }, { status: 400 });
+      }
+      const p = await resolveVideoRef(s.ref);
+      if (!p) return NextResponse.json({ error: `مرجع مصدر الأصل «${s.assetId}» غير صالح أو غير موجود`, code: "INVALID_INPUT" }, { status: 400 });
+      try {
+        const info = await probeMedia(p);
+        extraSources.push({ assetId: s.assetId, path: p, hasAudio: !!info.audio });
+      } catch {
+        return NextResponse.json({ error: `تعذّر فحص مصدر الأصل «${s.assetId}»`, code: "INVALID_INPUT" }, { status: 400 });
+      }
+    }
+  }
+  const guard = checkExportable(project, {
+    acknowledgeAudioLoss: body?.acknowledgeAudioLoss === true,
+    supportedAssetIds: new Set(extraSources.map((s) => s.assetId)),
+  });
   if (!guard.ok) {
     return NextResponse.json({ error: guard.error, code: guard.code, details: guard.details }, { status: 409 });
   }
@@ -88,6 +113,7 @@ export async function POST(req: NextRequest) {
     sourcePath,
     outputPath,
     audioInputs,
+    extraSources,
     project,
     videoStabilize,
     colorGrading,

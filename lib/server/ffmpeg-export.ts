@@ -343,9 +343,22 @@ export interface ExportRequest {
   encoderOverride?: { preset: string; crf: number };
   /** هل للمصدر مسار صوت؟ (افتراضي true — عند false يُولَّد صمت). */
   sourceHasAudio?: boolean;
+  /** مصادر فيديو إضافية (T-02): مقاطع assetId المطابق تُقصّ منها بدل المصدر الأساسي. */
+  extraSources?: ExportSource[];
+}
+
+/** مصدر فيديو إضافي يُضاف كمدخل `-i` ويُربط بمقاطع assetId. */
+export interface ExportSource {
+  assetId: string;
+  path: string;
+  hasAudio: boolean;
 }
 
 interface Segment {
+  /** معرّف الأصل الذي يُقصّ منه المقطع. */
+  assetId?: string;
+  /** فهرس مدخل ffmpeg (0 = المصدر الأساسي). يُعيَّن في buildExportPlan. */
+  sourceIndex?: number;
   inPoint: number;
   outPoint: number;
   speed: number;
@@ -376,6 +389,7 @@ export function buildSegments(project: ProjectState): Segment[] {
   }
 
   return clips.map((c: VideoClip) => ({
+    assetId: c.assetId,
     inPoint: Math.max(0, c.inPoint),
     outPoint: c.outPoint > c.inPoint ? c.outPoint : c.inPoint + c.duration * (c.speed || 1),
     speed: clampSpeed(c.speed),
@@ -445,6 +459,8 @@ interface FilterOptions {
   videoStabilize?: boolean;
   gradingFilter?: string | null;
   sourceHasAudio: boolean;
+  /** مصادر إضافية بعد الأساسي (مدخلات 1..k)، ثم صور، ثم صوت. */
+  extraSources: ExportSource[];
 }
 
 function buildFilterComplex(o: FilterOptions): { filterComplex: string; audioLabel: string } {
@@ -462,12 +478,15 @@ function buildFilterComplex(o: FilterOptions): { filterComplex: string; audioLab
       `scale=${width}:${height}:force_original_aspect_ratio=increase`,
       `crop=${width}:${height}`,
       "setsar=1",
+      ...(o.extraSources.length > 0 ? [`fps=${fps}`] : []),
       ...(colorExpr ? [colorExpr] : []),
       ...effectChain,
     ].join(",");
-    parts.push(`[0:v]${videoChain}[v${i}]`);
+    const srcIdx = seg.sourceIndex ?? 0;
+    parts.push(`[${srcIdx}:v]${videoChain}[v${i}]`);
 
-    if (o.sourceHasAudio) {
+    const srcHasAudio = srcIdx === 0 ? o.sourceHasAudio : (o.extraSources[srcIdx - 1]?.hasAudio ?? false);
+    if (srcHasAudio) {
       const audioChain = [
         `atrim=start=${seg.inPoint}:end=${seg.outPoint}`,
         "asetpts=PTS-STARTPTS",
@@ -475,7 +494,7 @@ function buildFilterComplex(o: FilterOptions): { filterComplex: string; audioLab
         ...(seg.volume !== 1 ? [`volume=${seg.volume}`] : []),
         "aformat=sample_rates=48000:channel_layouts=stereo",
       ].join(",");
-      parts.push(`[0:a]${audioChain}[a${i}]`);
+      parts.push(`[${srcIdx}:a]${audioChain}[a${i}]`);
     } else {
       parts.push(`anullsrc=r=48000:cl=stereo,atrim=duration=${durations[i].toFixed(3)}[a${i}]`);
     }
@@ -513,7 +532,7 @@ function buildFilterComplex(o: FilterOptions): { filterComplex: string; audioLab
   // Image overlays are extra -i inputs, indexed 1..N (0 is the main source).
   // Each is only visible during its own [start, end] window via `enable`.
   imageOverlays.forEach((ov, i) => {
-    const inputIndex = i + 1;
+    const inputIndex = i + 1 + o.extraSources.length;
     const scaledLabel = `imgsc${i}`;
     parts.push(
       `[${inputIndex}:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}[${scaledLabel}]`
@@ -602,6 +621,10 @@ export function buildExportPlan(req: Omit<ExportRequest, "onProgress" | "signal"
   let subtitles = project.subtitles;
   let textOverlays = project.textOverlays;
   let audioInputs = (req.audioInputs ?? []).slice();
+  const extraSources = req.extraSources ?? [];
+  // ربط كل مقطع بمدخله حسب assetId (غير المطابق ⇒ المصدر الأساسي 0).
+  const indexByAsset = new Map(extraSources.map((s, k) => [s.assetId, k + 1] as const));
+  segments = segments.map((s) => ({ ...s, sourceIndex: (s.assetId && indexByAsset.get(s.assetId)) || 0 }));
   if (range) {
     segments = applyRange(segments, range);
     imageOverlays = shiftTimed(imageOverlays, range);
@@ -628,7 +651,7 @@ export function buildExportPlan(req: Omit<ExportRequest, "onProgress" | "signal"
     effects: project.effects,
     imageOverlays,
     audioInputs,
-    audioInputOffset: 1 + imageOverlays.length,
+    audioInputOffset: 1 + extraSources.length + imageOverlays.length,
     subtitlesFilename: assFilename,
     width,
     height,
@@ -636,6 +659,7 @@ export function buildExportPlan(req: Omit<ExportRequest, "onProgress" | "signal"
     videoStabilize,
     gradingFilter,
     sourceHasAudio: req.sourceHasAudio ?? true,
+    extraSources,
   });
 
   const totalDuration = Math.max(
@@ -647,6 +671,7 @@ export function buildExportPlan(req: Omit<ExportRequest, "onProgress" | "signal"
   const args = [
     "-y",
     "-i", sourcePath,
+    ...extraSources.flatMap((s) => ["-i", s.path]),
     // -loop 1 turns a still image into an unbounded video source (otherwise it
     // supplies exactly one frame and the overlay vanishes after a frame).
     ...imageOverlays.flatMap((ov) => ["-loop", "1", "-i", ov.path]),

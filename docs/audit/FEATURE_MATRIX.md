@@ -11,7 +11,7 @@
 | عمليات التايملاين (قص/تقسيم/نقل/حذف/تراجع) | ✅ | V: 16 اختبار وحدة + MCP e2e | `lib/engine/timeline.ts` | واجهة المستخدم: NR | — |
 | تايملاين متعدد المسارات (عرض) | ◐ | C | `components/editor/timeline.tsx` | يُعرض ولا يُركَّب عند التصدير | F-11 |
 | **تصدير متعدد المسارات (تركيب)** | ❌ | V: G-2 | `ffmpeg-export.ts` | تُلصق المقاطع تتابعاً | F-11 |
-| **تصدير من عدة مصادر وسائط** | ❌ | V: G-1 | `ffmpeg-export.ts`, `app/api/export/route.ts` | `assetId` يُهمل — خطأ صامت | F-10 |
+| **تصدير من عدة مصادر وسائط** | ✅ (T-02) | V: `tests/export-multisource.test.ts` (لون الإطار من الأصل الصحيح، مصدر صامت، رفض المراجع الفاسدة) | `ffmpeg-export.ts` (`extraSources`), `app/api/export/route.ts` (`sources`), `lib/engine/jobs.ts` | الواجهة لا تتيح رفع فيديو ثانٍ بعد (يُستخدم عبر MCP/HTTP) | F-10 |
 | صوت إضافي (موسيقى/تعليق) في تصدير الواجهة | ❌ | V: G-3 | `app/api/export/route.ts` | يُسمع في المعاينة ويُفقد في الملف | F-12 |
 | صوت إضافي في تصدير MCP (أصول الخادم) | ✅ | V: اختبار MCP + `jobs.ts` | `lib/engine/jobs.ts` | `blob:` يُرفض بتحذير | — |
 | معالجة audio blob | ✅ (T-13) | V: `tests/export-audio.test.ts` (رفع ffprobe، رفض المزيّف، تصدير حقيقي) | `app/api/assets/audio`, `lib/client/audio-upload.ts` | الواجهة ترفع blob تلقائياً قبل التصدير؛ لم تُجرَّب في متصفح | F-13 |
