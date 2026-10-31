@@ -302,3 +302,46 @@ d("render: failure, cancellation and cleanup", () => {
     expect(seen.every((v, i) => i === 0 || v >= seen[i - 1] - 1e-9)).toBe(true);
   });
 });
+
+d("render: export presets and frame rate", () => {
+  it("every preset is schema-valid and a vertical preset renders at the declared size/fps", async () => {
+    const { EXPORT_PRESETS, applyExportPreset } = await import("@/lib/engine/export-presets");
+    const { parseProject } = await import("@/lib/engine/project-schema");
+    for (const pr of EXPORT_PRESETS) {
+      const r = parseProject(applyExportPreset(proj({ clips: [] }), pr.id));
+      expect(r.ok, pr.id).toBe(true);
+    }
+    const p = applyExportPreset(proj({ clips: [clip("a", "red", "v1", 0, 0, 2), clip("b", "green", "v2", 0, 0, 2, { scale: 0.5 })] }), "draft-720p");
+    const vertical = { ...applyExportPreset(p, "shorts-vertical"), quality: "draft" as const, fps: 24 as const };
+    const out = f("preset.mp4");
+    const r = await runExport({ sourcePath: src.red.path, outputPath: out, project: vertical, sources: src });
+    const info = await probeMedia(out);
+    expect([info.video!.width, info.video!.height]).toEqual([1080, 1920]);
+    expect(Math.round(info.video!.fps)).toBe(24);
+    expect(r.width).toBe(1080);
+  });
+});
+
+d("render: preview ≙ export consistency (same plan, different window/size)", () => {
+  it("a low-res preview window shows the same content at the same timeline times as the full export", async () => {
+    const p = proj({
+      clips: [
+        clip("base", "red", "v1", 0, 0, 4),
+        clip("pip", "green", "v2", 1, 0, 2, { scale: 0.4, posX: 0.3, posY: -0.3 }),
+      ],
+      audioMix: { normalize: false },
+    });
+    const full = f("cons_full.mp4");
+    const prev = f("cons_prev.mp4");
+    await runExport({ sourcePath: src.red.path, outputPath: full, project: p, sources: src });
+    await runExport({ sourcePath: src.red.path, outputPath: prev, project: p, sources: src, range: { start: 0.5, end: 3.5 }, size: [640, 360], encoderOverride: { preset: "ultrafast", crf: 30 } });
+    const info = await probeMedia(prev);
+    expect(Math.abs(info.durationSeconds - 3)).toBeLessThan(0.1);
+    // t=2.0 على التايملاين = 1.5 في المعاينة. PIP عند (0.8W,0.2H) في كليهما.
+    expect(near(pixel(full, 2.0, 1024, 144), [0, 255, 0])).toBe(true);
+    expect(near(pixel(prev, 1.5, 512, 72), [0, 255, 0])).toBe(true);
+    // قبل بداية الطبقة (t=0.75 ⇒ 0.25) الأساس فقط في كليهما.
+    expect(near(pixel(full, 0.75, 1024, 144), [255, 0, 0])).toBe(true);
+    expect(near(pixel(prev, 0.25, 512, 72), [255, 0, 0])).toBe(true);
+  });
+});
