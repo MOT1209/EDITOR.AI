@@ -260,6 +260,7 @@ export function Inspector({ state, dispatch, notify }: { state: State; dispatch:
               ["posY", "الموضع Y", (first.posY ?? 0)],
               ["rotation", "التدوير", (first.rotation ?? 0)],
               ["opacity", "الشفافية", (first.opacity ?? 1)],
+              ["scale", "الحجم", (first.scale ?? 1)],
             ] as const
           ).map(([prop, label, value]) => {
             const list = first.keyframes?.[prop] ?? [];
@@ -310,7 +311,7 @@ export function Inspector({ state, dispatch, notify }: { state: State; dispatch:
               </div>
             );
           })}
-          <div className="text-[10px] text-ink-mute">مفاتيح الحجم والاقتصاص والصوت غير مدعومة (قسّم المقطع وغيّر القيم لكل جزء).</div>
+          <div className="text-[10px] text-ink-mute">مفاتيح الاقتصاص والصوت والسرعة والألوان غير مدعومة (قسّم المقطع وغيّر القيم لكل جزء).</div>
         </Group>
       )}
     </div>

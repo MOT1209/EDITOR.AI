@@ -62,6 +62,8 @@ export interface VideoLayer {
   keyframes?: ClipKeyframes;
   /** يُحمَل آخر إطار هذه المدة بعد النهاية ليبقى تحت انتقال المقطع التالي. */
   holdTail: number;
+  /** الذيل المحمول يُقرأ من لقطات المصدر الحقيقية (متاحة بعد outPoint) بدل تجميد آخر إطار. */
+  tailFromSource: boolean;
   /** مدة الانتقال الخارج (يُخفِت صوت هذا المقطع). */
   transitionOut: number;
   colorFilter?: string;
@@ -219,6 +221,7 @@ export function buildRenderPlan(project: ProjectState, sources: SourceMap, opts:
         transitionIn: c.transitionIn,
         keyframes: c.keyframes,
         holdTail: 0,
+        tailFromSource: false,
         transitionOut: 0,
         colorFilter: c.colorFilter,
         color: c.color,
@@ -248,6 +251,8 @@ export function buildRenderPlan(project: ProjectState, sources: SourceMap, opts:
         const d = Math.min(layer.transitionIn.duration, layer.duration, prev.duration);
         layer.transitionIn = { ...layer.transitionIn, duration: r3(d) };
         prev.holdTail = r3(d);
+        const psrc = sources[prev.sourceKey];
+        prev.tailFromSource = prev.kind === "video" && !!psrc && psrc.duration > 0 && prev.inPoint + (prev.duration + d) * prev.speed <= psrc.duration - 0.05;
         prev.transitionOut = r3(d);
       }
       layers.push(layer);

@@ -2,6 +2,7 @@
 // → معاينة مرندرة صالحة. الاستخدام: BASE_URL=http://localhost:3000 node scripts/e2e-ui.mjs
 import { chromium } from "playwright";
 import { execFileSync } from "child_process";
+import { readFileSync } from "fs";
 import { mkdtempSync, rmSync } from "fs";
 import os from "os";
 import path from "path";
@@ -112,6 +113,11 @@ try {
 
   await pg.getByRole("button", { name: "الوسائط" }).first().click(); // يعيد التركيز بعد فحص الوصولية
   await clips.nth(n - 1).click(); // أعد تحديد الطبقة (الخطوات السابقة ألغت التحديد)
+  // axe-core (WCAG 2 A/AA) على الشاشة الرئيسية: لا مخالفات (تباين/أسماء/أدوار)
+  await pg.addScriptTag({ content: readFileSync("node_modules/axe-core/axe.min.js", "utf-8") });
+  const axe = await pg.evaluate(async () => (await window.axe.run(document, { runOnly: ["wcag2a", "wcag2aa"] })).violations.map((v) => `${v.id}×${v.nodes.length}`));
+  check("axe-core WCAG A/AA: لا مخالفات", axe.length === 0, axe.join(","));
+
   const slider = pg.locator('[role=slider][aria-label="مؤشر التشغيل"]');
   await pg.keyboard.press("Shift+ArrowRight");
   await pg.waitForTimeout(200);

@@ -543,7 +543,7 @@ export function Timeline({
       title={title}
       aria-label={title.replace(/\s*\([^)]*\)\s*$/, "")}
       aria-pressed={active}
-      className={`p-1 rounded ${active ? "bg-brand/20 text-brand-glow" : "text-zinc-500 hover:text-zinc-300"} disabled:opacity-30 disabled:hover:text-zinc-500`}
+      className={`p-1 rounded ${active ? "bg-brand/20 text-brand-glow" : "text-zinc-400 hover:text-zinc-300"} disabled:opacity-30 disabled:hover:text-zinc-400`}
     >
       {children}
     </button>
@@ -552,14 +552,14 @@ export function Timeline({
   return (
     <div className="border-t border-[#1e1e2e] bg-[#0c0c14]">
       <div className="flex items-center min-h-8 px-3 border-b border-[#1e1e2e] bg-[#0a0a12] overflow-x-auto">
-        <span className="text-[10px] text-zinc-500 font-semibold tracking-wider uppercase">Timeline</span>
+        <span className="text-[10px] text-zinc-400 font-semibold tracking-wider uppercase">Timeline</span>
         {selectedCount > 1 && <span className="ml-2 text-[10px] text-brand-glow">{selectedCount} محدّدة</span>}
         <div className="flex-1" />
         <div className="flex items-center gap-1">
           <IconBtn onClick={() => dispatch({ type: "SET_ZOOM", z: Math.max(ZOOM_MIN, Math.round(state.zoom / 1.25)) })} title="تصغير (-)">
             <ZoomOut className="h-3 w-3" />
           </IconBtn>
-          <span className="text-[9px] text-zinc-600 w-9 text-center font-mono">{zoomWidth}%</span>
+          <span className="text-[9px] text-zinc-400 w-9 text-center font-mono">{zoomWidth}%</span>
           <IconBtn onClick={() => dispatch({ type: "SET_ZOOM", z: Math.min(ZOOM_MAX, Math.round(state.zoom * 1.25)) })} title="تكبير (+)">
             <ZoomIn className="h-3 w-3" />
           </IconBtn>
@@ -608,12 +608,12 @@ export function Timeline({
                 {t.kind === "audio" && <AudioLines className="h-3 w-3 text-emerald-400 shrink-0 z-10" />}
                 <span className="text-[9px] text-zinc-400 truncate flex-1 z-10" title={t.kind === "video" ? (t.magnetic === false ? "طبقة حرّة" : "مسار مغناطيسي") : undefined}>
                   {t.label}
-                  {t.kind === "video" && t.magnetic === false && <span className="text-zinc-600"> ·حر</span>}
+                  {t.kind === "video" && t.magnetic === false && <span className="text-zinc-400"> ·حر</span>}
                 </span>
                 {(t.kind === "audio" || t.kind === "video") && (
                   <button
                     onClick={() => commit((p) => setTrackFlags(p, t.id, { muted: !t.muted }), "تعذّر")}
-                    className="text-zinc-500 hover:text-zinc-200 z-10"
+                    className="text-zinc-400 hover:text-zinc-200 z-10"
                     title={t.muted ? "إلغاء الكتم" : "كتم صوت المسار"}
                     aria-label={t.muted ? "إلغاء كتم المسار" : "كتم المسار"}
                     aria-pressed={t.muted}
@@ -624,7 +624,7 @@ export function Timeline({
                 {t.kind === "video" && (
                   <button
                     onClick={() => commit((p) => setTrackFlags(p, t.id, { hidden: !t.hidden }), "تعذّر")}
-                    className="text-zinc-500 hover:text-zinc-200 z-10"
+                    className="text-zinc-400 hover:text-zinc-200 z-10"
                     title={t.hidden ? "إظهار المسار" : "إخفاء المسار من الرندر"}
                     aria-label={t.hidden ? "إظهار المسار" : "إخفاء المسار"}
                     aria-pressed={t.hidden}
@@ -635,7 +635,7 @@ export function Timeline({
                 {(t.kind === "audio" || t.kind === "video") && (
                   <button
                     onClick={() => commit((p) => setTrackFlags(p, t.id, { locked: !t.locked }), "تعذّر")}
-                    className="text-zinc-500 hover:text-zinc-200 z-10"
+                    className="text-zinc-400 hover:text-zinc-200 z-10"
                     title={t.locked ? "فتح القفل" : "قفل المسار"}
                     aria-label={t.locked ? "فتح قفل المسار" : "قفل المسار"}
                     aria-pressed={t.locked}
@@ -644,7 +644,7 @@ export function Timeline({
                   </button>
                 )}
                 {(t.kind === "audio" || t.kind === "video") && !used && project.tracks.filter((x) => x.kind === t.kind).length > 1 && (
-                  <button onClick={() => commit((p) => removeTrack(p, t.id), "تعذّر حذف المسار")} className="text-zinc-600 hover:text-rose-400 z-10" title="حذف المسار الفارغ" aria-label="حذف المسار">
+                  <button onClick={() => commit((p) => removeTrack(p, t.id), "تعذّر حذف المسار")} className="text-zinc-400 hover:text-rose-400 z-10" title="حذف المسار الفارغ" aria-label="حذف المسار">
                     <X className="h-3 w-3" />
                   </button>
                 )}
@@ -665,7 +665,7 @@ export function Timeline({
               {rulerMarks.map((m) => (
                 <div key={m.t} className="absolute top-0 bottom-0" style={{ left: `${(m.t / total) * 100}%` }}>
                   <div className={`border-r ${m.major ? "border-zinc-600" : "border-zinc-800"}`} style={{ height: m.major ? "60%" : "35%" }} />
-                  {m.major && <span className="text-[8px] text-zinc-500 ml-1 font-mono leading-none">{formatTime(m.t).replace(/^00:/, "")}</span>}
+                  {m.major && <span className="text-[8px] text-zinc-400 ml-1 font-mono leading-none">{formatTime(m.t).replace(/^00:/, "")}</span>}
                 </div>
               ))}
             </div>
@@ -780,7 +780,7 @@ export function Transport({
   const total = timelineTotal(state);
   return (
     <div className="min-h-11 bg-[#0c0c14] border-t border-[#1e1e2e] flex flex-wrap items-center px-2 py-1 gap-1.5">
-      <button onClick={() => onSkip(-5)} className="text-zinc-500 hover:text-zinc-300 p-1 transition-colors" title="رجوع 5 ثوان">
+      <button onClick={() => onSkip(-5)} className="text-zinc-400 hover:text-zinc-300 p-1 transition-colors" title="رجوع 5 ثوان">
         <SkipBack className="h-3.5 w-3.5" />
       </button>
       <button
@@ -794,7 +794,7 @@ export function Transport({
           <Play className="h-3.5 w-3.5 text-white" />
         )}
       </button>
-      <button onClick={() => onSkip(5)} className="text-zinc-500 hover:text-zinc-300 p-1 transition-colors" title="تقديم 5 ثوان">
+      <button onClick={() => onSkip(5)} className="text-zinc-400 hover:text-zinc-300 p-1 transition-colors" title="تقديم 5 ثوان">
         <SkipForward className="h-3.5 w-3.5" />
       </button>
 
@@ -802,8 +802,8 @@ export function Transport({
 
       <div className="text-[11px] font-mono leading-none">
         <span className="text-blue-400">{formatTime(state.playhead, true)}</span>
-        <span className="text-zinc-600 mx-0.5">/</span>
-        <span className="text-zinc-500">{formatTime(total)}</span>
+        <span className="text-zinc-400 mx-0.5">/</span>
+        <span className="text-zinc-400">{formatTime(total)}</span>
       </div>
 
       <div className="flex-1 mx-2">
@@ -823,7 +823,7 @@ export function Transport({
       </div>
 
       {audio && (
-        <div className="flex items-center gap-1 text-[10px] text-zinc-500">
+        <div className="flex items-center gap-1 text-[10px] text-zinc-400">
           <Music className="h-3 w-3 text-emerald-500" />
           <span className="truncate max-w-[80px]">{audio.name}</span>
         </div>
@@ -844,7 +844,7 @@ export function Transport({
       </button>
 
       <div className="w-px h-4 bg-[#1e1e2e] mx-0.5" />
-      <div className="flex items-center gap-1 text-[9px] text-zinc-600 font-mono">
+      <div className="flex items-center gap-1 text-[9px] text-zinc-400 font-mono">
         <span>{state.project.aspect}</span>
         <span className="text-zinc-700">|</span>
         <span>{state.project.resolution}</span>

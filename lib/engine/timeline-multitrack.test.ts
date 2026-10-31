@@ -132,7 +132,7 @@ describe("keyframes (ops + expression)", () => {
     expect(removeClipKeyframe(removeClipKeyframe(q, "c", "opacity", 0), "c", "opacity", 2).clips[0].keyframes?.opacity).toBeUndefined();
     expect(code(() => setClipKeyframe(p, "c", "opacity", 1, 2))).toBe("OUT_OF_RANGE");
     expect(code(() => setClipKeyframe(p, "c", "opacity", 99, 0.5))).toBe("OUT_OF_RANGE");
-    expect(code(() => setClipKeyframe(p, "c", "scale" as never, 1, 1))).toBe("INVALID_INPUT");
+    expect(code(() => setClipKeyframe(p, "c", "volume" as never, 1, 1))).toBe("INVALID_INPUT");
     expect(code(() => removeClipKeyframe(p, "c", "opacity", 1))).toBe("NOT_FOUND");
   });
   it("expression: holds before first / after last and interpolates linearly", () => {

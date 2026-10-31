@@ -2152,7 +2152,7 @@ function Header({
           <Sparkles className="h-3.5 w-3.5 text-white" />
         </div>
         <span className="text-sm font-bold text-zinc-200 tracking-tight">MontageAI</span>
-        <span className="text-[9px] text-zinc-600 mr-1">استوديو محلي</span>
+        <span className="text-[9px] text-zinc-400 mr-1">استوديو محلي</span>
       </div>
 
       <div className="h-4 w-px bg-[#1e1e2e] mx-1.5" />
@@ -2186,12 +2186,12 @@ function Header({
 
       <div className="flex-1" />
 
-      <button className="text-[11px] text-zinc-500 hover:text-zinc-300 px-1.5 py-1 transition-colors" onClick={onApiSettings} title="إعدادات API">
+      <button className="text-[11px] text-zinc-400 hover:text-zinc-300 px-1.5 py-1 transition-colors" onClick={onApiSettings} title="إعدادات API">
         <Settings className="h-3.5 w-3.5 inline-block" />
       </button>
 
-      <button className="text-[11px] text-zinc-500 hover:text-zinc-300 px-1.5 py-1" onClick={onShortcuts} title="اختصارات">
-        <kbd className="text-[9px] bg-[#1a1a28] border border-[#1e1e2e] px-1.5 py-0.5 rounded font-mono">⌘K</kbd>
+      <button className="text-[11px] text-zinc-400 hover:text-zinc-300 px-1.5 py-1" onClick={onShortcuts} title="اختصارات">
+        <kbd className="text-[9px] text-zinc-300 bg-[#1a1a28] border border-[#1e1e2e] px-1.5 py-0.5 rounded font-mono">⌘K</kbd>
       </button>
 
       <button className="text-[11px] text-zinc-400 hover:text-zinc-200 bg-[#1a1a28] hover:bg-[#22223a] border border-[#1e1e2e] px-3 py-1.5 rounded transition-colors flex items-center gap-1" onClick={onUploadClick}>

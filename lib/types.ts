@@ -58,7 +58,7 @@ export interface VideoClip {
   keyframes?: ClipKeyframes;
 }
 
-export type KeyframeProp = "posX" | "posY" | "rotation" | "opacity";
+export type KeyframeProp = "posX" | "posY" | "rotation" | "opacity" | "scale";
 export interface Keyframe {
   t: number;
   v: number;
