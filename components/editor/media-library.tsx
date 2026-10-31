@@ -311,7 +311,6 @@ export function MediaLibrary({
           {kindOf(preview) === "video" && <video key={preview.id} src={fileUrl(String(preview.meta!.ref))} controls className="w-full max-h-40 rounded" />}
           {kindOf(preview) === "audio" && <audio key={preview.id} src={fileUrl(String(preview.meta!.ref))} controls className="w-full" />}
           {kindOf(preview) === "image" && (
-            // eslint-disable-next-line @next/next/no-img-element
             <img src={fileUrl(String(preview.meta!.ref))} alt={preview.name} className="w-full max-h-40 object-contain rounded" />
           )}
         </div>

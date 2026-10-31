@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "test": "vitest run",
     "mcp": "tsx --tsconfig tsconfig.json mcp/stdio.ts",
     "mcp:e2e": "tsx --tsconfig tsconfig.json scripts/mcp-e2e.ts",
@@ -29,8 +29,7 @@
       "brace-expansion@1": ">=1.1.21",
       "brace-expansion@2": ">=2.0.4",
       "brace-expansion@5": ">=5.0.12",
-      "vite": ">=6.4.4 <7",
-      "tinypool": ">=2.1.2"
+      "postcss-selector-parser": ">=6.1.5 <7"
     }
   },
   "dependencies": {
@@ -44,18 +43,19 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.3.7",
     "@types/node": "^20.12.12",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "autoprefixer": "^10.4.19",
     "axe-core": "^4.14.0",
-    "eslint": "^8.57.1",
+    "eslint": "^9.39.5",
     "eslint-config-next": "^15.5.28",
     "playwright": "1.63.0",
     "postcss": "^8.5.32",
     "tailwindcss": "^3.4.3",
     "tsx": "4.23.15",
     "typescript": "^5.4.5",
-    "vitest": "^3.2.7"
+    "vitest": "^4.1.12"
   }
 }

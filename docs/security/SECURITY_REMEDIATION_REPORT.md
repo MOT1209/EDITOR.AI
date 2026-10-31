@@ -101,3 +101,11 @@
 
 - **T-13:** `POST /api/assets/audio` (تحقق ffprobe من وجود مسار صوت، سقف حجم/تخزين، مرجع `audio:<uuid>.<ext>` بلا مسار قرص، يُحتسب ضمن سقف التخزين ولا يُنظَّف تلقائياً). `/api/export` يمزج المقاطع ذات `ref`. مُتحقَّق: تصدير حقيقي أعلى مستوى صوتاً (volumedetect ≥ +1.5dB) من نفس التصدير بدونه.
 - **T-02:** `sources:[{assetId,ref}]` في `/api/export` تُحلّ بنفس قواعد T-03 (مرجع معتم، ffprobe)؛ `assetId` بنمط صارم؛ أصل غير معرَّف المصدر ⇒ ما يزال 409 (T-01).
+
+## 10. ملحق: T-04 وT-05 وT-07 وT-11 وT-12 (2026-10-31)
+
+- **T-04:** `MONTAGE_API_TOKENS="tok:admin,tok:editor,tok:viewer"` (`lib/server/auth-roles.ts`): viewer = قراءة فقط؛ editor = كل شيء عدا POST/PUT/DELETE على `/api/extensions`؛ admin = كل شيء. تحديد معدل لكل رمز `MONTAGE_RATE_LIMIT_PER_MIN` (ذاكرة العملية، best-effort لكل نسخة — **ليس** حداً موزعاً). رمز قصير أو دور مجهول ⇒ 503 (فشل مغلق). لا مستخدمون/تسجيل دخول/تدوير آلي للرموز.
+- **T-05:** مصافحة موافقة الخادم لـ `grant` (بصلاحيات) و`DELETE`.
+- **T-07:** zod لمسارات `silence` و`skills` و`assets/import` (بقي `transcribe*` بمعالجة multipart خاصة).
+- **T-11 (جزئي):** CSP فعلية: `default-src 'self'`، لا سكربتات خارجية، `connect-src` إلى الأصل وhuggingface.co فقط، `object-src 'none'`، `frame-ancestors 'none'`. **ما يزال `'unsafe-inline'` للسكربتات والأنماط** (Next يضمّن سكربتات)، فلا حماية كاملة من XSS المضمّن؛ nonce كاملة مؤجلة. تحقق: ترويسة حية على `next start` + `ui:smoke` و`e2e-ui` بلا أخطاء console (أي انتهاك CSP كان سيظهر).
+- **T-12:** vitest 4.1.12 وESLint 9.39 (flat config، `lint` = `eslint .`) + overrides: `pnpm audit` الكامل من 10 إلى **2 moderate** (`minimatch` عبر `@eslint/eslintrc` — dev فقط، يتطلب minimatch 11 غير متوافق مع eslintrc؛ محجوب خارجياً). `audit --prod` = 0.
