@@ -5,23 +5,19 @@
 // - MONTAGE_ALLOWED_HOSTS يضيف مضيفاً غير محلي بلا رمز صالح ⇒ كل الطلبات مرفوضة (لا نشر عن بُعد بلا مصادقة).
 // - رمز أقصر من 16 حرفاً يُعدّ خطأ تهيئة ⇒ رفض الكل (لا رمز ضعيف يُقبل بصمت).
 
-export const MIN_TOKEN_LENGTH = 16;
+
+import { MIN_TOKEN_LENGTH, parseTokens, roleForToken, safeEqual, type Role } from "./auth-roles";
+export { MIN_TOKEN_LENGTH, safeEqual };
 
 export interface AuthEnv {
   token?: string;
+  /** MONTAGE_API_TOKENS="tok:admin,tok2:viewer" (T-04) */
+  tokens?: string;
   remoteHosts?: string;
 }
 
 export function authEnv(): AuthEnv {
-  return { token: process.env.MONTAGE_API_TOKEN, remoteHosts: process.env.MONTAGE_ALLOWED_HOSTS };
-}
-
-/** مقارنة بزمن ثابت (لا تسرّب طول البادئة المتطابقة). */
-export function safeEqual(a: string, b: string): boolean {
-  let diff = a.length ^ b.length;
-  const n = Math.max(a.length, b.length);
-  for (let i = 0; i < n; i++) diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
-  return diff === 0;
+  return { token: process.env.MONTAGE_API_TOKEN, tokens: process.env.MONTAGE_API_TOKENS, remoteHosts: process.env.MONTAGE_ALLOWED_HOSTS };
 }
 
 export function isRemoteConfigured(env: AuthEnv = authEnv()): boolean {
@@ -40,16 +36,15 @@ function extractToken(headers: { authorization: string | null; xToken: string | 
 export function checkAuth(
   headers: { authorization: string | null; xToken: string | null; cookie: string | null },
   env: AuthEnv = authEnv()
-): { ok: true } | { ok: false; status: 401 | 503; reason: string } {
-  const token = (env.token || "").trim();
-  if (token && token.length < MIN_TOKEN_LENGTH) {
-    return { ok: false, status: 503, reason: `MONTAGE_API_TOKEN أقصر من ${MIN_TOKEN_LENGTH} حرفاً — خطأ تهيئة` };
-  }
-  if (!token) {
-    if (isRemoteConfigured(env)) return { ok: false, status: 503, reason: "النشر عن بُعد (MONTAGE_ALLOWED_HOSTS) يتطلب MONTAGE_API_TOKEN" };
-    return { ok: true };
+): { ok: true; role: Role; tokenId: string } | { ok: false; status: 401 | 503; reason: string } {
+  const { entries, errors } = parseTokens(env.tokens, env.token);
+  if (errors.length > 0) return { ok: false, status: 503, reason: `خطأ تهيئة رموز الوصول: ${errors[0]}` };
+  if (entries.length === 0) {
+    if (isRemoteConfigured(env)) return { ok: false, status: 503, reason: "النشر عن بُعد (MONTAGE_ALLOWED_HOSTS) يتطلب MONTAGE_API_TOKEN أو MONTAGE_API_TOKENS" };
+    return { ok: true, role: "admin", tokenId: "local" };
   }
   const given = extractToken(headers);
-  if (!given || !safeEqual(given, token)) return { ok: false, status: 401, reason: "رمز الوصول مفقود أو غير صحيح" };
-  return { ok: true };
+  const role = given ? roleForToken(entries, given) : null;
+  if (!role) return { ok: false, status: 401, reason: "رمز الوصول مفقود أو غير صحيح" };
+  return { ok: true, role, tokenId: given.slice(0, 12) };
 }
