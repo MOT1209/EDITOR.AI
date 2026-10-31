@@ -7,7 +7,7 @@
 // دوال نقية بلا I/O: المصادر تأتي جاهزة في SourceMap (حلّها الخادم من مراجع معتمة).
 // كل مشكلة تُرجَع كـ RenderIssue — لا إسقاط صامت: مصدر مفقود/تداخل/صوت بلا ملف = خطأ صريح.
 // ====================================================================
-import type { AudioClip, ClipTransition, ProjectState, SubtitleCue, TextOverlay, VideoClip } from "@/lib/types";
+import type { AudioClip, ClipKeyframes, ClipTransition, ProjectState, SubtitleCue, TextOverlay, VideoClip } from "@/lib/types";
 import { resolveOutputSize } from "./render-presets";
 
 export interface SourceInfo {
@@ -59,6 +59,7 @@ export interface VideoLayer {
   fadeIn: number;
   fadeOut: number;
   transitionIn?: ClipTransition;
+  keyframes?: ClipKeyframes;
   /** يُحمَل آخر إطار هذه المدة بعد النهاية ليبقى تحت انتقال المقطع التالي. */
   holdTail: number;
   /** مدة الانتقال الخارج (يُخفِت صوت هذا المقطع). */
@@ -122,7 +123,7 @@ function clipSpan(c: VideoClip): number {
   return src / (c.speed || 1);
 }
 
-const NEW_CLIP_PROPS = ["rotation", "opacity", "scale", "posX", "posY", "crop", "fadeIn", "fadeOut", "transitionIn", "color", "audioFadeIn", "audioFadeOut"] as const;
+const NEW_CLIP_PROPS = ["rotation", "opacity", "scale", "posX", "posY", "crop", "fadeIn", "fadeOut", "transitionIn", "color", "audioFadeIn", "audioFadeOut", "keyframes"] as const;
 
 /**
  * هل يحتاج المشروع المركِّب متعدد المسارات؟ (غير ذلك يبقى المسار القديم بلصق التتابع.)
@@ -215,6 +216,7 @@ export function buildRenderPlan(project: ProjectState, sources: SourceMap, opts:
         fadeIn: c.fadeIn ?? 0,
         fadeOut: c.fadeOut ?? 0,
         transitionIn: c.transitionIn,
+        keyframes: c.keyframes,
         holdTail: 0,
         transitionOut: 0,
         colorFilter: c.colorFilter,
@@ -372,9 +374,17 @@ function clampLayer(l: VideoLayer, a: number, b: number): VideoLayer[] {
       // البداية المقطوعة تُسقط الانتقال/التلاشي الداخل.
       fadeIn: cutHead > 0 ? 0 : l.fadeIn,
       transitionIn: cutHead > 0 ? undefined : l.transitionIn,
+      // المفاتيح بزمن المقطع: قصّ البداية يزيحها لتبقى متطابقة مع نفس لحظات المحتوى.
+      keyframes: cutHead > 0 && l.keyframes ? shiftKeyframes(l.keyframes, cutHead) : l.keyframes,
       holdTail: l.start + l.duration > b ? 0 : l.holdTail,
     },
   ];
+}
+
+function shiftKeyframes(k: ClipKeyframes, by: number): ClipKeyframes {
+  const out: ClipKeyframes = {};
+  for (const [prop, arr] of Object.entries(k)) if (arr) out[prop as keyof ClipKeyframes] = arr.map((x) => ({ t: r3(x.t - by), v: x.v }));
+  return out;
 }
 
 function clampAudio(x: AudioLayer, a: number, b: number): AudioLayer[] {

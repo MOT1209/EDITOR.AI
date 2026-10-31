@@ -43,6 +43,23 @@ export function atempoChain(speed: number): string[] {
   return out;
 }
 
+/**
+ * تعبير ffmpeg لاستيفاء خطي بين المفاتيح بدلالة المتغير tv (ثوانٍ من بداية المقطع):
+ * قبل أول مفتاح وبعد آخر مفتاح تثبت القيمة. الأرقام فقط (متحقَّقة بالمخطط) فلا حقن.
+ */
+export function keyframeExpr(kfs: { t: number; v: number }[], tv: string): string {
+  const k = kfs.slice().sort((a, b) => a.t - b.t);
+  if (k.length === 1) return n(k[0].v, 5);
+  let expr = n(k[k.length - 1].v, 5);
+  for (let i = k.length - 2; i >= 0; i--) {
+    const a = k[i];
+    const b = k[i + 1];
+    const seg = `${n(a.v, 5)}+(${n(b.v - a.v, 5)})*((${tv})-${n(a.t, 4)})/${n(b.t - a.t, 4)}`;
+    expr = `if(lt(${tv},${n(b.t, 4)}),${i === 0 ? `if(lt(${tv},${n(a.t, 4)}),${n(a.v, 5)},${seg})` : seg},${expr})`;
+  }
+  return expr;
+}
+
 function slideOffset(type: string, W: number, H: number): { ax: "x" | "y"; sign: 1 | -1; size: number } | null {
   switch (type) {
     case "slide-left": return { ax: "x", sign: 1, size: W };   // يدخل من اليمين
@@ -95,13 +112,21 @@ function videoLayerChain(l: VideoLayer, plan: RenderPlan, inputIdx: number): { c
   const trans = l.transitionIn;
   const slide = trans ? slideOffset(trans.type, W, H) : null;
   const dissolve = trans?.type === "dissolve";
-  const needsAlpha = l.rotation !== 0 || l.opacity < 1 || l.fadeIn > 0 || l.fadeOut > 0 || dissolve;
+  const kf = l.keyframes ?? {};
+  const kRot = kf.rotation && kf.rotation.length > 0 ? kf.rotation : null;
+  const kOp = kf.opacity && kf.opacity.length > 0 ? kf.opacity : null;
+  const needsAlpha = !!kRot || !!kOp || l.rotation !== 0 || l.opacity < 1 || l.fadeIn > 0 || l.fadeOut > 0 || dissolve;
   if (needsAlpha) f.push("format=rgba");
-  if (l.rotation !== 0) {
+  if (kRot) {
+    // تدوير متحرك: أبعاد ثابتة (قطر الإطار) لأن rotw/roth لا تتبع زاوية متغيرة؛ t = زمن المقطع (قبل الإزاحة النهائية).
+    const rad = keyframeExpr(kRot.map((x) => ({ t: x.t, v: (x.v * Math.PI) / 180 })), "t");
+    f.push(`rotate=a='${rad}':ow='hypot(iw,ih)':oh='hypot(iw,ih)':c=black@0`);
+  } else if (l.rotation !== 0) {
     const rad = n((l.rotation * Math.PI) / 180, 6);
     f.push(`rotate=a=${rad}:ow=rotw(${rad}):oh=roth(${rad}):c=black@0`);
   }
-  if (l.opacity < 1) f.push(`colorchannelmixer=aa=${n(l.opacity)}`);
+  if (kOp) f.push(`geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*(${keyframeExpr(kOp, "T")})'`);
+  else if (l.opacity < 1) f.push(`colorchannelmixer=aa=${n(l.opacity)}`);
   const total = l.duration + l.holdTail;
   if (l.fadeIn > 0) f.push(`fade=t=in:st=0:d=${n(Math.min(l.fadeIn, l.duration))}:alpha=1`);
   if (dissolve && trans) f.push(`fade=t=in:st=0:d=${n(trans.duration)}:alpha=1`);
@@ -110,8 +135,11 @@ function videoLayerChain(l: VideoLayer, plan: RenderPlan, inputIdx: number): { c
   void total;
 
   // موضع الطبقة: مركز + إزاحة نسبية؛ الانزلاق يضيف إزاحة متحركة بالزمن.
-  const baseX = `(W-w)/2+(${n(l.posX)})*${W}`;
-  const baseY = `(H-h)/2+(${n(l.posY)})*${H}`;
+  const localT = `t-${n(l.start)}`;
+  const px = kf.posX && kf.posX.length > 0 ? keyframeExpr(kf.posX, localT) : n(l.posX);
+  const py = kf.posY && kf.posY.length > 0 ? keyframeExpr(kf.posY, localT) : n(l.posY);
+  const baseX = `(W-w)/2+(${px})*${W}`;
+  const baseY = `(H-h)/2+(${py})*${H}`;
   let overlayX = baseX;
   let overlayY = baseY;
   if (slide && trans) {

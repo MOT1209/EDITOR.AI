@@ -117,3 +117,31 @@ describe("snapping and frame quantization", () => {
     expect(snapTime(p, 1.5, { playhead: 1.52 })).toMatchObject({ time: 1.52, snapped: true, to: "رأس التشغيل" });
   });
 });
+
+import { removeClipKeyframe, setClipKeyframe } from "./timeline";
+import { keyframeExpr } from "./render-compile";
+
+describe("keyframes (ops + expression)", () => {
+  const p = { ...base(), clips: [mk("c", "v2", 0, 0, 4)] };
+  it("adds sorted keyframes on the frame grid, replaces same-time, removes, validates ranges", () => {
+    let q = setClipKeyframe(p, "c", "opacity", 2, 1);
+    q = setClipKeyframe(q, "c", "opacity", 0, 0);
+    q = setClipKeyframe(q, "c", "opacity", 2.001, 0.5); // يستبدل مفتاح t=2
+    expect(q.clips[0].keyframes!.opacity).toEqual([{ t: 0, v: 0 }, { t: 2, v: 0.5 }]);
+    expect(removeClipKeyframe(q, "c", "opacity", 0).clips[0].keyframes!.opacity).toHaveLength(1);
+    expect(removeClipKeyframe(removeClipKeyframe(q, "c", "opacity", 0), "c", "opacity", 2).clips[0].keyframes?.opacity).toBeUndefined();
+    expect(code(() => setClipKeyframe(p, "c", "opacity", 1, 2))).toBe("OUT_OF_RANGE");
+    expect(code(() => setClipKeyframe(p, "c", "opacity", 99, 0.5))).toBe("OUT_OF_RANGE");
+    expect(code(() => setClipKeyframe(p, "c", "scale" as never, 1, 1))).toBe("INVALID_INPUT");
+    expect(code(() => removeClipKeyframe(p, "c", "opacity", 1))).toBe("NOT_FOUND");
+  });
+  it("expression: holds before first / after last and interpolates linearly", () => {
+    const e = keyframeExpr([{ t: 1, v: 0 }, { t: 3, v: 10 }], "T");
+    // تقييم بدائي للتعبير (if/lt فقط) للتحقق من الدلالة
+    const ev = (T: number) => new Function("T", "lt", "if_", `return ${e.replace(/if\(/g, "if_(")}`)(T, (a: number, b: number) => (a < b ? 1 : 0), (c: number, a: number, b: number) => (c ? a : b));
+    expect(ev(0)).toBe(0);
+    expect(ev(2)).toBeCloseTo(5, 5);
+    expect(ev(5)).toBe(10);
+    expect(keyframeExpr([{ t: 0, v: 0.7 }], "T")).toBe("0.7");
+  });
+});

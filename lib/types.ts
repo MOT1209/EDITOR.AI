@@ -54,7 +54,16 @@ export interface VideoClip {
   /** تلاشي صوت المقطع (ثوانٍ). */
   audioFadeIn?: number;
   audioFadeOut?: number;
+  /** مفاتيح (keyframes): تُغني القيمة الثابتة للخاصية؛ استيفاء خطي بين المفاتيح، t بالثواني من بداية المقطع. */
+  keyframes?: ClipKeyframes;
 }
+
+export type KeyframeProp = "posX" | "posY" | "rotation" | "opacity";
+export interface Keyframe {
+  t: number;
+  v: number;
+}
+export type ClipKeyframes = Partial<Record<KeyframeProp, Keyframe[]>>;
 
 export type TransitionType = "dissolve" | "slide-left" | "slide-right" | "slide-up" | "slide-down";
 export interface ClipTransition {

@@ -190,6 +190,17 @@ export default function Editor() {
     return state.project.duration || 30;
   }, [state.videoMeta, state.project.duration]);
 
+  // الشاشات الصغيرة: اللوحتان مخفيتان افتراضياً (أدراج فوق المحتوى) — تُفتحان من شريط الأزرار.
+  const collapsedOnce = useRef(false);
+  useEffect(() => {
+    if (collapsedOnce.current) return; // StrictMode يشغّل التأثير مرتين — التبديل مرة واحدة فقط
+    collapsedOnce.current = true;
+    if (typeof window !== "undefined" && window.innerWidth < 1024) {
+      dispatch({ type: "TOGGLE_LEFT" });
+      dispatch({ type: "TOGGLE_RIGHT" });
+    }
+  }, []);
+
   const notify = useCallback(
     (type: AppNotification["type"], title: string, message?: string) => {
       const id = uuid();
@@ -1776,8 +1787,18 @@ export default function Editor() {
       />
 
       <div className="flex-1 flex overflow-hidden">
+        {(state.showLeftPanel || state.showRightPanel) && (
+          <button
+            aria-label="إغلاق اللوحة"
+            className="lg:hidden fixed inset-0 z-30 bg-black/60"
+            onClick={() => {
+              if (state.showLeftPanel) dispatch({ type: "TOGGLE_LEFT" });
+              if (state.showRightPanel) dispatch({ type: "TOGGLE_RIGHT" });
+            }}
+          />
+        )}
         {state.showLeftPanel && (
-          <aside className="w-80 border-l border-line bg-bg-panel flex flex-col">
+          <aside className="fixed inset-y-0 right-0 z-40 w-[min(20rem,92vw)] lg:static lg:z-auto lg:w-80 border-l border-line bg-bg-panel flex flex-col" aria-label="لوحة الأدوات والوسائط">
               <LeftPanel
                 state={state}
                 dispatch={dispatch}
@@ -1860,7 +1881,11 @@ export default function Editor() {
           </aside>
         )}
 
-          <main className="flex-1 flex flex-col overflow-hidden bg-[#06060b]">
+          <main className="flex-1 min-w-0 flex flex-col overflow-hidden bg-[#06060b]">
+          <div className="lg:hidden flex items-center gap-2 px-2 py-1 border-b border-line bg-bg-panel text-[11px]">
+            <button className="btn-outline px-2 py-1" aria-pressed={state.showLeftPanel} onClick={() => dispatch({ type: "TOGGLE_LEFT" })}>الأدوات والوسائط</button>
+            <button className="btn-outline px-2 py-1" aria-pressed={state.showRightPanel} onClick={() => dispatch({ type: "TOGGLE_RIGHT" })}>الخصائص</button>
+          </div>
             <div className="flex-1 flex items-center justify-center relative overflow-hidden">
               <div className="absolute inset-0 bg-grid opacity-[0.03]" />
               <div className="relative rounded-lg overflow-hidden shadow-2xl border border-[#1e1e2e]"
@@ -2002,7 +2027,7 @@ export default function Editor() {
         </main>
 
         {state.showRightPanel && (
-          <aside className="w-80 border-r border-line bg-bg-panel flex flex-col">
+          <aside className="fixed inset-y-0 left-0 z-40 w-[min(20rem,92vw)] lg:static lg:z-auto lg:w-80 border-r border-line bg-bg-panel flex flex-col" aria-label="لوحة الخصائص">
             <RightPanel
               state={state}
               dispatch={dispatch}
@@ -2117,7 +2142,7 @@ function Header({
   onApiSettings: () => void;
 }) {
   return (
-    <header className="h-11 bg-[#0a0a12] border-b border-[#1e1e2e] flex items-center px-3 gap-2 shrink-0">
+    <header className="h-11 bg-[#0a0a12] border-b border-[#1e1e2e] flex items-center px-3 gap-2 shrink-0 overflow-x-auto">
       <div className="flex items-center gap-1.5">
         <div className="h-7 w-7 rounded-md bg-gradient-to-br from-blue-600 to-violet-600 flex items-center justify-center">
           <Sparkles className="h-3.5 w-3.5 text-white" />

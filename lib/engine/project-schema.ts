@@ -34,6 +34,15 @@ export const LIMITS = {
   maxName: 120,
 } as const;
 
+/** مفاتيح خاصية: ≤32، t تصاعدي صارم (بلا تكرار)، v ضمن حدود الخاصية. */
+function keyframes(min: number, max: number) {
+  return z
+    .array(z.object({ t: z.number().min(0).max(LIMITS.maxSeconds), v: z.number().min(min).max(max) }))
+    .max(32)
+    .refine((a) => a.every((k, i) => i === 0 || k.t > a[i - 1].t), "t يجب أن يكون تصاعدياً بلا تكرار")
+    .optional();
+}
+
 const seconds = z.number().min(0).max(LIMITS.maxSeconds);
 const id = z.string().min(1).max(128);
 
@@ -74,6 +83,14 @@ export const clipSchema = z.looseObject({
   }).optional(),
   audioFadeIn: z.number().min(0).max(30).optional(),
   audioFadeOut: z.number().min(0).max(30).optional(),
+  keyframes: z
+    .object({
+      posX: keyframes(-2, 2),
+      posY: keyframes(-2, 2),
+      rotation: keyframes(-360, 360),
+      opacity: keyframes(0, 1),
+    })
+    .optional(),
 });
 
 const subtitleSchema = z.looseObject({

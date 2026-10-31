@@ -441,10 +441,10 @@ function findTrack(p: ProjectState, trackId: string) {
 }
 
 export type ClipPatch = Partial<
-  Pick<VideoClip, "volume" | "speed" | "zoom" | "panX" | "panY" | "rotation" | "opacity" | "scale" | "posX" | "posY" | "crop" | "fadeIn" | "fadeOut" | "audioFadeIn" | "audioFadeOut" | "color" | "colorFilter" | "effects">
+  Pick<VideoClip, "volume" | "speed" | "zoom" | "panX" | "panY" | "rotation" | "opacity" | "scale" | "posX" | "posY" | "crop" | "fadeIn" | "fadeOut" | "audioFadeIn" | "audioFadeOut" | "color" | "colorFilter" | "effects" | "keyframes">
 > & { transitionIn?: VideoClip["transitionIn"] | null };
 
-const CLIP_PATCH_KEYS = new Set(["volume", "speed", "zoom", "panX", "panY", "rotation", "opacity", "scale", "posX", "posY", "crop", "fadeIn", "fadeOut", "audioFadeIn", "audioFadeOut", "color", "colorFilter", "effects", "transitionIn"]);
+const CLIP_PATCH_KEYS = new Set(["volume", "speed", "zoom", "panX", "panY", "rotation", "opacity", "scale", "posX", "posY", "crop", "fadeIn", "fadeOut", "audioFadeIn", "audioFadeOut", "color", "colorFilter", "effects", "transitionIn", "keyframes"]);
 
 /** يعدّل خصائص مقطع (موضع/تحجيم/تدوير/شفافية/اقتصاص/صوت/سرعة/ألوان/انتقال) بتحقق صارم. */
 export function setClipProps(p: ProjectState, clipId: string, patch: ClipPatch): ProjectState {
@@ -634,4 +634,35 @@ export function duplicateClip(p: ProjectState, clipId: string): { project: Proje
   const copy: VideoClip = { ...c, id: newId("clip"), start: start + (isMagnetic(p, c.trackId) ? -0.001 : 0) };
   const clips = p.clips.flatMap((x) => (x.id === c.id ? [x, copy] : [x]));
   return { project: touch(p, { clips: layoutTrack(p, clips, c.trackId) }), newClipId: copy.id };
+}
+
+// ---------------------------------------------------------------- مفاتيح (keyframes)
+const KF_RANGE: Record<"posX" | "posY" | "rotation" | "opacity", [number, number]> = { posX: [-2, 2], posY: [-2, 2], rotation: [-360, 360], opacity: [0, 1] };
+
+/** يضيف/يحدّث مفتاحاً عند t (ثوانٍ من بداية المقطع). مفتاح بنفس الزمن (±نصف إطار) يُستبدل. */
+export function setClipKeyframe(p: ProjectState, clipId: string, prop: "posX" | "posY" | "rotation" | "opacity", t: number, v: number): ProjectState {
+  const c = findClip(p, clipId);
+  assertEditable(p, c);
+  const [lo, hi] = KF_RANGE[prop] ?? [NaN, NaN];
+  if (!(prop in KF_RANGE)) throw new EngineError("INVALID_INPUT", `خاصية لا تدعم المفاتيح: ${prop}`);
+  const dur = clipDuration(c);
+  if (!Number.isFinite(t) || t < 0 || t > dur + 1e-6) throw new EngineError("OUT_OF_RANGE", `زمن المفتاح ${t}s خارج المقطع [0, ${round(dur)}]`);
+  if (!Number.isFinite(v) || v < lo || v > hi) throw new EngineError("OUT_OF_RANGE", `قيمة ${prop} يجب أن تكون بين ${lo} و${hi}`);
+  const eps = 0.5 / (p.fps || 30);
+  const tt = round(snapToFrame(Math.min(t, dur), p.fps || 30));
+  const existing = (c.keyframes?.[prop] ?? []).filter((k) => Math.abs(k.t - tt) > eps);
+  const next = [...existing, { t: tt, v: round(v) }].sort((a, b) => a.t - b.t);
+  return setClipProps(p, clipId, { keyframes: { ...(c.keyframes ?? {}), [prop]: next } });
+}
+
+export function removeClipKeyframe(p: ProjectState, clipId: string, prop: "posX" | "posY" | "rotation" | "opacity", t: number): ProjectState {
+  const c = findClip(p, clipId);
+  const list = c.keyframes?.[prop] ?? [];
+  const eps = 0.5 / (p.fps || 30);
+  const next = list.filter((k) => Math.abs(k.t - t) > eps);
+  if (next.length === list.length) throw new EngineError("NOT_FOUND", `لا مفتاح عند ${t}s`);
+  const kfs = { ...(c.keyframes ?? {}) };
+  if (next.length) kfs[prop] = next;
+  else delete kfs[prop];
+  return setClipProps(p, clipId, { keyframes: kfs });
 }

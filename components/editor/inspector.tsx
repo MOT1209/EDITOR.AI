@@ -11,7 +11,7 @@ import { COLOR_FILTERS } from "./state";
 import { SectionTitle, EmptyState } from "./ui";
 import { EFFECTS_LIBRARY } from "@/lib/mockAi";
 import { EFFECT_IDS, TRANSITION_TYPES } from "@/lib/engine/project-schema";
-import { setAudioClipProps, setClipProps, type ClipPatch } from "@/lib/engine/timeline";
+import { removeClipKeyframe, setAudioClipProps, setClipKeyframe, setClipProps, type ClipPatch } from "@/lib/engine/timeline";
 import { apiFetch } from "@/lib/api-config";
 
 type Notify = (type: "info" | "success" | "warning" | "error", title: string, message?: string) => void;
@@ -246,12 +246,73 @@ export function Inspector({ state, dispatch, notify }: { state: State; dispatch:
         </div>
       </Group>
 
-      <div className="text-[10px] text-ink-mute flex gap-1 border border-line/40 rounded-md p-2">
-        <Info className="h-3 w-3 shrink-0 mt-0.5" />
-        <span>
-          المفاتيح (Keyframes): <b>غير مدعومة بعد</b> — كل خاصية بقيمة ثابتة طوال المقطع. للتغيير عبر الزمن قسّم المقطع وغيّر القيم لكل جزء. التفاصيل في docs/RENDERING.md.
-        </span>
-      </div>
+      {!multi && (
+        <Group title="المفاتيح (Keyframes)">
+          <div className="text-[10px] text-ink-mute flex gap-1">
+            <Info className="h-3 w-3 shrink-0 mt-0.5" />
+            <span>
+              اضبط قيمة الحقل في «التحويل» ثم اضغط ◆ لتثبيتها كمفتاح عند موضع المؤشر ({Math.max(0, state.playhead - first.start).toFixed(2)}s من بداية المقطع). الاستيفاء خطي، وعند وجود مفاتيح تُهمَل القيمة الثابتة للخاصية.
+            </span>
+          </div>
+          {(
+            [
+              ["posX", "الموضع X", (first.posX ?? 0)],
+              ["posY", "الموضع Y", (first.posY ?? 0)],
+              ["rotation", "التدوير", (first.rotation ?? 0)],
+              ["opacity", "الشفافية", (first.opacity ?? 1)],
+            ] as const
+          ).map(([prop, label, value]) => {
+            const list = first.keyframes?.[prop] ?? [];
+            const rel = state.playhead - first.start;
+            const inside = rel >= 0 && rel <= first.duration;
+            return (
+              <div key={prop} className="text-[11px] space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="flex-1 text-ink-soft">{label}</span>
+                  <button
+                    className="btn-outline px-2 py-0.5 text-[10px]"
+                    disabled={!inside}
+                    title={inside ? "تثبيت القيمة الحالية كمفتاح عند المؤشر" : "ضع المؤشر داخل المقطع"}
+                    aria-label={`إضافة مفتاح ${label} عند المؤشر`}
+                    onClick={() => {
+                      try {
+                        dispatch({ type: "COMMIT_PROJECT", project: setClipKeyframe(project, first.id, prop, rel, value) });
+                      } catch (e) {
+                        notify("error", "تعذّر إضافة المفتاح", e instanceof Error ? e.message : undefined);
+                      }
+                    }}
+                  >
+                    ◆ مفتاح
+                  </button>
+                </div>
+                {list.length > 0 && (
+                  <ul className="flex flex-wrap gap-1">
+                    {list.map((k) => (
+                      <li key={k.t} className="flex items-center gap-1 rounded border border-line px-1.5 py-0.5 text-[10px] font-mono">
+                        {k.t.toFixed(2)}s → {k.v}
+                        <button
+                          aria-label={`حذف مفتاح ${label} عند ${k.t}s`}
+                          className="text-rose-400 hover:text-rose-300"
+                          onClick={() => {
+                            try {
+                              dispatch({ type: "COMMIT_PROJECT", project: removeClipKeyframe(project, first.id, prop, k.t) });
+                            } catch (e) {
+                              notify("error", "تعذّر الحذف", e instanceof Error ? e.message : undefined);
+                            }
+                          }}
+                        >
+                          ×
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            );
+          })}
+          <div className="text-[10px] text-ink-mute">مفاتيح الحجم والاقتصاص والصوت غير مدعومة (قسّم المقطع وغيّر القيم لكل جزء).</div>
+        </Group>
+      )}
     </div>
   );
 }

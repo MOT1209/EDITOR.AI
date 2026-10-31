@@ -345,3 +345,34 @@ d("render: preview ≙ export consistency (same plan, different window/size)", (
     expect(near(pixel(prev, 0.25, 512, 72), [255, 0, 0])).toBe(true);
   });
 });
+
+d("render: keyframes", () => {
+  it("position keyframes move the layer over time; opacity keyframes fade it in; rotation keyframes render", async () => {
+    const p = proj({
+      clips: [
+        clip("base", "red", "v1", 0, 0, 4),
+        clip("pip", "green", "v2", 0, 0, 4, {
+          scale: 0.25,
+          keyframes: {
+            posX: [{ t: 0, v: -0.3 }, { t: 3, v: 0.3 }],
+            opacity: [{ t: 0, v: 0 }, { t: 1, v: 1 }],
+            rotation: [{ t: 0, v: 0 }, { t: 3, v: 20 }],
+          },
+        }),
+      ],
+      audioMix: { normalize: false },
+    });
+    const out = f("kf.mp4");
+    await runExport({ sourcePath: src.red.path, outputPath: out, project: p, sources: src });
+    expect(Math.abs((await probeMedia(out)).durationSeconds - 4)).toBeLessThan(0.15);
+    // t=2.5: posX≈0.2 ⇒ مركز x≈640+0.2*1280=896؛ كامل الشفافية؛ والمكان الأيسر (384) أحمر
+    expect(near(pixel(out, 2.5, 896, 360), [0, 255, 0], 40)).toBe(true);
+    expect(near(pixel(out, 2.5, 384, 360), [255, 0, 0])).toBe(true);
+    // t≈0.05: شفافية≈0 ⇒ الموضع الابتدائي (x≈256) ما زال أحمر تقريباً
+    expect(near(pixel(out, 0.05, 256, 360), [255, 0, 0], 60)).toBe(true);
+    // t=0.5: شفافية 0.5 ⇒ خليط
+    const early = pixel(out, 0.5, 300, 360);
+    expect(early[1]).toBeGreaterThan(30); // دخل الأخضر جزئياً
+    expect(early[0]).toBeGreaterThan(60); // والأحمر ما زال ظاهراً
+  });
+});

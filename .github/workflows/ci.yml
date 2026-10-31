@@ -73,6 +73,12 @@ jobs:
         run: pnpm mcp:e2e
       - name: بناء الإنتاج
         run: pnpm build
+      - name: E2E الواجهة (Playwright + Chromium + FFmpeg حقيقي)
+        run: |
+          npx playwright install --with-deps chromium
+          pnpm start -p 3000 &
+          npx --yes wait-on -t 60000 http://localhost:3000
+          pnpm e2e:ui
 
   secrets:
     name: حارس الأسرار (gitleaks)

@@ -551,7 +551,7 @@ export function Timeline({
 
   return (
     <div className="border-t border-[#1e1e2e] bg-[#0c0c14]">
-      <div className="flex items-center h-8 px-3 border-b border-[#1e1e2e] bg-[#0a0a12]">
+      <div className="flex items-center min-h-8 px-3 border-b border-[#1e1e2e] bg-[#0a0a12] overflow-x-auto">
         <span className="text-[10px] text-zinc-500 font-semibold tracking-wider uppercase">Timeline</span>
         {selectedCount > 1 && <span className="ml-2 text-[10px] text-brand-glow">{selectedCount} محدّدة</span>}
         <div className="flex-1" />
@@ -595,7 +595,7 @@ export function Timeline({
       </div>
 
       <div className="flex overflow-y-auto" style={{ minHeight: 180, maxHeight: 360 }}>
-        <div className="w-[150px] border-l border-[#1e1e2e] bg-[#0a0a12] shrink-0">
+        <div className="w-[110px] sm:w-[150px] border-l border-[#1e1e2e] bg-[#0a0a12] shrink-0">
           <div className="h-6 border-b border-[#1e1e2e]" />
           {project.tracks.map((t) => {
             const tc = trackColors[t.kind] || trackColors.video;
@@ -779,7 +779,7 @@ export function Transport({
 }) {
   const total = timelineTotal(state);
   return (
-    <div className="h-11 bg-[#0c0c14] border-t border-[#1e1e2e] flex items-center px-2 gap-1.5">
+    <div className="min-h-11 bg-[#0c0c14] border-t border-[#1e1e2e] flex flex-wrap items-center px-2 py-1 gap-1.5">
       <button onClick={() => onSkip(-5)} className="text-zinc-500 hover:text-zinc-300 p-1 transition-colors" title="رجوع 5 ثوان">
         <SkipBack className="h-3.5 w-3.5" />
       </button>
