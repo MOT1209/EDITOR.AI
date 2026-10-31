@@ -13,6 +13,8 @@ import {
   ToggleRow,
 } from "./ui";
 import { ApiSettingsModal, ShortcutsModal } from "./modals";
+import { Inspector } from "./inspector";
+import { MediaLibrary } from "./media-library";
 import { ProjectsModal, ExportModal, ExportResultModal, type ServerProjectSummary } from "./project-modals";
 import {
   Sparkles,
@@ -89,11 +91,15 @@ import { ensureAudioRefs } from "@/lib/client/audio-upload";
 import { EFFECTS_LIBRARY, MUSIC_LIBRARY, aiJobs, generateToneTrack } from "@/lib/mockAi";
 import { apiConfig, apiFetch, SIMULATED_EVENT } from "@/lib/api-config";
 import { parseProject } from "@/lib/engine/project-schema";
+import { EXPORT_PRESETS, applyExportPreset } from "@/lib/engine/export-presets";
 import {
   clipSourceEnd,
   deleteClip as deleteClipOp,
   exportClips,
+  duplicateClip,
   newId,
+  previewClips,
+  snapPoints,
   sourceToTimelineAt,
   splitClip,
   timelineDuration,
@@ -141,6 +147,7 @@ export default function Editor() {
   const [audio, setAudio] = useState<{ url: string; name: string } | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
+  const [renderedPreview, setRenderedPreview] = useState<{ url: string; start: number; end: number } | null>(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showApiSettings, setShowApiSettings] = useState(false);
   const [showProjects, setShowProjects] = useState(false);
@@ -184,6 +191,17 @@ export default function Editor() {
     if (state.videoMeta?.duration) return state.videoMeta.duration;
     return state.project.duration || 30;
   }, [state.videoMeta, state.project.duration]);
+
+  // الشاشات الصغيرة: اللوحتان مخفيتان افتراضياً (أدراج فوق المحتوى) — تُفتحان من شريط الأزرار.
+  const collapsedOnce = useRef(false);
+  useEffect(() => {
+    if (collapsedOnce.current) return; // StrictMode يشغّل التأثير مرتين — التبديل مرة واحدة فقط
+    collapsedOnce.current = true;
+    if (typeof window !== "undefined" && window.innerWidth < 1024) {
+      dispatch({ type: "TOGGLE_LEFT" });
+      dispatch({ type: "TOGGLE_RIGHT" });
+    }
+  }, []);
 
   const notify = useCallback(
     (type: AppNotification["type"], title: string, message?: string) => {
@@ -232,7 +250,7 @@ export default function Editor() {
     const v = videoRef.current;
     if (!v) return;
     const p = projectRef.current;
-    const clips = exportClips(p);
+    const clips = previewClips(p);
     if (clips.length === 0) {
       dispatch({ type: "SET_PLAYHEAD", t: v.currentTime });
       if (v.currentTime >= v.duration) dispatch({ type: "TOGGLE_PLAY" });
@@ -261,6 +279,8 @@ export default function Editor() {
   }, []);
 
   const handlePlayheadChange = useCallback((t: number) => seekTimeline(t), [seekTimeline]);
+  const seekRef = useRef(seekTimeline);
+  seekRef.current = seekTimeline;
 
   const onUpload = useCallback((file: File) => {
     const url = URL.createObjectURL(file);
@@ -1292,13 +1312,23 @@ export default function Editor() {
     return () => window.removeEventListener("ai-trigger", handler);
   }, []);
 
-  const startExport = async () => {
-    if (!state.videoMeta || !state.videoFile) return notify("warning", "ارفع فيديو أولاً");
-    // لا انحراف صامت (T-01): ما تسمعه في المعاينة من موسيقى/تعليق المتصفح لا يصل للمخرَج بعد —
-    // نطلب إقراراً صريحاً، والخادم يرفض (409) إن لم يُرسَل الإقرار.
+  /** يبني مراجع المصادر المتعددة (assetId → مرجع معتم) من مكتبة الوسائط. */
+  const buildSourceRefs = (): Record<string, string> => {
+    const refs: Record<string, string> = {};
+    for (const a of state.project.assets ?? []) if (typeof a.meta?.ref === "string") refs[a.id] = a.meta.ref;
+    return refs;
+  };
+
+  /** تصدير كامل، أو معاينة مرندرة لنافذة قصيرة (نفس الخطة والمركِّب — المرجع الحاكم لمطابقة المعاينة). */
+  const runServerRender = async (previewWindow?: { start: number; end: number }) => {
+    const refs = buildSourceRefs();
+    const hasLibrary = Object.keys(refs).length > 0;
+    if ((!state.videoMeta || !state.videoFile) && !hasLibrary) return notify("warning", "ارفع فيديو أولاً");
+    // لا انحراف صامت (T-01): ما تسمعه في المعاينة من موسيقى/تعليق المتصفح لا يصل للمخرَج إلا إن رُفع للخادم.
     // T-13: نرفع صوت التايملاين (blob/data) كأصول خادم أولاً ليُمزج فعلاً؛ ما يفشل رفعه يبقى «مفقوداً» ويتطلب إقراراً.
     const { project: exportProject } = await ensureAudioRefs(state.project);
-    const lostAudio = findLostAudio(exportProject);
+    const withRef = new Set(exportProject.audioClips.filter((a) => a.ref).map((a) => a.id));
+    const lostAudio = findLostAudio(exportProject, withRef);
     if (lostAudio.length > 0) {
       const ok = window.confirm(
         `بعض الصوت المضاف تعذّر رفعه ولن يدخل الملف المصدَّر (${lostAudio.slice(0, 3).join("، ")}${lostAudio.length > 3 ? "…" : ""}).\nالمخرَج سيحوي صوت الفيديو الأصلي فقط. هل تريد المتابعة؟`
@@ -1311,7 +1341,7 @@ export default function Editor() {
     setExportProgress(0);
     try {
       let sourcePath = serverSourceRef;
-      if (!sourcePath) {
+      if (!sourcePath && state.videoFile) {
         const form = new FormData();
         form.append("file", state.videoFile);
         const uploadRes = await apiFetch("/api/ffmpeg/probe", { method: "POST", body: form }).then((r) => r.json());
@@ -1324,11 +1354,13 @@ export default function Editor() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          sourceRef: sourcePath,
+          ...(sourcePath ? { sourceRef: sourcePath } : {}),
+          sources: Object.entries(refs).map(([assetId, ref]) => ({ assetId, ref })),
           project: exportProject,
           videoStabilize,
           colorGrading,
           acknowledgeAudioLoss: lostAudio.length > 0,
+          ...(previewWindow ? { preview: previewWindow } : {}),
         }),
       }).then((r) => r.json());
       if (!startRes?.job?.id) {
@@ -1361,6 +1393,11 @@ export default function Editor() {
         setExportProgress(job.progress || 0);
         if (job.status === "completed") {
           setIsExporting(false);
+          if (previewWindow) {
+            setRenderedPreview({ url: `/api/export/download/${jobId}?inline=1`, start: previewWindow.start, end: previewWindow.end });
+            notify("success", "المعاينة المرندرة جاهزة", "هذا ما سيظهر في الملف المصدَّر (بدقة منخفضة)");
+            return;
+          }
           setExportResult({
             name: `${state.project.name || "video"}.${state.project.format}`,
             size: job.result?.size || 0,
@@ -1371,7 +1408,9 @@ export default function Editor() {
         }
         if (job.status === "failed") {
           setIsExporting(false);
-          notify("error", "فشل التصدير", job.message || "حدث خطأ أثناء المعالجة.");
+          // مشاكل الخطة المهيكلة (مصدر مفقود/تداخل/صوت بلا ملف) تُعرض بدقة وقابلة للإصلاح.
+          const issues = Array.isArray(job.issues) ? (job.issues as { severity: string; message: string }[]).filter((i) => i.severity === "error") : [];
+          notify("error", "فشل التصدير", issues.length ? issues.slice(0, 3).map((i) => i.message).join(" • ") : job.message || "حدث خطأ أثناء المعالجة.");
           return;
         }
       }
@@ -1380,6 +1419,13 @@ export default function Editor() {
       const msg = err instanceof Error ? err.message : "فشل التصدير";
       notify("error", "فشل التصدير", msg);
     }
+  };
+
+  const startExport = () => void runServerRender();
+  const startRenderedPreview = () => {
+    const total = timelineDuration(state.project) || state.project.duration || 10;
+    const start = Math.min(Math.max(0, state.playhead), Math.max(0, total - 0.5));
+    void runServerRender({ start, end: Math.min(total, start + 10) });
   };
 
   const cancelExport = async () => {
@@ -1425,43 +1471,105 @@ export default function Editor() {
   };
 
   const deleteSelectedClip = () => {
-    const id = state.selectedClipId;
-    if (!id) return notify("warning", "حدّد مقطعاً أولاً");
+    if (state.selectedAudioId) {
+      dispatch({ type: "REMOVE_AUDIO", id: state.selectedAudioId });
+      dispatch({ type: "SELECT_AUDIO", id: null });
+      return notify("info", "حُذف المقطع الصوتي", "Ctrl+Z للتراجع");
+    }
+    const ids = state.selectedClipIds.length > 0 ? state.selectedClipIds : state.selectedClipId ? [state.selectedClipId] : [];
+    if (ids.length === 0) return notify("warning", "حدّد مقطعاً أولاً");
     try {
-      const p = deleteClipOp(state.project, id);
+      let p = state.project;
+      for (const id of ids) p = deleteClipOp(p, id);
       if (exportClips(p).length === 0 && exportClips(state.project).length > 0) {
         return notify("warning", "لا يمكن حذف آخر مقطع", "التايملاين الفارغ يصدّر الفيديو كاملاً");
       }
       dispatch({ type: "COMMIT_PROJECT", project: p });
       dispatch({ type: "SELECT_CLIP", id: null });
-      notify("info", "حُذف المقطع", "Ctrl+Z للتراجع");
+      notify("info", ids.length > 1 ? `حُذفت ${ids.length} مقاطع` : "حُذف المقطع", "Ctrl+Z للتراجع");
     } catch (e) {
       notify("error", "تعذّر الحذف", e instanceof Error ? e.message : undefined);
     }
   };
 
-  const editorActionsRef = useRef({ splitAtPlayhead, deleteSelectedClip });
-  editorActionsRef.current = { splitAtPlayhead, deleteSelectedClip };
+  const duplicateSelected = () => {
+    const id = state.selectedClipId;
+    if (!id) return notify("warning", "حدّد مقطعاً أولاً");
+    try {
+      const r = duplicateClip(state.project, id);
+      dispatch({ type: "COMMIT_PROJECT", project: r.project });
+      dispatch({ type: "SELECT_CLIP", id: r.newClipId });
+    } catch (e) {
+      notify("error", "تعذّر النسخ", e instanceof Error ? e.message : undefined);
+    }
+  };
 
-  // اختصارات لوحة المفاتيح: تراجع/إعادة، تقسيم (S)، حذف (Delete) — لا تعمل داخل حقول الكتابة.
+  const editorActionsRef = useRef({ splitAtPlayhead, deleteSelectedClip, duplicateSelected });
+  editorActionsRef.current = { splitAtPlayhead, deleteSelectedClip, duplicateSelected };
+  const liveRef = useRef({ playhead: state.playhead, zoom: state.zoom, project: state.project, clipIds: state.project.clips.map((c) => c.id) });
+  liveRef.current = { playhead: state.playhead, zoom: state.zoom, project: state.project, clipIds: state.project.clips.map((c) => c.id) };
+
+  // اختصارات لوحة المفاتيح (لا تعمل داخل حقول الكتابة). القائمة المعروضة في ShortcutsModal = هذا الكود حرفياً.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       if (el && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName))) return;
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
+      const live = liveRef.current;
+      const total = (() => {
+        const d = timelineDuration(live.project);
+        return d > 0 ? d : live.project.duration || 30;
+      })();
+      const fps = live.project.fps || 30;
       if (mod && key === "z" && !e.shiftKey) {
         e.preventDefault();
         dispatch({ type: "UNDO" });
       } else if (mod && (key === "y" || (key === "z" && e.shiftKey))) {
         e.preventDefault();
         dispatch({ type: "REDO" });
+      } else if (mod && key === "a") {
+        e.preventDefault();
+        dispatch({ type: "SELECT_CLIPS", ids: live.clipIds });
+      } else if (mod && key === "d") {
+        e.preventDefault();
+        editorActionsRef.current.duplicateSelected();
       } else if (!mod && key === "s") {
         e.preventDefault();
         editorActionsRef.current.splitAtPlayhead();
       } else if (!mod && (e.key === "Delete" || e.key === "Backspace")) {
         e.preventDefault();
         editorActionsRef.current.deleteSelectedClip();
+      } else if (!mod && e.key === " ") {
+        e.preventDefault();
+        dispatch({ type: "TOGGLE_PLAY" });
+      } else if (!mod && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+        e.preventDefault();
+        const dir = e.key === "ArrowRight" ? 1 : -1;
+        const step = e.shiftKey ? 1 : 1 / fps; // Shift = ثانية، بدونه = إطار واحد
+        seekRef.current(Math.max(0, Math.min(total, Math.round((live.playhead + dir * step) * fps) / fps)));
+      } else if (!mod && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+        // القفز بين نقاط القطع (حدود المقاطع) السابقة/التالية.
+        e.preventDefault();
+        const pts = snapPoints(live.project).map((x) => x.time).sort((a, b) => a - b);
+        const eps = 1e-3;
+        const target = e.key === "ArrowUp" ? pts.find((t) => t > live.playhead + eps) : [...pts].reverse().find((t) => t < live.playhead - eps);
+        if (target !== undefined) seekRef.current(target);
+      } else if (!mod && e.key === "Home") {
+        e.preventDefault();
+        seekRef.current(0);
+      } else if (!mod && e.key === "End") {
+        e.preventDefault();
+        seekRef.current(total);
+      } else if (!mod && (e.key === "+" || e.key === "=")) {
+        dispatch({ type: "SET_ZOOM", z: Math.min(400, Math.round(live.zoom * 1.25)) });
+      } else if (!mod && (e.key === "-" || e.key === "_")) {
+        dispatch({ type: "SET_ZOOM", z: Math.max(10, Math.round(live.zoom / 1.25)) });
+      } else if (!mod && key === "n") {
+        dispatch({ type: "TOGGLE_SNAP" });
+      } else if (!mod && e.key === "Escape") {
+        dispatch({ type: "SELECT_CLIP", id: null });
+        dispatch({ type: "SELECT_AUDIO", id: null });
       }
     };
     window.addEventListener("keydown", onKey);
@@ -1683,11 +1791,23 @@ export default function Editor() {
       />
 
       <div className="flex-1 flex overflow-hidden">
+        {(state.showLeftPanel || state.showRightPanel) && (
+          <button
+            aria-label="إغلاق اللوحة"
+            className="lg:hidden fixed inset-0 z-30 bg-black/60"
+            onClick={() => {
+              if (state.showLeftPanel) dispatch({ type: "TOGGLE_LEFT" });
+              if (state.showRightPanel) dispatch({ type: "TOGGLE_RIGHT" });
+            }}
+          />
+        )}
         {state.showLeftPanel && (
-          <aside className="w-80 border-l border-line bg-bg-panel flex flex-col">
+          <aside className="fixed inset-y-0 right-0 z-40 w-[min(20rem,92vw)] lg:static lg:z-auto lg:w-80 border-l border-line bg-bg-panel flex flex-col" aria-label="لوحة الأدوات والوسائط">
               <LeftPanel
                 state={state}
                 dispatch={dispatch}
+                notify={notify}
+                ensureBase={ensureBaseClip}
                 setAudio={setAudio}
                 onFullAuto={aiFullAuto}
                 onDirector={aiDirectorAgent}
@@ -1765,7 +1885,11 @@ export default function Editor() {
           </aside>
         )}
 
-          <main className="flex-1 flex flex-col overflow-hidden bg-[#06060b]">
+          <main className="flex-1 min-w-0 flex flex-col overflow-hidden bg-[#06060b]">
+          <div className="lg:hidden flex items-center gap-2 px-2 py-1 border-b border-line bg-bg-panel text-[11px]">
+            <button className="btn-outline px-2 py-1" aria-pressed={state.showLeftPanel} onClick={() => dispatch({ type: "TOGGLE_LEFT" })}>الأدوات والوسائط</button>
+            <button className="btn-outline px-2 py-1" aria-pressed={state.showRightPanel} onClick={() => dispatch({ type: "TOGGLE_RIGHT" })}>الخصائص</button>
+          </div>
             <div className="flex-1 flex items-center justify-center relative overflow-hidden">
               <div className="absolute inset-0 bg-grid opacity-[0.03]" />
               <div className="relative rounded-lg overflow-hidden shadow-2xl border border-[#1e1e2e]"
@@ -1891,6 +2015,7 @@ export default function Editor() {
             formatTime={formatTime}
             onSelectClip={(id) => dispatch({ type: "SELECT_CLIP", id })}
             onSelectSub={(id) => dispatch({ type: "SELECT_SUBTITLE", id })}
+            notify={notify}
           />
 
             <Transport
@@ -1902,16 +2027,19 @@ export default function Editor() {
               onSkip={(d) => handlePlayheadChange(Math.max(0, state.playhead + d))}
               onSeek={seekTimeline}
               formatTime={formatTime}
+              onRenderedPreview={startRenderedPreview}
+              renderBusy={isExporting}
             />
         </main>
 
         {state.showRightPanel && (
-          <aside className="w-80 border-r border-line bg-bg-panel flex flex-col">
+          <aside className="fixed inset-y-0 left-0 z-40 w-[min(20rem,92vw)] lg:static lg:z-auto lg:w-80 border-r border-line bg-bg-panel flex flex-col" aria-label="لوحة الخصائص">
             <RightPanel
               state={state}
               dispatch={dispatch}
               audio={audio}
               setAudio={setAudio}
+              notify={notify}
             />
           </aside>
         )}
@@ -1951,6 +2079,18 @@ export default function Editor() {
           progress={exportProgress}
           onCancel={cancelExport}
         />
+      )}
+
+      {renderedPreview && (
+        <div className="fixed inset-0 z-50 bg-black/70 grid place-items-center p-4" role="dialog" aria-modal="true" aria-label="المعاينة المرندرة" onClick={() => setRenderedPreview(null)}>
+          <div className="bg-bg-panel border border-line rounded-lg p-3 max-w-3xl w-full" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-2 text-xs">
+              <span>معاينة مرندرة: {renderedPreview.start.toFixed(1)}s → {renderedPreview.end.toFixed(1)}s (دقة منخفضة، نفس خطة التصدير)</span>
+              <button onClick={() => setRenderedPreview(null)} aria-label="إغلاق" className="text-ink-mute hover:text-ink"><X className="h-4 w-4" /></button>
+            </div>
+            <video src={renderedPreview.url} controls autoPlay className="w-full max-h-[70vh] bg-black rounded" />
+          </div>
+        </div>
       )}
 
       {exportResult && (
@@ -2008,7 +2148,7 @@ function Header({
   onApiSettings: () => void;
 }) {
   return (
-    <header className="h-11 bg-[#0a0a12] border-b border-[#1e1e2e] flex items-center px-3 gap-2 shrink-0">
+    <header className="h-11 bg-[#0a0a12] border-b border-[#1e1e2e] flex items-center px-3 gap-2 shrink-0 overflow-x-auto">
       <div className="flex items-center gap-1.5">
         <div className="h-7 w-7 rounded-md bg-gradient-to-br from-blue-600 to-violet-600 flex items-center justify-center">
           <Sparkles className="h-3.5 w-3.5 text-white" />
@@ -2071,6 +2211,8 @@ function Header({
 function LeftPanel(props: {
   state: State;
   dispatch: React.Dispatch<Action>;
+  notify: (type: AppNotification["type"], title: string, message?: string) => void;
+  ensureBase: (p: ProjectState) => ProjectState;
   setAudio: (a: { url: string; name: string } | null) => void;
   onFullAuto: () => void;
   onDirector: (requestText: string) => void;
@@ -2183,7 +2325,7 @@ function LeftPanel(props: {
         )}
 
         {state.activeTab === "media" && (
-          <MediaPanel state={state} dispatch={dispatch} />
+          <MediaPanel state={state} dispatch={dispatch} notify={props.notify} prepare={props.ensureBase} />
         )}
 
         {state.activeTab === "effects" && (
@@ -2532,72 +2674,10 @@ function AIQuickPanel({
   );
 }
 
-function MediaPanel({ state, dispatch }: { state: State; dispatch: React.Dispatch<Action> }) {
+function MediaPanel({ state, dispatch, notify, prepare }: { state: State; dispatch: React.Dispatch<Action>; prepare: (p: ProjectState) => ProjectState; notify: (type: AppNotification["type"], title: string, message?: string) => void }) {
   return (
     <div className="space-y-3">
-      <SectionTitle icon={Film} title="مقاطع الفيديو" />
-      {state.project.clips.length === 0 ? (
-        <EmptyState text="لا توجد مقاطع بعد. ارفع فيديو للبدء." />
-      ) : (
-        <div className="space-y-1.5">
-          {state.project.clips.map((c) => (
-            <div
-              key={c.id}
-              className={`p-2 rounded-md text-[11px] border ${
-                state.selectedClipId === c.id
-                  ? "bg-brand/10 border-brand/30"
-                  : "bg-bg-soft border-line/50"
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <span className="truncate">مقطع #{c.id.slice(0, 5)}</span>
-                <span className="text-ink-mute">{c.duration.toFixed(1)}s</span>
-              </div>
-              <div className="text-[10px] text-ink-mute mt-1">
-                بداية: {c.start.toFixed(1)}s
-              </div>
-              <div className="flex items-center gap-1 mt-1.5">
-                <button
-                  onClick={() => dispatch({ type: "REMOVE_CLIP", id: c.id })}
-                  className="text-rose-400 hover:text-rose-300"
-                >
-                  <Trash2 className="h-3 w-3" />
-                </button>
-                <button
-                  onClick={() => dispatch({ type: "SELECT_CLIP", id: c.id })}
-                  className="text-ink-soft hover:text-ink"
-                >
-                  <MousePointer2 className="h-3 w-3" />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <SectionTitle icon={AudioLines} title="الصوت والموسيقى" />
-      {state.project.audioClips.length === 0 ? (
-        <EmptyState text="لا توجد طبقات صوتية." />
-      ) : (
-        <div className="space-y-1.5">
-          {state.project.audioClips.map((a) => (
-            <div key={a.id} className="p-2 rounded-md bg-bg-soft border border-line/50 text-[11px]">
-              <div className="flex items-center justify-between">
-                <span className="truncate">{a.name}</span>
-                <button
-                  onClick={() => dispatch({ type: "REMOVE_AUDIO", id: a.id })}
-                  className="text-rose-400"
-                >
-                  <Trash2 className="h-3 w-3" />
-                </button>
-              </div>
-              <div className="text-[10px] text-ink-mute mt-1">
-                {a.kind} • {a.duration.toFixed(1)}s
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      <MediaLibrary state={state} dispatch={dispatch} notify={notify} prepare={prepare} />
 
       <SectionTitle icon={Type} title="الترجمات" />
       {state.project.subtitles.length === 0 ? (
@@ -3302,8 +3382,56 @@ function ExportPanel({
   onExportVTT: () => void;
   onExportProject: () => void;
 }) {
+  const mix = state.project.audioMix ?? {};
+  const setMix = (patch: Partial<NonNullable<ProjectState["audioMix"]>>) =>
+    dispatch({ type: "PATCH_PROJECT", patch: { audioMix: { ...mix, ...patch } } });
   return (
     <div className="space-y-3">
+      <SectionTitle icon={Download} title="إعدادات جاهزة" />
+      <select
+        aria-label="إعداد تصدير جاهز"
+        defaultValue=""
+        onChange={(e) => {
+          if (!e.target.value) return;
+          dispatch({ type: "COMMIT_PROJECT", project: applyExportPreset(state.project, e.target.value) });
+          e.target.value = "";
+        }}
+        className="w-full bg-bg-soft border border-line rounded-md px-2 py-1.5 text-xs"
+      >
+        <option value="">اختر إعداداً (يضبط المقاس والدقة والإطارات والجودة والصيغة)…</option>
+        {EXPORT_PRESETS.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name} — {p.description}
+          </option>
+        ))}
+      </select>
+
+      <SectionTitle icon={Volume2} title="مزج الصوت" />
+      <div className="space-y-2 text-[11px]">
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={mix.normalize ?? true} onChange={(e) => setMix({ normalize: e.target.checked })} />
+          تطبيع الجهارة (loudnorm)
+        </label>
+        {(mix.normalize ?? true) && (
+          <label className="flex items-center gap-2">
+            <span className="w-24 text-ink-soft">الهدف (LUFS)</span>
+            <input type="range" min={-30} max={-5} step={1} value={mix.targetLufs ?? -16} onChange={(e) => setMix({ targetLufs: Number(e.target.value) })} className="flex-1" aria-label="هدف الجهارة" />
+            <span className="w-8 text-left font-mono">{mix.targetLufs ?? -16}</span>
+          </label>
+        )}
+        <label className="flex items-center gap-2" title="الموسيقى والمؤثرات تنخفض تلقائياً أثناء الكلام (فيديو/تعليق/دبلجة)">
+          <input type="checkbox" checked={mix.ducking?.enabled ?? false} onChange={(e) => setMix({ ducking: { enabled: e.target.checked, amountDb: mix.ducking?.amountDb ?? 12 } })} />
+          خفض الموسيقى تحت الكلام (Ducking)
+        </label>
+        {mix.ducking?.enabled && (
+          <label className="flex items-center gap-2">
+            <span className="w-24 text-ink-soft">قوة الخفض (dB)</span>
+            <input type="range" min={3} max={30} step={1} value={mix.ducking.amountDb ?? 12} onChange={(e) => setMix({ ducking: { enabled: true, amountDb: Number(e.target.value) } })} className="flex-1" aria-label="قوة الخفض" />
+            <span className="w-8 text-left font-mono">{mix.ducking.amountDb ?? 12}</span>
+          </label>
+        )}
+      </div>
+
       <SectionTitle icon={Monitor} title="المقاس" />
       <div className="grid grid-cols-2 gap-1.5">
         {(["16:9", "9:16", "1:1", "4:5"] as ProjectAspect[]).map((a) => (
@@ -3403,25 +3531,30 @@ function RightPanel({
   dispatch,
   audio,
   setAudio,
+  notify,
 }: {
   state: State;
   dispatch: React.Dispatch<Action>;
+  notify: (type: AppNotification["type"], title: string, message?: string) => void;
   audio: { url: string; name: string } | null;
   setAudio: (a: { url: string; name: string } | null) => void;
 }) {
-  const [tab, setTab] = useState<"thumb" | "ai" | "info">("info");
+  const [tab, setTab] = useState<"inspect" | "thumb" | "ai" | "info">("inspect");
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      <div className="border-b border-line p-2 grid grid-cols-3 gap-1">
+      <div className="border-b border-line p-2 grid grid-cols-4 gap-1" role="tablist" aria-label="لوحات الجانب">
         {[
+          { id: "inspect", label: "الخصائص" },
           { id: "info", label: "المشروع" },
           { id: "thumb", label: "Thumbnail" },
           { id: "ai", label: "المساعد" },
         ].map((t) => (
           <button
             key={t.id}
-            onClick={() => setTab(t.id as any)}
+            role="tab"
+            aria-selected={tab === t.id}
+            onClick={() => setTab(t.id as typeof tab)}
             className={`text-[10px] py-1.5 rounded-md ${
               tab === t.id
                 ? "bg-brand/15 text-brand-glow"
@@ -3434,6 +3567,8 @@ function RightPanel({
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
+        {tab === "inspect" && <Inspector state={state} dispatch={dispatch} notify={notify} />}
+
         {tab === "info" && (
           <>
             <SectionTitle icon={Info} title="معلومات المشروع" />

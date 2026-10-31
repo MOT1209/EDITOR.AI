@@ -5,21 +5,55 @@
   "name": "مقترح شعار",
   "description": "يقترح شعاراً قصيراً لموضوع الفيديو بنموذج توليدي. ناتج نموذج وليس تحليلاً للوسائط.",
   "category": "text",
-  "tags": ["نص", "تسويق"],
+  "tags": [
+    "نص",
+    "تسويق"
+  ],
   "author": "owner",
   "stability": "experimental",
-  "compat": { "formatVersion": 1, "montage": ">=0.2.0 <1.0.0" },
-  "permissions": ["ai.invoke"],
+  "compat": {
+    "formatVersion": 1,
+    "montage": ">=0.2.0 <1.0.0"
+  },
+  "permissions": [
+    "ai.invoke"
+  ],
   "input": {
     "type": "object",
-    "properties": { "topic": { "type": "string", "maxLength": 200, "description": "موضوع الفيديو" } },
-    "required": ["topic"]
+    "properties": {
+      "topic": {
+        "type": "string",
+        "maxLength": 200,
+        "description": "موضوع الفيديو"
+      }
+    },
+    "required": [
+      "topic"
+    ]
   },
   "output": {
     "type": "object",
-    "properties": { "tagline": { "type": "string", "maxLength": 120 } },
-    "required": ["tagline"]
+    "properties": {
+      "tagline": {
+        "type": "string",
+        "maxLength": 120
+      }
+    },
+    "required": [
+      "tagline"
+    ]
   },
-  "limits": { "timeoutMs": 30000, "maxOutputBytes": 20000 },
-  "execution": { "type": "prompt", "instructionsFile": "instructions.md", "temperature": 0.7, "maxTokens": 200 }
+  "limits": {
+    "timeoutMs": 30000,
+    "maxOutputBytes": 20000
+  },
+  "execution": {
+    "type": "prompt",
+    "instructionsFile": "instructions.md",
+    "temperature": 0.7,
+    "maxTokens": 200
+  },
+  "capabilities": [
+    "ai.chat"
+  ]
 }

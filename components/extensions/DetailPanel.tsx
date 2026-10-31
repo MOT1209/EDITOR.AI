@@ -75,6 +75,7 @@ export function DetailPanel({ kind, id, meta, exposure, onChanged, onEdit, onBac
           <div><p className="text-ink-mute mb-1">الصلاحيات (معلنة ← ممنوحة)</p>{m.permissions.length === 0 ? <p className="text-ink-soft">لا تتطلب صلاحيات</p> : <ul className="space-y-1">{m.permissions.map((p) => <li key={p} className="flex items-center gap-1.5"><Badge tone={s.grants.includes(p) ? "green" : "amber"}>{s.grants.includes(p) ? "ممنوحة" : "غير ممنوحة"}</Badge>{PERM_AR[p] ?? p} <code className="text-ink-mute" dir="ltr">{p}</code></li>)}</ul>}</div>
           <div><p className="text-ink-mute mb-1">التبعيات</p>{deps.length === 0 ? <p className="text-ink-soft">لا تبعيات</p> : <ul className="list-disc ps-5 text-ink-soft">{deps.map((x) => <li key={x} dir="auto">{x}</li>)}</ul>}</div>
         </div>
+        <p className="text-[11px] text-ink-mute mt-1">قدرات المضيف المطلوبة: {((m as { capabilities?: string[] }).capabilities ?? []).length === 0 ? "لا شيء" : ((m as { capabilities?: string[] }).capabilities ?? []).map((c) => <code key={c} dir="ltr" className="mx-1 px-1 rounded bg-bg-soft border border-line">{c}</code>)} <span className="text-ink-mute">(تُفحص على الخادم عند التشغيل)</span></p>
         <p className="text-[11px] text-ink-mute mt-1">حدود: مهلة {m.limits.timeoutMs}ms • مخرجات ≤ {m.limits.maxOutputBytes} بايت</p>
       </section>
 

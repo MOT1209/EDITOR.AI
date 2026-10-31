@@ -12,6 +12,7 @@
     "mcp:e2e": "tsx --tsconfig tsconfig.json scripts/mcp-e2e.ts",
     "ext": "tsx --tsconfig tsconfig.json scripts/extensions.ts",
     "cleanup": "tsx --tsconfig tsconfig.json scripts/cleanup.ts",
+    "e2e:ui": "node scripts/e2e-ui.mjs",
     "ui:smoke": "node scripts/ui-smoke.mjs"
   },
   "pnpm": {

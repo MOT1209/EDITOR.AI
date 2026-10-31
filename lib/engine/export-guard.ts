@@ -23,17 +23,20 @@ export function findForeignClips(project: ProjectState, supportedAssetIds: Reado
 export const AUDIO_REF_RE = /^audio:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:mp3|wav|m4a|aac|ogg|flac|opus|webm)$/;
 export const isAudioRef = (v: unknown): v is string => typeof v === "string" && AUDIO_REF_RE.test(v);
 
-/** صوت إضافي غير مكتوم لن يدخل المخرَج: كل مقطع بلا مرجع أصل خادم صالح (T-13: المقاطع المرفوعة تُمزج). */
-export function findLostAudio(project: ProjectState): string[] {
+/**
+ * صوت إضافي غير مكتوم لن يدخل المخرَج: كل مقطع بلا ملف خادم محلول.
+ * `resolved` = معرّفات مقاطع حُلّ ملفها فعلاً على الخادم (مرجع upload:/audio:/…)؛ وبدونه يُكتفى بشكل مرجع audio:.
+ */
+export function findLostAudio(project: ProjectState, resolved?: ReadonlySet<string>): string[] {
   const muted = new Set(project.tracks.filter((t) => t.muted).map((t) => t.id));
-  const names = project.audioClips.filter((a) => !muted.has(a.trackId) && !isAudioRef(a.ref)).map((a) => a.name || a.id);
+  const names = project.audioClips.filter((a) => !muted.has(a.trackId) && !resolved?.has(a.id) && !isAudioRef(a.ref)).map((a) => a.name || a.id);
   if (project.musicId && project.audioClips.length === 0) names.push(`موسيقى: ${project.musicId}`);
   return names;
 }
 
 export function checkExportable(
   project: ProjectState,
-  opts: { acknowledgeAudioLoss?: boolean; supportedAssetIds?: ReadonlySet<string> } = {}
+  opts: { acknowledgeAudioLoss?: boolean; supportedAssetIds?: ReadonlySet<string>; resolvedAudio?: ReadonlySet<string> } = {}
 ): ExportGuardResult {
   const foreign = findForeignClips(project, opts.supportedAssetIds);
   if (foreign.length > 0) {
@@ -44,7 +47,7 @@ export function checkExportable(
       details: foreign.slice(0, 10).map((c) => `${c.id} (assetId=${c.assetId})`),
     };
   }
-  const lost = findLostAudio(project);
+  const lost = findLostAudio(project, opts.resolvedAudio);
   if (lost.length > 0 && !opts.acknowledgeAudioLoss) {
     return {
       ok: false,

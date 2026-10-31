@@ -13,10 +13,12 @@ import { buildSkillDocument } from "@/lib/engine/skill-doc";
 import { assetPath, findAsset, getProject, listProjects, mutateProject, primaryVideoAsset } from "@/lib/engine/store";
 import { addTextOverlay, summarizeTimeline } from "@/lib/engine/timeline";
 import { EngineError } from "@/lib/engine/errors";
-import { getJob, startRender, waitForJob, type RenderJob } from "@/lib/engine/jobs";
+import { getJob, revalidateJob, startRender, waitForJob, type RenderJob } from "@/lib/engine/jobs";
+import { buildRenderPlan, needsCompositor } from "@/lib/engine/render-plan";
+import { buildSourceMap } from "@/lib/server/render-sources";
 import { buildSkillManager } from "@/lib/skills";
 import { skillProvenance, type SkillProvenance } from "@/lib/skills/provenance";
-import type { Permission } from "./manifest";
+import type { Capability, Permission } from "./manifest";
 import type { ObjectSchema } from "./schema";
 
 export type Provenance = SkillProvenance | "ai-model";
@@ -37,6 +39,8 @@ export interface ActionDef {
   title: string;
   description: string;
   permissions: Permission[];
+  /** قدرات المضيف التي يستلزمها الإجراء (تُفرض على الخادم قبل التشغيل). */
+  capabilities?: Capability[];
   risk: Risk;
   input: ObjectSchema;
   run(args: Record<string, unknown>, ctx: ActionContext): Promise<ActionOutcome>;
@@ -78,6 +82,7 @@ const ACTIONS: ActionDef[] = [
   },
   {
     id: "media.probe",
+    capabilities: ["ffmpeg"],
     title: "فحص وسائط",
     description: "ffprobe حقيقي لأصل المشروع (المدة، الأبعاد، المسارات).",
     permissions: ["media.read"],
@@ -90,6 +95,7 @@ const ACTIONS: ActionDef[] = [
   },
   {
     id: "analysis.silence",
+    capabilities: ["ffmpeg"],
     title: "كشف الصمت",
     description: "silencedetect حقيقي من FFmpeg.",
     permissions: ["media.read"],
@@ -107,6 +113,7 @@ const ACTIONS: ActionDef[] = [
   },
   {
     id: "analysis.scenes",
+    capabilities: ["ffmpeg"],
     title: "كشف المشاهد",
     description: "تغيّرات المشهد عبر مرشح select(scene) الحقيقي.",
     permissions: ["media.read"],
@@ -120,6 +127,7 @@ const ACTIONS: ActionDef[] = [
   },
   {
     id: "analysis.beats",
+    capabilities: ["ffmpeg"],
     title: "كشف الإيقاع",
     description: "بدايات صوتية وBPM تقديري من طاقة الصوت (حساب بسيط، راجع confidence).",
     permissions: ["media.read"],
@@ -194,6 +202,7 @@ function jobSummary(job: RenderJob) {
 ACTIONS.push(
   {
     id: "render.export",
+    capabilities: ["ffmpeg"],
     title: "تصدير الفيديو",
     description: "يبدأ تصديراً كاملاً بإعدادات المشروع (FFmpeg حقيقي + مراجعة ffprobe). مكلف زمنياً. النجاح = status=completed فقط.",
     permissions: ["render.export"],
@@ -217,6 +226,46 @@ ACTIONS.push(
     async run(a) {
       const job = await getJob(str(a, "projectId"), str(a, "jobId"));
       return { result: jobSummary(job), provenance: job.review ? "real-analysis" : "computed" };
+    },
+  },
+  {
+    id: "render.review",
+    title: "مراجعة جودة المخرَج",
+    description: "يعيد فحص ملف رندر مكتمل بـ ffprobe/blackdetect/volumedetect (ملف موجود، مدة، أبعاد، ليس أسود، صوت غير صامت). نتيجة حقيقية لا تقديرية.",
+    permissions: ["media.read"],
+    capabilities: ["ffmpeg"],
+    risk: "read",
+    input: { type: "object", properties: { projectId: ID, jobId: ID }, required: ["projectId", "jobId"] },
+    async run(a) {
+      const job = await revalidateJob(str(a, "projectId"), str(a, "jobId"));
+      return { result: { ...jobSummary(job), review: job.review }, provenance: "real-analysis", warnings: job.review?.passed ? [] : (job.review?.issues ?? []) };
+    },
+  },
+  {
+    id: "timeline.preflight",
+    title: "فحص ما قبل الرندر",
+    description: "يبني خطة الرندر المتحقَّقة للمشروع ويعيد المشاكل (مصدر مفقود، تداخل مقاطع، صوت بلا ملف، تجاوز المصدر) دون رندر.",
+    permissions: ["media.read"],
+    capabilities: ["ffmpeg"],
+    risk: "read",
+    input: { type: "object", properties: { projectId: ID }, required: ["projectId"] },
+    async run(a) {
+      const project = await getProject(str(a, "projectId"));
+      const { map, unresolved } = await buildSourceMap(project, {});
+      const plan = buildRenderPlan(project, map);
+      return {
+        result: {
+          ok: plan.ok && unresolved.length === 0,
+          engine: needsCompositor(project, map) ? "compositor" : "legacy",
+          durationSeconds: plan.duration,
+          layers: plan.layers.length,
+          audioLayers: plan.audio.length,
+          unresolvedAssets: unresolved,
+          issues: plan.issues,
+        },
+        provenance: "computed",
+        warnings: plan.issues.filter((i) => i.severity === "warning").map((i) => i.message),
+      };
     },
   }
 );

@@ -9,8 +9,10 @@
 - **مسار الوكلاء (Python)**: `src/agents/*` — CEO → Analyst → Director → Critic → Audio → Render، مع بوابات جودة (`validation.py`).
 - **نظام المهارات (TS)**: `lib/skills/*` — `BaseSkill` + `SkillManager` + `Workflow` + كتالوج (43 مهارة) + workflows (`default`, `viral-shorts`, `content-from-idea`).
 - **العقد المشترك**: مخطط EDL موجود بلغتين — `src/agents/edl_schema.py` (Pydantic) ↔ `lib/agents/types.ts` (TypeScript).
-- **محرّك المشروع**: `lib/engine/*` — مخطط `ProjectState` (نسخة 2)، عمليات تايملاين نقية، مساحة عمل على الخادم مع undo/redo، تحليل FFmpeg، رندر+تحقق ffprobe، جسر خطط Python.
-- **الإضافات**: `lib/extensions/*` + `mcp/custom-tools.ts` — مهارات وأدوات MCP مخصّصة من سجل دائم (حزم بيانات، سجل إجراءات معتمد، صلاحيات ممنوحة، إصدارات/تراجع)، واجهة `/extensions`، `docs/EXTENSIONS.md`.
+- **محرّك المشروع**: `lib/engine/*` — مخطط `ProjectState` (نسخة 2)، عمليات تايملاين نقية (قص/تقسيم/دمج/نقل بين مسارات/التصاق)، مساحة عمل على الخادم مع undo/redo، تحليل FFmpeg، جسر خطط Python.
+- **الرندر متعدد المسارات**: `lib/engine/render-plan.ts` (خطة متحقَّقة) → `render-compile.ts` (ffmpeg) → `lib/server/ffmpeg-export.ts` (مشغّل)؛ `needsCompositor()` يفرّق بينه وبين المسار القديم. الدلالات والتفاوتات والمحظورات في `docs/RENDERING.md`. رفع الوسائط: `/api/assets/upload` (مراجع معتمة `upload:<uuid>`).
+- **واجهة المحرّر**: `components/editor/{timeline,inspector,media-library}.tsx` — كل أداة تستدعي عملية من `lib/engine/timeline.ts` عبر `COMMIT_PROJECT` (تدخل التراجع). لا عنصر بلا وظيفة؛ ما لا يُدعم (keyframes) يُذكر نصاً.
+- **الإضافات**: `lib/extensions/*` + `mcp/custom-tools.ts` — مهارات وأدوات MCP مخصّصة من سجل دائم (حزم بيانات، سجل إجراءات معتمد، صلاحيات ممنوحة، قدرات مضيف `capabilities`، إصدارات/تراجع، فهرس اكتشاف محلي)، واجهة `/extensions`، `docs/EXTENSIONS.md` و`docs/SKILLS_PLATFORM.md`.
 - **خادم MCP**: `mcp/*` (stdio، SDK الرسمي، 37 أداة مدمجة + أدوات مخصّصة ديناميكية `ext_*`) — `docs/MCP_SETUP.md` و`docs/architecture/MCP_ARCHITECTURE.md`.
 
 ## الأوامر (نسخ-لصق)

@@ -9,13 +9,13 @@
 | حدود حجم/نوع/تخزين للرفع | ✅ (بعد المرحلة 2) | V: tests/security (413/507/امتداد) | `lib/server/validate.ts`, `storage.ts` | رفع GB ما يزال مكلفاً في الذاكرة (P-1) | P-1 |
 | تنظيف الملفات المؤقتة | ✅ (بعد المرحلة 2) | V: tests/security/storage | `lib/server/storage.ts`, `scripts/cleanup.ts` | لا يغطي `ASSETS_DIR` ولا مساحة العمل عمداً | — |
 | عمليات التايملاين (قص/تقسيم/نقل/حذف/تراجع) | ✅ | V: 16 اختبار وحدة + MCP e2e | `lib/engine/timeline.ts` | واجهة المستخدم: NR | — |
-| تايملاين متعدد المسارات (عرض) | ◐ | C | `components/editor/timeline.tsx` | يُعرض ولا يُركَّب عند التصدير | F-11 |
-| **تصدير متعدد المسارات (تركيب)** | ❌ | V: G-2 | `ffmpeg-export.ts` | تُلصق المقاطع تتابعاً | F-11 |
-| **تصدير من عدة مصادر وسائط** | ✅ (T-02) | V: `tests/export-multisource.test.ts` (لون الإطار من الأصل الصحيح، مصدر صامت، رفض المراجع الفاسدة) | `ffmpeg-export.ts` (`extraSources`), `app/api/export/route.ts` (`sources`), `lib/engine/jobs.ts` | الواجهة لا تتيح رفع فيديو ثانٍ بعد (يُستخدم عبر MCP/HTTP) | F-10 |
-| صوت إضافي (موسيقى/تعليق) في تصدير الواجهة | ❌ | V: G-3 | `app/api/export/route.ts` | يُسمع في المعاينة ويُفقد في الملف | F-12 |
+| تايملاين متعدد المسارات | ✅ (المرحلة 3/4) | V: `render.integration.test.ts` + Playwright يدوي | `render-plan.ts`, `timeline.tsx` | يُركَّب عند التصدير؛ المعاينة الحية تقريبية (المرندرة مرجعية) | F-11 |
+| **تصدير متعدد المسارات (تركيب)** | ✅ (المرحلة 3) | V: اختبار PIP بالبكسل | `render-compile.ts` | المسار القديم باقٍ لمشاريع المصدر الواحد | F-11 |
+| **تصدير من عدة مصادر وسائط** | ✅ (المرحلة 3) | V: ffmpeg حقيقي | `render-sources.ts` + `extraSources` (المسار القديم) | مصدر مفقود = خطأ صريح؛ المسار القديم مغطى بـ `tests/export-multisource.test.ts` | F-10 |
+| صوت إضافي (موسيقى/تعليق) في تصدير الواجهة | ✅ (المرحلة 3/4) | V: volumedetect | `/api/assets/upload`, `Inspector` | الصوت بلا ref يُحجب (إقرار صريح) | F-12 |
 | صوت إضافي في تصدير MCP (أصول الخادم) | ✅ | V: اختبار MCP + `jobs.ts` | `lib/engine/jobs.ts` | `blob:` يُرفض بتحذير | — |
-| معالجة audio blob | ✅ (T-13) | V: `tests/export-audio.test.ts` (رفع ffprobe، رفض المزيّف، تصدير حقيقي) | `app/api/assets/audio`, `lib/client/audio-upload.ts` | الواجهة ترفع blob تلقائياً قبل التصدير؛ لم تُجرَّب في متصفح | F-13 |
-| تكبير/تحريك (zoom/pan/smartZoom) للمقطع | ◐ (T-15) | V: `tests/export-framing.test.ts` (لون الإطار) | `clipFraming` في `ffmpeg-export.ts` | يُطبَّق عند `smartZoom=true` فقط؛ المعاينة تعرضه بـ CSS transform بنفس هندسة القصّ (`lib/engine/framing.ts`، مُختبَر وحدةً فقط — لم يُرصد في المتصفح؛ تقريبي عند اختلاف النسبة لأن المعاينة letterbox والتصدير cover) | F-14 |
+| معالجة audio blob | ✅ (المرحلة 4) | V: زر «رفع للخادم» في الخصائص | `inspector.tsx` + `lib/client/audio-upload.ts` | رفع تلقائي قبل التصدير (`/api/assets/audio`، مراجع `audio:`) ويدويّاً (`upload:`) — كلاهما يُحلّ بـ `resolveMediaRef`؛ `tests/export-audio.test.ts` | F-13 |
+| تكبير/تحريك (zoom/pan/smartZoom) للمقطع | ✅ (المرحلة 3) | V: اختبار خطة | `render-compile.ts` | smartZoom كقيم ثابتة (لا مفاتيح) | F-14 |
 | تأثيرات على مستوى المشروع | ✅ | V: `ffmpeg-export.test.ts` (8) | `buildEffectChain` | `clip.effects` للعرض فقط | F-15 |
 | ترجمات/نصوص (ASS) | ✅ | V: اختبارات بانٍ + e2e | `buildAss` | — | — |
 | صور B-roll كطبقات | ✅ | C + اختبار بانٍ | `buildImageOverlays` | مقيّد بـ `ASSETS_DIR` | — |

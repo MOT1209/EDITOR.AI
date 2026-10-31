@@ -13,7 +13,7 @@ const MIME: Record<string, string> = {
   webm: "video/webm",
 };
 
-export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const params = await ctx.params;
   if (!/^job_\d+_\d+$/.test(params.id)) {
     return NextResponse.json({ error: "معرّف مهمة غير صالح" }, { status: 400 });
@@ -39,7 +39,9 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     headers: {
       "Content-Type": MIME[format] || "application/octet-stream",
       "Content-Length": String(stat.size),
-      "Content-Disposition": `attachment; filename="export_${job.id}.${format}"`,
+      // ?inline=1 للمعاينة المرندرة داخل المتصفح؛ الافتراضي تنزيل.
+      "Content-Disposition": `${req.nextUrl.searchParams.get("inline") === "1" ? "inline" : "attachment"}; filename="export_${job.id}.${format}"`,
+      "X-Content-Type-Options": "nosniff",
     },
   });
 }
