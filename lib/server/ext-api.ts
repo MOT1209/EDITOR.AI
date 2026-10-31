@@ -51,4 +51,19 @@ export function uiApprover(confirmed: boolean, scope = ""): ApproveFn {
   };
 }
 
+/**
+ * موافقة صريحة لعملية حساسة (منح صلاحيات/حذف) — T-05: لا يكفي confirm:true من العميل؛ يجب أن يكون الخادم قد
+ * سجّل طلب موافقة (action:"request_approval" عند فتح نافذة التأكيد) لنفس (النطاق، العملية)، وتُستهلك لمرة واحدة.
+ */
+export function requireSensitiveApproval(scope: string, op: "grant" | "delete", confirmed: boolean): void {
+  const key = `${scope}:op:${op}`;
+  if (confirmed && consumeApproval(key)) return;
+  requestApproval(key);
+  throw new EngineError("APPROVAL_DENIED", `العملية «${op}» تتطلب تأكيداً صريحاً من نافذة التأكيد`, "افتح نافذة التأكيد ثم أكّد.");
+}
+
+export function requestSensitiveApproval(scope: string, op: "grant" | "delete"): void {
+  requestApproval(`${scope}:op:${op}`);
+}
+
 export const apiKeyOf = (req: NextRequest) => getOpencodeKey(req);

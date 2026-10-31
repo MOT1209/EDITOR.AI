@@ -3,6 +3,7 @@ import { promises as fsp, existsSync, readdirSync } from "fs";
 import os from "os";
 import path from "path";
 import type { ProjectAspect, ProjectState, SubtitleCue, TextOverlay, VideoClip } from "@/lib/types";
+import { clipFraming, type Framing } from "@/lib/engine/framing";
 import { ASSETS_DIR } from "@/lib/server/assets";
 import { resolveImageRef } from "@/lib/server/media-ref";
 import { childEnv, hardenedSpawn } from "@/lib/engine/hardening";
@@ -236,7 +237,7 @@ interface Segment {
   /** فهرس مدخل ffmpeg (0 = المصدر الأساسي). يُعيَّن في buildExportPlan. */
   sourceIndex?: number;
   /** تأطير ذكي (T-15): تكبير ≥1 وإزاحة المركز كنسبة من الإطار (-0.5..0.5). يُطبَّق فقط إن smartZoom=true. */
-  framing?: { zoom: number; panX: number; panY: number };
+  framing?: Framing;
   inPoint: number;
   outPoint: number;
   speed: number;
@@ -250,16 +251,7 @@ export interface ImageOverlay {
   end: number;
 }
 
-/** تأطير المقطع من zoom/panX/panY عند smartZoom فقط؛ null إن لا أثر (zoom≈1 وبلا إزاحة). */
-export function clipFraming(c: Pick<VideoClip, "smartZoom" | "zoom" | "panX" | "panY">): Segment["framing"] | undefined {
-  if (!c.smartZoom) return undefined;
-  const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Number.isFinite(n) ? n : 0));
-  const zoom = clamp(c.zoom, 1, 4);
-  const panX = clamp(c.panX, -0.5, 0.5);
-  const panY = clamp(c.panY, -0.5, 0.5);
-  if (zoom < 1.001 && Math.abs(panX) < 0.001 && Math.abs(panY) < 0.001) return undefined;
-  return { zoom: r3(zoom), panX: r3(panX), panY: r3(panY) };
-}
+export { clipFraming };
 
 export function buildSegments(project: ProjectState): Segment[] {
   const videoTrackIds = new Set(project.tracks.filter((t) => t.kind === "video").map((t) => t.id));

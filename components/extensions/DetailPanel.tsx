@@ -12,7 +12,7 @@ export function DetailPanel({ kind, id, meta, exposure, onChanged, onEdit, onBac
 }) {
   const [d, setD] = useState<Detail | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [dlg, setDlg] = useState<"delete" | "enable" | "duplicate" | "config" | null>(null);
+  const [dlg, setDlg] = useState<"delete" | "enable" | "duplicate" | "config" | "grant" | null>(null);
   const [dupId, setDupId] = useState("");
   const [cfgText, setCfgText] = useState("{}");
   const base = `/api/extensions/${kindPath(kind)}/${id}`;
@@ -27,6 +27,13 @@ export function DetailPanel({ kind, id, meta, exposure, onChanged, onEdit, onBac
     const r = await api(base, { method: "POST", body });
     if (!r.ok) { setMsg({ ok: false, text: errText(r.data) }); return false; }
     setMsg({ ok: true, text: okText }); setDlg(null); await load(); onChanged(); after?.(); return true;
+  };
+
+  // T-05: فتح نافذة تأكيد عملية حساسة يسجّل موافقة معلّقة على الخادم أولاً.
+  const openSensitive = async (op: "grant" | "delete") => {
+    const r = await api(base, { method: "POST", body: { action: "request_approval", for: op } });
+    if (!r.ok) return setMsg({ ok: false, text: errText(r.data) });
+    setDlg(op);
   };
 
   if (!d) return <div className="p-6 text-sm text-ink-mute">{msg ? msg.text : "جارٍ التحميل…"}</div>;
@@ -52,12 +59,12 @@ export function DetailPanel({ kind, id, meta, exposure, onChanged, onEdit, onBac
       <div className="flex flex-wrap gap-2" role="toolbar" aria-label="إجراءات">
         {s.enabled ? <button className="btn-outline" onClick={() => act({ action: "disable" }, "عُطّلت")}><Power className="h-3.5 w-3.5" /> تعطيل</button>
           : <button className="btn-primary" onClick={() => (tested ? act({ action: "enable" }, "فُعّلت") : setDlg("enable"))}><Power className="h-3.5 w-3.5" /> تفعيل</button>}
-        {missing.length > 0 && <button className="btn-outline" onClick={() => act({ action: "grant", permissions: m.permissions }, "مُنحت الصلاحيات المعلنة")}><ShieldCheck className="h-3.5 w-3.5" /> منح الصلاحيات المعلنة</button>}
+        {missing.length > 0 && <button className="btn-outline" onClick={() => openSensitive("grant")}><ShieldCheck className="h-3.5 w-3.5" /> منح الصلاحيات المعلنة</button>}
         <button className="btn-outline" onClick={() => onEdit(d)}><Pencil className="h-3.5 w-3.5" /> تعديل (إصدار جديد)</button>
         <button className="btn-outline" onClick={() => { setDupId(`${id}_copy`); setDlg("duplicate"); }}><Copy className="h-3.5 w-3.5" /> تكرار</button>
         <button className="btn-outline" onClick={() => { setCfgText(JSON.stringify(d.state.config ?? {}, null, 2)); setDlg("config"); }}>الإعدادات</button>
         <a className="btn-outline" href={`${base}/export`} download><Download className="h-3.5 w-3.5" /> تصدير</a>
-        <button className="btn-outline text-red-300" onClick={() => setDlg("delete")}><Trash2 className="h-3.5 w-3.5" /> حذف</button>
+        <button className="btn-outline text-red-300" onClick={() => openSensitive("delete")}><Trash2 className="h-3.5 w-3.5" /> حذف</button>
       </div>
       {msg && <p role="status" className={`text-xs rounded-md border p-2 ${msg.ok ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-200" : "bg-red-500/10 border-red-500/30 text-red-200"}`}>{msg.text}</p>}
 
@@ -110,6 +117,7 @@ export function DetailPanel({ kind, id, meta, exposure, onChanged, onEdit, onBac
       </section>
 
       {dlg === "delete" && <Dialog title="حذف الإضافة" onClose={() => setDlg(null)}><p className="text-sm mb-3">سيُحذف «{m.name}» بكل إصداراته وسجله نهائياً ولا يمكن التراجع.</p><div className="flex justify-end gap-2"><button className="btn-outline" onClick={() => setDlg(null)}>إلغاء</button><button className="btn-primary !bg-red-600" onClick={async () => { const r = await api(base, { method: "DELETE", body: { confirm: true } }); if (r.ok) { onChanged(); onDeleted(); } else setMsg({ ok: false, text: errText(r.data) }); }}>حذف نهائي</button></div></Dialog>}
+      {dlg === "grant" && <Dialog title="منح الصلاحيات المعلنة" onClose={() => setDlg(null)}><p className="text-sm mb-2">ستُمنح هذه الإضافة الصلاحيات التالية:</p><ul className="text-xs list-disc ps-5 mb-3">{m.permissions.map((p) => <li key={p}>{PERM_AR[p] ?? p} <code dir="ltr">{p}</code></li>)}</ul><div className="flex justify-end gap-2"><button className="btn-outline" onClick={() => setDlg(null)}>إلغاء</button><button className="btn-primary" onClick={() => act({ action: "grant", permissions: m.permissions, confirmed: true }, "مُنحت الصلاحيات المعلنة")}>أؤكد المنح</button></div></Dialog>}
       {dlg === "enable" && <Dialog title="تفعيل دون اختبار ناجح" onClose={() => setDlg(null)}><p className="text-sm mb-3">هذا الإصدار لم يُختبر بنجاح بعد. يُنصح بتشغيل اختبار أولاً. هل تريد التفعيل رغم ذلك؟</p><div className="flex justify-end gap-2"><button className="btn-outline" onClick={() => setDlg(null)}>إلغاء</button><button className="btn-primary" onClick={() => act({ action: "enable", acknowledgeUntested: true }, "فُعّلت دون اختبار")}>أؤكد التفعيل</button></div></Dialog>}
       {dlg === "duplicate" && <Dialog title="تكرار الإضافة" onClose={() => setDlg(null)}><label className="text-xs text-ink-soft block mb-1" htmlFor="dup">المعرّف الجديد</label><input id="dup" dir="ltr" className={inputCls} value={dupId} onChange={(e) => setDupId(e.target.value)} /><div className="flex justify-end gap-2 mt-3"><button className="btn-outline" onClick={() => setDlg(null)}>إلغاء</button><button className="btn-primary" onClick={() => act({ action: "duplicate", newId: dupId }, "تم التكرار", () => onOpen(dupId))}>تكرار</button></div></Dialog>}
       {dlg === "config" && <Dialog title="إعدادات الإضافة" onClose={() => setDlg(null)}><p className="text-[11px] text-ink-mute mb-1">تُدمج مع القيم الافتراضية في البيان وتُتحقق بمخطط الإعدادات.</p><SchemaView title="مخطط الإعدادات" schema={m.config.schema} /><textarea aria-label="JSON الإعدادات" dir="ltr" rows={6} className={`${inputCls} font-mono text-xs mt-2`} value={cfgText} onChange={(e) => setCfgText(e.target.value)} /><div className="flex justify-end gap-2 mt-3"><button className="btn-outline" onClick={() => setDlg(null)}>إلغاء</button><button className="btn-primary" onClick={() => { try { act({ action: "config", config: JSON.parse(cfgText) }, "حُفظت الإعدادات"); } catch { setMsg({ ok: false, text: "JSON غير صالح" }); } }}>حفظ</button></div></Dialog>}

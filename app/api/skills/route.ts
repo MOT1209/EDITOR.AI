@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { parseJsonBody } from "@/lib/server/request";
+import { skillsBody } from "@/lib/server/schemas";
 import { buildExtendedSkillManager } from "@/lib/extensions/skills-bridge";
 import type { MediaDocument } from "@/lib/skills";
 import { skillProvenance } from "@/lib/skills/provenance";
@@ -48,7 +50,9 @@ interface RunBody {
 //   { mode:"workflow", workflow:"default",          document:{ duration } }
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as RunBody;
+    const parsedBody = await parseJsonBody(req, skillsBody);
+    if (!parsedBody.ok) return parsedBody.response;
+    const body = parsedBody.data as RunBody;
     // مدير معزول لكل طلب: لا تتسرب إعدادات طلب إلى طلبات أخرى، ولا سجل أخطاء ينمو بلا حد.
     const { manager: m } = await buildExtendedSkillManager();
     const config = safeConfig(body.config);

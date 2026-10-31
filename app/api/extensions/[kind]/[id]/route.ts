@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as svc from "@/lib/extensions/service";
-import { apiKeyOf, errorResponse, parseKind, readBody, uiApprover } from "@/lib/server/ext-api";
+import { apiKeyOf, errorResponse, parseKind, readBody, requestSensitiveApproval, requireSensitiveApproval, uiApprover } from "@/lib/server/ext-api";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,8 +35,9 @@ export async function DELETE(req: NextRequest, ctx: Ctx) {
   const params = await ctx.params;
   try {
     const body = await readBody(req).catch(() => ({} as Record<string, unknown>));
-    if (body.confirm !== true) return NextResponse.json({ error: "الحذف يتطلب confirm:true", code: "APPROVAL_DENIED" }, { status: 403 });
-    await svc.deleteExtension(parseKind(params.kind), params.id);
+    const kind = parseKind(params.kind);
+    requireSensitiveApproval(`${kind}:${params.id}`, "delete", body.confirm === true);
+    await svc.deleteExtension(kind, params.id);
     return NextResponse.json({ ok: true });
   } catch (e) {
     return errorResponse(e);
@@ -55,7 +56,13 @@ export async function POST(req: NextRequest, ctx: Ctx) {
         return NextResponse.json(await svc.setEnabled(kind, id, true, { acknowledgeUntested: body.acknowledgeUntested === true }));
       case "disable":
         return NextResponse.json(await svc.setEnabled(kind, id, false));
+      case "request_approval":
+        // تُستدعى عند فتح نافذة التأكيد: تسجّل موافقة معلّقة لعملية حساسة محددة.
+        if (body.for !== "grant" && body.for !== "delete") return NextResponse.json({ error: "for يجب أن تكون grant أو delete", code: "INVALID_INPUT" }, { status: 400 });
+        requestSensitiveApproval(`${kind}:${id}`, body.for);
+        return NextResponse.json({ ok: true });
       case "grant":
+        if (Array.isArray(body.permissions) && body.permissions.length > 0) requireSensitiveApproval(`${kind}:${id}`, "grant", body.confirmed === true);
         return NextResponse.json(await svc.grantPermissions(kind, id, Array.isArray(body.permissions) ? body.permissions.map(String) : []));
       case "config":
         return NextResponse.json(await svc.setConfig(kind, id, (body.config as Record<string, unknown>) ?? {}));

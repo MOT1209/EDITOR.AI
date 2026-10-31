@@ -37,6 +37,13 @@ const skillPkg = (version: string, extra: Record<string, unknown> = {}) => ({
   files: {},
 });
 
+
+/** منح صلاحيات عبر المصافحة الإلزامية (T-05): request_approval ثم grant مؤكَّد. */
+async function grant(kind: "skills" | "tools", id: string, permissions: string[]) {
+  await itemPost(req("/x", "POST", { action: "request_approval", for: "grant" }), ctx(kind, id));
+  return itemPost(req("/x", "POST", { action: "grant", permissions, confirmed: true }), ctx(kind, id));
+}
+
 describe("Phase 5 acceptance: full skill lifecycle through the HTTP API", () => {
   it("create → test → enable → execute → inspect → disable → update → versions → export → import → delete", async () => {
     // إنشاء
@@ -120,10 +127,10 @@ describe("Phase 5 acceptance: full skill lifecycle through the HTTP API", () => 
     r = await j(await itemPost(req("/x", "POST", { action: "enable", acknowledgeUntested: true }), ctx("tools", "probe_tool")));
     expect(r.status).toBe(403);
     // منح صلاحية لم تُعلَن/لا يحتاجها مرفوض
-    r = await j(await itemPost(req("/x", "POST", { action: "grant", permissions: ["exec.external"] }), ctx("tools", "probe_tool")));
+    r = await j(await grant("tools", "probe_tool", ["exec.external"]));
     expect(r.status).toBeGreaterThanOrEqual(400);
     // بعد المنح الصحيح تتجاوز بوابة الصلاحيات (وتفشل لاحقاً بمشروع غير موجود — لا بصلاحية)
-    await itemPost(req("/x", "POST", { action: "grant", permissions: ["media.read"] }), ctx("tools", "probe_tool"));
+    await grant("tools", "probe_tool", ["media.read"]);
     r = await j(await itemPost(req("/x", "POST", { action: "test", input: { projectId: "nope" } }), ctx("tools", "probe_tool")));
     expect(r.data.ok).toBe(false);
     expect(r.data.error.message).not.toMatch(/صلاح/);
@@ -139,7 +146,7 @@ describe("Phase 5 acceptance: full skill lifecycle through the HTTP API", () => 
       files: { "instructions.md": "اكتب عنواناً قصيراً." },
     };
     expect((await j(await listPost(req("/api/extensions", "POST", { op: "create", kind: "skill", package: pkg })))).status).toBe(201);
-    await itemPost(req("/x", "POST", { action: "grant", permissions: ["ai.invoke"] }), ctx("skills", "needs_chat"));
+    await grant("skills", "needs_chat", ["ai.invoke"]);
     const r = await j(await itemPost(req("/x", "POST", { action: "test", input: { topic: "x" } }), ctx("skills", "needs_chat")));
     expect(r.data.ok).toBe(false);
     expect(r.data.error.code).toBe("DEPENDENCY_MISSING");
