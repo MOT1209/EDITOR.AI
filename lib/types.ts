@@ -32,6 +32,43 @@ export interface VideoClip {
   kind?: "video" | "image";
   /** Server-local path (under .montage_ai/assets) — only set when kind === "image". */
   imageUrl?: string;
+  // ---- خصائص المركِّب متعدد المسارات (كلها اختيارية؛ الغياب = السلوك القديم) ----
+  /** تدوير الطبقة بالدرجات حول مركزها (−360..360). */
+  rotation?: number;
+  /** شفافية الطبقة 0..1 (1 = معتم). */
+  opacity?: number;
+  /** حجم الطبقة كنسبة من الإطار (1 = تغطي الإطار؛ <1 = صورة داخل صورة). */
+  scale?: number;
+  /** إزاحة الطبقة عن المركز كنسبة من عرض/ارتفاع الإطار (−1..1). */
+  posX?: number;
+  posY?: number;
+  /** اقتصاص المحتوى قبل التحجيم (كسور 0..0.9 من كل حافة). */
+  crop?: { left: number; top: number; right: number; bottom: number };
+  /** تلاشي بصري (ثوانٍ) عند بداية/نهاية الطبقة. */
+  fadeIn?: number;
+  fadeOut?: number;
+  /** انتقال عند دخول المقطع (انظر docs/RENDERING.md لدلالته). */
+  transitionIn?: ClipTransition;
+  /** تصحيح لوني أساسي (brightness −1..1، contrast 0..3، saturation 0..3). */
+  color?: { brightness?: number; contrast?: number; saturation?: number };
+  /** تلاشي صوت المقطع (ثوانٍ). */
+  audioFadeIn?: number;
+  audioFadeOut?: number;
+  /** مفاتيح (keyframes): تُغني القيمة الثابتة للخاصية؛ استيفاء خطي بين المفاتيح، t بالثواني من بداية المقطع. */
+  keyframes?: ClipKeyframes;
+}
+
+export type KeyframeProp = "posX" | "posY" | "rotation" | "opacity";
+export interface Keyframe {
+  t: number;
+  v: number;
+}
+export type ClipKeyframes = Partial<Record<KeyframeProp, Keyframe[]>>;
+
+export type TransitionType = "dissolve" | "slide-left" | "slide-right" | "slide-up" | "slide-down";
+export interface ClipTransition {
+  type: TransitionType;
+  duration: number;
 }
 
 export interface TextOverlay {
@@ -53,10 +90,14 @@ export interface AudioClip {
   start: number;
   duration: number;
   url: string;
-  /** مرجع أصل صوت على الخادم (audio:<uuid>.<ext>) — شرط دخول الصوت في التصدير (T-13). */
-  ref?: string;
   volume: number;
   kind: "music" | "voiceover" | "dub" | "sfx";
+  /** مرجع وسائط معتم على الخادم (audio:<uuid>.<ext> أو upload:<uuid>) — شرط دخول الصوت في التصدير (T-13). */
+  ref?: string;
+  /** نقطة البداية داخل ملف الصوت (ثوانٍ). */
+  inPoint?: number;
+  fadeIn?: number;
+  fadeOut?: number;
 }
 
 export interface SubtitleCue {
@@ -75,6 +116,10 @@ export interface TimelineTrack {
   height: number;
   muted: boolean;
   locked: boolean;
+  /** مسار فيديو مخفي لا يُرندر (العين). */
+  hidden?: boolean;
+  /** false = تموضع حر (طبقات)؛ الافتراضي مغناطيسي (ترصيف بلا فجوات). */
+  magnetic?: boolean;
 }
 
 export interface Effect {
@@ -95,6 +140,15 @@ export interface MusicTrack {
   bpm: number;
   url: string;
   cover: string;
+}
+
+export interface AudioMix {
+  /** تطبيع الجهارة المتكاملة (loudnorm). الافتراضي true. */
+  normalize?: boolean;
+  /** الهدف بوحدة LUFS (−30..−5). الافتراضي −16. */
+  targetLufs?: number;
+  /** خفض (ducking) الموسيقى/المؤثرات تحت الصوت البشري (فيديو + تعليق + دبلجة). */
+  ducking?: { enabled: boolean; amountDb?: number };
 }
 
 export interface ProjectState {
@@ -118,6 +172,8 @@ export interface ProjectState {
   title?: string;
   description?: string;
   tags?: string[];
+  /** إعدادات مزج الصوت: تطبيع وخفض الموسيقى تحت الكلام. */
+  audioMix?: AudioMix;
   /** وسائط مُدارة على الخادم (مساحة عمل MCP) — url نسبي داخل مجلد المشروع. اختياري للواجهة. */
   assets?: MediaAsset[];
   /** نسخة مخطط المشروع (انظر lib/engine/project-schema.ts). */

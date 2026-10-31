@@ -17,6 +17,7 @@ import { validateAgainst, type ObjectSchema } from "./schema";
 import { resolveArgs } from "./template";
 import { acquireSlot } from "./limits";
 import { requiredPermissions } from "./validate";
+import { describeMissing, missingCapabilities } from "./capabilities";
 
 /** تُرفض بـ APPROVAL_DENIED عند عدم الموافقة. الحقن يتم من الطبقة المستدعية (MCP elicitation / تأكيد الواجهة). */
 export type ApproveFn = (req: { action: string; summary: string }) => Promise<void>;
@@ -101,8 +102,16 @@ async function runAction(def: ActionDef, args: Record<string, unknown>, signal: 
     if (!approve) throw new EngineError("APPROVAL_DENIED", `الإجراء «${def.id}» (${def.risk}) يتطلب موافقة المستخدم، ولا قناة موافقة متاحة في هذا السياق`, "شغّله من مدير الإضافات (يطلب تأكيداً) أو عبر عميل MCP يدعم elicitation.");
     await approve({ action: def.id, summary: `${def.title}: ${JSON.stringify(valid).slice(0, 200)}` });
   }
+  const lacking = missingCapabilities(def.capabilities ?? []);
+  if (lacking.length) throw new EngineError("DEPENDENCY_MISSING", `الإجراء «${def.id}» يتطلب قدرات غير متاحة: ${describeMissing(lacking)}`);
   logs.push(`إجراء ${def.id}`);
   return def.run(valid, { signal });
+}
+
+/** قدرات المضيف المعلنة يجب أن تتوفر قبل أي عمل — وإلا فشل واضح (DEPENDENCY_MISSING) لا نتيجة مختلقة. */
+function assertCapabilities(declared: readonly import("./manifest").Capability[], apiKey: string | undefined) {
+  const lacking = missingCapabilities(declared, { apiKey });
+  if (lacking.length) throw new EngineError("DEPENDENCY_MISSING", `قدرات مطلوبة غير متاحة على الخادم: ${describeMissing(lacking)}`, "ثبّت المتطلب أو عطّل الامتداد.");
 }
 
 /** البرامج الخارجية تتطلب موافقة صريحة عند كل تشغيل، مهما كانت المنح. */
@@ -143,6 +152,7 @@ export async function executeSkill(pkg: ExtensionPackage, rawInput: unknown, opt
     const config = configFor(m, opts.config);
     const ex = m.execution;
     checkGrants(await requiredPermissions(pkg), m.permissions, opts.granted);
+    assertCapabilities(m.capabilities, opts.apiKey);
 
     const out = await withTimeout(m.limits.timeoutMs, opts.signal, async (signal) => {
       switch (ex.type) {
@@ -249,6 +259,7 @@ export async function invokeTool(pkg: ExtensionPackage, rawArgs: unknown, opts: 
     const config = configFor(m, opts.config);
     const ex = m.execution;
     checkGrants(await requiredPermissions(pkg), m.permissions, opts.granted);
+    assertCapabilities(m.capabilities, opts.apiKey);
 
     const out = await withTimeout(m.limits.timeoutMs, opts.signal, async (signal) => {
       if (ex.type === "declarative") {

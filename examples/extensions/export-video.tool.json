@@ -9,20 +9,51 @@
     "name": "تصدير الفيديو",
     "description": "يصدّر مشروعاً كاملاً (FFmpeg حقيقي) ويعيد حالة المهمة ونتيجة مراجعة ffprobe. مكلف: يطلب موافقة عند كل استدعاء.",
     "category": "export",
-    "tags": ["تصدير"],
+    "tags": [
+      "تصدير"
+    ],
     "author": "owner",
-    "permissions": ["render.export"],
-    "dependencies": { "actions": ["render.export"] },
-    "limits": { "timeoutMs": 120000, "maxOutputBytes": 50000 },
+    "permissions": [
+      "render.export"
+    ],
+    "dependencies": {
+      "actions": [
+        "render.export"
+      ]
+    },
+    "limits": {
+      "timeoutMs": 120000,
+      "maxOutputBytes": 50000
+    },
     "input": {
       "type": "object",
       "properties": {
-        "projectId": { "type": "string", "maxLength": 80 },
-        "waitSeconds": { "type": "integer", "minimum": 0, "maximum": 110, "default": 0 }
+        "projectId": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "waitSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 110,
+          "default": 0
+        }
       },
-      "required": ["projectId"]
+      "required": [
+        "projectId"
+      ]
     },
-    "execution": { "type": "declarative", "action": "render.export", "args": { "projectId": "{{input.projectId}}", "waitSeconds": "{{input.waitSeconds}}" } }
+    "execution": {
+      "type": "declarative",
+      "action": "render.export",
+      "args": {
+        "projectId": "{{input.projectId}}",
+        "waitSeconds": "{{input.waitSeconds}}"
+      }
+    },
+    "capabilities": [
+      "ffmpeg"
+    ]
   },
   "files": {}
 }

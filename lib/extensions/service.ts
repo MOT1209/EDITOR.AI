@@ -1,12 +1,15 @@
 // ====================================================================
 // طبقة الخدمة: كل عمليات إدارة الإضافات (يستخدمها API الواجهة وخادم MCP معاً).
 // ====================================================================
+import { missingCapabilities } from "./capabilities";
+import { domainOf } from "@/lib/skills/domains";
 import { EngineError } from "@/lib/engine/errors";
 import { buildSkillManager } from "@/lib/skills";
 import { externalEnabled } from "./external";
 import {
   PERMISSIONS, PLATFORM_VERSION, PACKAGE_FORMAT, FORMAT_VERSION, parsePackage, parseManifest, checkFiles, withIntegrity, computeDigest, runtimeName,
   type ExtensionKind, type ExtensionPackage, type Manifest, type Permission,
+  verifyIntegrity,
 } from "./manifest";
 import { executeSkill, invokeTool, type ApproveFn, type ExecResult } from "./runtime";
 import {
@@ -63,6 +66,7 @@ async function summarize(state: ExtensionState, pkg: ExtensionPackage): Promise<
   else if (!state.enabled) status = "disabled";
   else if (missingGrant.length) status = "needs_grant";
   else if (m.execution.type === "external" || m.execution.type === "executable") status = externalEnabled() ? "enabled" : "unavailable";
+  else if (missingCapabilities(m.capabilities.filter((c) => c !== "ai.chat")).length) status = "unavailable"; // ai.chat قد يأتي من ترويسة الطلب
   else status = "enabled";
   return {
     id: m.id, kind: m.kind, runtimeName: runtimeName(m.id), name: m.name, description: m.description, category: m.category, tags: m.tags,
@@ -110,13 +114,18 @@ export async function getExtensionDetail(kind: ExtensionKind, id: string) {
 }
 
 // ---------------------------------------------------------------- إنشاء/تحديث/استيراد
-function toPackage(raw: unknown, kindHint?: ExtensionKind): ExtensionPackage {
+function toPackage(raw: unknown, kindHint?: ExtensionKind, opts: { verifyIntegrity?: boolean } = {}): ExtensionPackage {
   // يقبل حزمة كاملة أو {manifest, files}.
   const obj = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const candidate = obj.format ? obj : { format: PACKAGE_FORMAT, formatVersion: FORMAT_VERSION, kind: (obj.manifest as { kind?: string } | undefined)?.kind ?? kindHint, manifest: obj.manifest, files: obj.files };
   const r = parsePackage(candidate);
   if (!r.ok) throw new EngineError("INVALID_INPUT", `حزمة غير صالحة: ${r.errors.slice(0, 8).join("؛ ")}`, "راجع docs/EXTENSIONS.md لصيغة الحزمة.");
   if (kindHint && r.pkg.kind !== kindHint) throw new EngineError("INVALID_INPUT", `نوع الحزمة ${r.pkg.kind} لا يطابق المتوقع ${kindHint}`);
+  // حزمة مستوردة تحمل بصمة: تُتحقق قبل إعادة الختم — وإلا لأُعيد ختم حزمة معدّلة فمرّت (ثغرة سابقة).
+  // المحرّر (create/update) لا يتحقق لأنه يعدّل البيان عمداً ثم يُعاد ختمه.
+  if (opts.verifyIntegrity && r.pkg.manifest.integrity && verifyIntegrity(r.pkg.manifest, r.pkg.files) === "mismatch") {
+    throw new EngineError("INVALID_INPUT", "بصمة SHA-256 لا تطابق المحتوى — الحزمة عُدّلت بعد تصديرها/توقيعها أو تالفة", "أعد تصديرها من المصدر.");
+  }
   return { ...r.pkg, manifest: withIntegrity(r.pkg.manifest, r.pkg.files) };
 }
 
@@ -137,7 +146,7 @@ export async function validateRaw(raw: unknown, kindHint?: ExtensionKind) {
 }
 
 export async function saveExtension(raw: unknown, opts: { kind?: ExtensionKind; origin: Origin; update: boolean; note?: string }): Promise<{ summary: ExtensionSummary; validation: ValidationReport }> {
-  const pkg = toPackage(raw, opts.kind);
+  const pkg = toPackage(raw, opts.kind, { verifyIntegrity: opts.origin === "imported" });
   const report = await validatePackage(pkg);
   const gate = await signatureGate(pkg, opts.origin);
   if (gate) report.issues.push({ level: "error", code: "INTEGRITY", message: gate }), (report.ok = false);
@@ -251,7 +260,7 @@ export async function listRuns(kind: ExtensionKind, id: string, limit = 50) {
 // ---------------------------------------------------------------- مدمج (للقراءة فقط)
 export function listBuiltinSkills() {
   return buildSkillManager().catalog().map((d) => ({
-    id: d.name, runtimeName: d.name, kind: "skill" as const, name: d.name, description: d.description, category: d.category,
+    id: d.name, runtimeName: d.name, kind: "skill" as const, name: d.name, description: d.description, category: d.category, domain: domainOf(d.name),
     origin: "builtin" as const, label: "builtin" as const, version: PLATFORM_VERSION, status: "enabled" as const, inputSpec: d.inputSpec, outputSpec: d.outputSpec,
   }));
 }

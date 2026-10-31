@@ -34,6 +34,7 @@ tagline_prompt/            ← مجلد (pnpm ext install tagline_prompt)
 | `stability` | `stable` \| `experimental` (الافتراضي experimental ويظهر بوسم «تجريبي») |
 | `compat` | `{ formatVersion: 1, montage: ">=0.2.0 <1.0.0" }` — نطاق إصدار المنصة؛ غير المتوافق يُرفض حفظاً وتفعيلاً |
 | `permissions` | الصلاحيات التي **تعلنها** الإضافة (قائمة أدناه) |
+| `capabilities` | قدرات **المضيف** التي تحتاجها: `ffmpeg` · `python` · `ai.chat` · `workspace`. تُفحص على الخادم عند التشغيل (غيابها ⇒ `DEPENDENCY_MISSING` بلا نتيجة مختلقة) وتظهر الحالة «غير متاح» للمفقود منها (عدا `ai.chat` فقد يأتي من ترويسة الطلب). التنفيذ الذي يستلزم قدرة غير معلنة ⇒ تحذير تحقق |
 | `dependencies` | `skills` (مدمجة)، `actions` (سجل الإجراءات)، `native` (إدخالات أصلية) — المفقود خطأ تحقق |
 | `config` | `{ schema, defaults }` إعدادات قابلة للضبط من الواجهة |
 | `limits` | `timeoutMs` (0.5–120s)، `maxOutputBytes` |
@@ -160,3 +161,10 @@ pnpm ext install  examples/extensions/silence-report.tool.json   # يثبّت م
 pnpm ext list tools
 pnpm ext export tools silence_report out.json
 ```
+
+
+## الاكتشاف والتحديث (المرحلة 5)
+تبويب **اكتشاف** في `/extensions` يعرض فهرساً **محلياً** لحزم جاهزة (`examples/extensions` أو `MONTAGE_CATALOG_DIR`) مع حالة التثبيت.
+`POST /api/extensions/catalog {key, op:"install"|"update"}` يمرّ بنفس `saveExtension` (تحقق + بصمة + سياسة التوقيع)،
+ويحفظ الحزمة **معطّلة بلا صلاحيات ممنوحة**؛ التحديث يقبل إصداراً **أعلى فقط**: الإضافة **المفعّلة** تبقى على إصدارها المختبَر (يُنقل للجديد بـ«تفعيل إصدار» بعد اختباره)، و**المعطّلة** تنتقل للجديد؛ المنح تبقى كما هي. لا متجر بعيد ولا تنزيل شيفرة من الشبكة (قرار أمني موثّق في `docs/SKILLS_PLATFORM.md`).
+الاستيراد (ملف/فهرس) يتحقق من بصمة SHA-256 الواردة **قبل** إعادة ختمها؛ عدم التطابق = رفض (كان يُعاد ختمها فتمرّ الحزمة المعدّلة — أُصلح في المرحلة 5).

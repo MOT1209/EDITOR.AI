@@ -6,6 +6,7 @@ import { ArrowLeft, Blocks, Plus, Search, Upload } from "lucide-react";
 import { api, errText, kindPath, CAT_AR, STATUS_AR, LABEL_AR, type BuiltinSkill, type BuiltinTool, type Detail, type Kind, type ListResponse, type Pkg } from "./types";
 import { DetailPanel } from "./DetailPanel";
 import { Editor } from "./Editor";
+import { Discover } from "./Discover";
 import { SchemaView } from "./SchemaView";
 import { Badge, Dialog, ExecBadge, IssueList, Json, LabelBadge, StatusBadge, inputCls } from "./ui";
 
@@ -13,6 +14,7 @@ type Sel = { type: "custom"; id: string } | { type: "builtin"; id: string } | nu
 
 export default function ExtensionsManager() {
   const [kind, setKind] = useState<Kind>("skill");
+  const [view, setView] = useState<"manage" | "discover">("manage");
   const [data, setData] = useState<ListResponse | null>(null);
   const [error, setError] = useState("");
   const [q, setQ] = useState("");
@@ -56,8 +58,8 @@ export default function ExtensionsManager() {
   const exposure = data?.exposure;
   const showDetail = sel !== null;
   const tabBtn = (k: Kind, label: string) => (
-    <button role="tab" id={`tab-${k}`} aria-selected={kind === k} aria-controls="panel-main" onClick={() => setKind(k)}
-      className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${kind === k ? "border-brand text-ink" : "border-transparent text-ink-mute hover:text-ink-soft"}`}>{label}</button>
+    <button role="tab" id={`tab-${k}`} aria-selected={view === "manage" && kind === k} aria-controls="panel-main" onClick={() => { setView("manage"); setKind(k); }}
+      className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${view === "manage" && kind === k ? "border-brand text-ink" : "border-transparent text-ink-mute hover:text-ink-soft"}`}>{label}</button>
   );
 
   return (
@@ -71,8 +73,15 @@ export default function ExtensionsManager() {
         <input ref={fileRef} type="file" accept="application/json,.json" hidden aria-label="ملف حزمة للاستيراد" onChange={(e) => { const file = e.target.files?.[0]; if (file) onFile(file); e.target.value = ""; }} />
         <button className="btn-primary text-xs" onClick={() => setEditor({ editing: false })}><Plus className="h-3.5 w-3.5" /> {kind === "skill" ? "مهارة جديدة" : "أداة جديدة"}</button>
       </header>
-      <div role="tablist" aria-label="نوع الإضافة" className="shrink-0 flex px-4 border-b border-line bg-bg-panel">{tabBtn("skill", "المهارات")}{tabBtn("tool", "أدوات MCP")}</div>
+      <div role="tablist" aria-label="نوع الإضافة" className="shrink-0 flex px-4 border-b border-line bg-bg-panel">{tabBtn("skill", "المهارات")}{tabBtn("tool", "أدوات MCP")}
+        <button role="tab" id="tab-discover" aria-selected={view === "discover"} aria-controls="panel-main" onClick={() => setView("discover")}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${view === "discover" ? "border-brand text-ink" : "border-transparent text-ink-mute hover:text-ink-soft"}`}>اكتشاف</button></div>
 
+      {view === "discover" ? (
+        <main id="panel-main" role="tabpanel" aria-labelledby="tab-discover" className="flex-1 min-h-0">
+          <Discover onInstalled={(k, id) => { setKind(k); setView("manage"); setTimeout(() => { load(); setSel({ type: "custom", id }); }, 0); }} />
+        </main>
+      ) : (
       <main id="panel-main" role="tabpanel" aria-labelledby={`tab-${kind}`} className="flex-1 min-h-0 grid md:grid-cols-[360px_1fr]">
         <aside className={`${showDetail ? "hidden md:flex" : "flex"} flex-col min-h-0 border-e border-line`}>
           <div className="p-3 space-y-2 border-b border-line shrink-0">
@@ -129,6 +138,7 @@ export default function ExtensionsManager() {
           )}
         </section>
       </main>
+      )}
 
       {editor && data && (
         <Dialog wide title={editor.editing ? "تعديل — إصدار جديد" : kind === "skill" ? "مهارة جديدة" : "أداة جديدة"} onClose={() => setEditor(null)}>

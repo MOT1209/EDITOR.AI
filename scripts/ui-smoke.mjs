@@ -16,7 +16,7 @@ const VIDEO = process.env.SMOKE_VIDEO || path.join(process.cwd(), "test_assets",
 const results = [];
 const check = (name, ok, detail = "") => { results.push({ name, ok, detail }); console.log(`${ok ? "✓" : "✗"} ${name}${detail ? " — " + detail : ""}`); };
 
-const browser = await chromium.launch();
+const browser = await chromium.launch({ executablePath: process.env.PW_CHROMIUM || undefined });
 const page = await browser.newPage({ viewport: { width: 1500, height: 900 } });
 const errors = [];
 page.on("pageerror", (e) => errors.push("pageerror: " + e.message));

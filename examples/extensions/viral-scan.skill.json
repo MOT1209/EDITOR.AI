@@ -9,18 +9,52 @@
     "name": "صمت ثم مشاهد",
     "description": "مسار مركّب: كشف صمت حقيقي ثم كشف مشاهد حقيقي لمشروع، يعيد نتيجة الخطوة الأخيرة وملخص مصدر كل خطوة.",
     "category": "analysis",
-    "tags": ["تحليل", "مسار"],
+    "tags": [
+      "تحليل",
+      "مسار"
+    ],
     "author": "owner",
-    "permissions": ["media.read"],
-    "dependencies": { "actions": ["analysis.silence", "analysis.scenes"] },
-    "input": { "type": "object", "properties": { "projectId": { "type": "string", "maxLength": 80 } }, "required": ["projectId"] },
+    "permissions": [
+      "media.read"
+    ],
+    "dependencies": {
+      "actions": [
+        "analysis.silence",
+        "analysis.scenes"
+      ]
+    },
+    "input": {
+      "type": "object",
+      "properties": {
+        "projectId": {
+          "type": "string",
+          "maxLength": 80
+        }
+      },
+      "required": [
+        "projectId"
+      ]
+    },
     "execution": {
       "type": "workflow",
       "steps": [
-        { "use": "action:analysis.silence", "with": { "projectId": "{{input.projectId}}" } },
-        { "use": "action:analysis.scenes", "with": { "projectId": "{{input.projectId}}" } }
+        {
+          "use": "action:analysis.silence",
+          "with": {
+            "projectId": "{{input.projectId}}"
+          }
+        },
+        {
+          "use": "action:analysis.scenes",
+          "with": {
+            "projectId": "{{input.projectId}}"
+          }
+        }
       ]
-    }
+    },
+    "capabilities": [
+      "ffmpeg"
+    ]
   },
   "files": {}
 }

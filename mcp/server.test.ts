@@ -288,8 +288,9 @@ describe.skipIf(!HAS_FFMPEG)("MCP end-to-end on the sample video (real FFmpeg)",
     for (const f of readdirSync(mediaDir)) unlinkSync(path.join(mediaDir, f));
     expect(imp.isError).toBe(false);
     const r = await call("export_project", { projectId: p2, wait: true });
-    expect(r.data.status).toBe("failed");
-    expect(r.data.error).toBeTruthy();
+    // الرندر يفشل مبكراً وبوضوح (أصل مفقود) بدل بدء ffmpeg على ملف غير موجود — لا نجاح مُعلَن.
+    expect(r.isError).toBe(true);
+    expect(r.data.error.code).toBe("NOT_FOUND");
     expect(r.data.outputPath).toBeUndefined();
   });
 

@@ -14,6 +14,7 @@ export const FORMATS = ["mp4", "mov", "webm", "mkv"] as const;
 export const RESOLUTIONS = ["720p", "1080p", "4k"] as const;
 export const FPS_VALUES = [24, 30, 60] as const;
 export const QUALITIES = ["draft", "standard", "high", "ultra"] as const;
+export const TRANSITION_TYPES = ["dissolve", "slide-left", "slide-right", "slide-up", "slide-down"] as const;
 export const COLOR_FILTER_IDS = ["none", "cinematic", "warm", "cool", "vhs", "bw", "vivid", "dreamy"] as const;
 /** معرّفات EFFECTS_LIBRARY التي لها ترجمة FFmpeg فعلية في ffmpeg-export.ts. */
 export const EFFECT_IDS = [
@@ -33,10 +34,19 @@ export const LIMITS = {
   maxName: 120,
 } as const;
 
+/** مفاتيح خاصية: ≤32، t تصاعدي صارم (بلا تكرار)، v ضمن حدود الخاصية. */
+function keyframes(min: number, max: number) {
+  return z
+    .array(z.object({ t: z.number().min(0).max(LIMITS.maxSeconds), v: z.number().min(min).max(max) }))
+    .max(32)
+    .refine((a) => a.every((k, i) => i === 0 || k.t > a[i - 1].t), "t يجب أن يكون تصاعدياً بلا تكرار")
+    .optional();
+}
+
 const seconds = z.number().min(0).max(LIMITS.maxSeconds);
 const id = z.string().min(1).max(128);
 
-const clipSchema = z.looseObject({
+export const clipSchema = z.looseObject({
   id,
   assetId: z.string().max(128),
   trackId: id,
@@ -54,6 +64,33 @@ const clipSchema = z.looseObject({
   colorFilter: z.string().max(32).optional(),
   kind: z.enum(["video", "image"]).optional(),
   imageUrl: z.string().max(4096).optional(),
+  rotation: z.number().min(-360).max(360).optional(),
+  opacity: z.number().min(0).max(1).optional(),
+  scale: z.number().min(0.05).max(5).optional(),
+  posX: z.number().min(-2).max(2).optional(),
+  posY: z.number().min(-2).max(2).optional(),
+  crop: z.object({
+    left: z.number().min(0).max(0.9), top: z.number().min(0).max(0.9),
+    right: z.number().min(0).max(0.9), bottom: z.number().min(0).max(0.9),
+  }).optional(),
+  fadeIn: z.number().min(0).max(30).optional(),
+  fadeOut: z.number().min(0).max(30).optional(),
+  transitionIn: z.object({ type: z.enum(TRANSITION_TYPES), duration: z.number().min(0.1).max(5) }).optional(),
+  color: z.object({
+    brightness: z.number().min(-1).max(1).optional(),
+    contrast: z.number().min(0).max(3).optional(),
+    saturation: z.number().min(0).max(3).optional(),
+  }).optional(),
+  audioFadeIn: z.number().min(0).max(30).optional(),
+  audioFadeOut: z.number().min(0).max(30).optional(),
+  keyframes: z
+    .object({
+      posX: keyframes(-2, 2),
+      posY: keyframes(-2, 2),
+      rotation: keyframes(-360, 360),
+      opacity: keyframes(0, 1),
+    })
+    .optional(),
 });
 
 const subtitleSchema = z.looseObject({
@@ -77,25 +114,30 @@ const overlaySchema = z.looseObject({
   animation: z.enum(["none", "fade", "pop"]),
 });
 
-const audioClipSchema = z.looseObject({
+export const audioClipSchema = z.looseObject({
   id,
   name: z.string().max(LIMITS.maxName * 2),
   trackId: id,
   start: seconds,
   duration: z.number().min(0).max(LIMITS.maxSeconds),
   url: z.string().max(8192),
-  ref: z.string().max(200).optional(),
   volume: z.number().min(0).max(4),
   kind: z.enum(["music", "voiceover", "dub", "sfx"]),
+  ref: z.string().max(256).optional(),
+  inPoint: seconds.optional(),
+  fadeIn: z.number().min(0).max(30).optional(),
+  fadeOut: z.number().min(0).max(30).optional(),
 });
 
-const trackSchema = z.looseObject({
+export const trackSchema = z.looseObject({
   id,
   kind: z.enum(["video", "audio", "subtitle", "fx"]),
   label: z.string().max(LIMITS.maxName),
   height: z.number().min(0).max(1000),
   muted: z.boolean(),
   locked: z.boolean(),
+  hidden: z.boolean().optional(),
+  magnetic: z.boolean().optional(),
 });
 
 const assetSchema = z.looseObject({
@@ -129,6 +171,11 @@ export const projectSchema = z.looseObject({
   title: z.string().max(500).optional(),
   description: z.string().max(5000).optional(),
   tags: z.array(z.string().max(100)).max(100).optional(),
+  audioMix: z.object({
+    normalize: z.boolean().optional(),
+    targetLufs: z.number().min(-30).max(-5).optional(),
+    ducking: z.object({ enabled: z.boolean(), amountDb: z.number().min(1).max(30).optional() }).optional(),
+  }).optional(),
   assets: z.array(assetSchema).max(LIMITS.maxAssets).optional(),
   schemaVersion: z.number().int().min(1).optional(),
   createdAt: z.number(),

@@ -5,16 +5,17 @@
 // مراجعة ما بعد الرندر (reviewRender). المخرَج الموجود الذي فشل المراجعة
 // يُعلَّم "failed_validation" مع الأسباب — لا يُبلَّغ عنه كنجاح.
 // ====================================================================
-import { existsSync, promises as fsp } from "fs";
+import { promises as fsp } from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
-import { ExportCancelledError, runExport, isPathInside, type ExportSource } from "@/lib/server/ffmpeg-export";
+import { ExportCancelledError, runExport, isPathInside } from "@/lib/server/ffmpeg-export";
 import type { ProjectState } from "@/lib/types";
 import { EngineError } from "./errors";
 import { reviewRender, type RenderReview } from "./media";
 import { assertId, assetPath, auditLog, getProject, primaryVideoAsset, projectDir } from "./store";
 import { timelineDuration } from "./timeline";
-import { findForeignClips } from "./export-guard";
+import { buildSourceMap } from "@/lib/server/render-sources";
+import { needsCompositor } from "./render-plan";
 
 export type JobKind = "preview" | "export";
 export type JobStatus = "queued" | "running" | "completed" | "failed" | "failed_validation" | "cancelled";
@@ -117,19 +118,6 @@ const PREVIEW_MAX_SECONDS = 60;
 export async function startRender(projectId: string, opts: StartRenderOptions): Promise<RenderJob> {
   const project = await getProject(projectId);
   const primary = primaryVideoAsset(project);
-  // T-02: أصول الفيديو الأخرى المشار إليها بمقاطع تصبح مدخلات إضافية (لا رفض) إن كانت أصولاً حقيقية في المشروع.
-  const extraSources: ExportSource[] = [];
-  for (const assetId of new Set(project.clips.filter((c) => c.kind !== "image" && c.assetId !== primary.id && c.assetId !== "main").map((c) => c.assetId))) {
-    const a = project.assets?.find((x) => x.id === assetId && x.type === "video");
-    if (!a) continue;
-    const p = assetPath(projectId, a);
-    if (!existsSync(p)) throw new EngineError("NOT_FOUND", `ملف الأصل «${a.name}» غير موجود على القرص`, "أعد استيراده عبر import_media.");
-    extraSources.push({ assetId, path: p, hasAudio: Number(a.meta?.hasAudio ?? 1) === 1 });
-  }
-  const foreign = findForeignClips(project, new Set(extraSources.map((s) => s.assetId)));
-  if (foreign.length > 0) {
-    throw new EngineError("UNSUPPORTED", "توجد مقاطع تشير إلى أصول فيديو غير موجودة في المشروع", `احذف المقاطع: ${foreign.map((c) => c.id).join(", ")}`);
-  }
   const total = timelineDuration(project);
   let range = opts.range;
   if (opts.kind === "preview") {
@@ -152,6 +140,12 @@ export async function startRender(projectId: string, opts: StartRenderOptions): 
 
   const source = assetPath(projectId, primary);
   const { inputs, warnings } = resolveAudioInputs(project);
+  // مصادر متعددة: كل أصل فيديو/صورة/صوت داخل مساحة العمل يُحلّ بمسار آمن (بلا مسارات من العميل).
+  const { map: sources, unresolved } = await buildSourceMap(project, { primaryPath: source });
+  if (unresolved.length > 0) {
+    throw new EngineError("NOT_FOUND", `أصول مفقودة أو غير قابلة للقراءة: ${unresolved.join(", ")}`, "استورد الوسائط عبر import_media أو احذف المقاطع التي تشير إليها.");
+  }
+  const compositor = needsCompositor(project, sources);
   const sourceHasAudio = Number(primary.meta?.hasAudio ?? 1) === 1;
   const id = `r_${Date.now().toString(36)}_${randomUUID().slice(0, 8)}`;
   const ext = opts.kind === "preview" ? "mp4" : project.format;
@@ -170,7 +164,7 @@ export async function startRender(projectId: string, opts: StartRenderOptions): 
     expected: {
       durationSeconds: range ? Math.round((range.end - range.start) * 1000) / 1000 : total,
       // مصدر بلا صوت يُرندر بصمت مولَّد — لا نطالب المراجعة بصوت مسموع حينها.
-      hasAudio: sourceHasAudio || inputs.length > 0,
+      hasAudio: compositor ? Object.values(sources).some((x) => x.hasAudio) : sourceHasAudio || inputs.length > 0,
       ...(size ? { width: size[0], height: size[1] } : {}),
     },
     range,
@@ -194,10 +188,11 @@ export async function startRender(projectId: string, opts: StartRenderOptions): 
         outputPath: outPath,
         project: previewProject,
         audioInputs: inputs,
+        sources,
+        allowMissingAudio: true, // الصوت غير القابل للحل يُبلَّغ في job.warnings (سلوك MCP السابق)
         range,
         size,
         sourceHasAudio,
-        extraSources,
         encoderOverride: opts.kind === "preview" ? { preset: "ultrafast", crf: 30 } : undefined,
         signal: controller.signal,
         timeoutMs: opts.timeoutMs,
@@ -276,7 +271,7 @@ export async function revalidateJob(projectId: string, jobId: string): Promise<R
   return job;
 }
 
-function previewSize(aspect: ProjectState["aspect"]): [number, number] {
+export function previewSize(aspect: ProjectState["aspect"]): [number, number] {
   switch (aspect) {
     case "9:16":
       return [360, 640];

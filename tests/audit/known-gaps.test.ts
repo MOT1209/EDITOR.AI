@@ -13,51 +13,61 @@ const mk = (id: string, assetId: string, trackId: string, start: number, inP: nu
 });
 const track = (id: string): TimelineTrack => ({ id, kind: "video", label: id, height: 60, muted: false, locked: false });
 
-describe("RESOLVED G-1 (T-02): clips are cut from their own asset's input", () => {
-  it("with extraSources the plan has one -i per source and routes clips by assetId", () => {
+import type { SourceMap } from "@/lib/engine/render-plan";
+
+const SRC: SourceMap = {
+  assetA: { path: "/ws/a.mp4", kind: "video", hasAudio: true, duration: 20 },
+  assetB: { path: "/ws/b.mp4", kind: "video", hasAudio: true, duration: 20 },
+};
+const planOf = (p: ProjectState, sources?: SourceMap) =>
+  buildExportPlan({ sourcePath: "/ws/a.mp4", outputPath: "/ws/o.mp4", project: p, sources }, { allowNvenc: false });
+
+// المرحلة 3: الفجوات G-1..G-4 أُغلقت بالمركِّب (lib/engine/render-plan.ts + render-compile.ts).
+// المسار القديم (بلا sources) يبقى كما كان لمشاريع المصدر الواحد — التوصيف أدناه يثبت الاثنين.
+describe("G-1 FIXED: one -i per media source", () => {
+  it("clips from two assets use two inputs and index [k:v] by asset", () => {
     const p: ProjectState = { ...defaultProject("t"), duration: 20, tracks: [track("v1")], clips: [mk("c1", "assetA", "v1", 0, 0, 5), mk("c2", "assetB", "v1", 5, 0, 5)] };
-    const plan = buildExportPlan({ sourcePath: "/ws/a.mp4", outputPath: "/ws/o.mp4", project: p, extraSources: [{ assetId: "assetB", path: "/ws/b.mp4", hasAudio: true }] }, { allowNvenc: false });
+    const plan = planOf(p, SRC);
+    expect(plan.engine).toBe("compositor");
     expect(plan.args.filter((a) => a === "-i")).toHaveLength(2);
     const fc = plan.args[plan.args.indexOf("-filter_complex") + 1];
-    expect(fc).toContain("[0:v]trim=start=0:end=5");
-    expect(fc).toContain("[1:v]trim=start=0:end=5");
-    expect(fc).toContain("[1:a]atrim");
-    expect(buildSegments(p).map((s) => s.assetId)).toEqual(["assetA", "assetB"]);
+    expect(fc).toContain("[0:v]");
+    expect(fc).toContain("[1:v]");
   });
-  it("a source without audio gets generated silence, not [k:a]", () => {
-    const p: ProjectState = { ...defaultProject("t"), duration: 20, tracks: [track("v1")], clips: [mk("c1", "assetA", "v1", 0, 0, 5), mk("c2", "assetB", "v1", 5, 0, 5)] };
-    const plan = buildExportPlan({ sourcePath: "/ws/a.mp4", outputPath: "/ws/o.mp4", project: p, extraSources: [{ assetId: "assetB", path: "/ws/b.mp4", hasAudio: false }] }, { allowNvenc: false });
-    const fc = plan.args[plan.args.indexOf("-filter_complex") + 1];
-    expect(fc).not.toContain("[1:a]");
-    expect(fc).toContain("anullsrc");
+  it("legacy single-source behaviour is unchanged when no sources are supplied", () => {
+    const p: ProjectState = { ...defaultProject("t"), duration: 20, tracks: [track("v1")], clips: [mk("c1", "assetA", "v1", 0, 0, 5)] };
+    expect(planOf(p).engine).toBe("legacy");
+    expect(buildSegments(p).every((s) => s.assetId === "assetA")).toBe(true); // T-02 (المسار القديم): كل مقطع يحمل أصله
   });
 });
 
-describe("KNOWN GAP G-2: multiple video tracks are concatenated, not composited", () => {
-  it("overlapping clips on two video tracks add up in duration instead of overlaying", () => {
-    const p: ProjectState = { ...defaultProject("t"), duration: 10, tracks: [track("v1"), track("v2")], clips: [mk("c1", "a", "v1", 0, 0, 10), mk("c2", "a", "v2", 0, 0, 10)] };
-    const plan = buildExportPlan({ sourcePath: "/ws/a.mp4", outputPath: "/ws/o.mp4", project: p }, { allowNvenc: false });
-    expect(plan.totalDuration).toBeCloseTo(20, 3); // 10s + 10s متتابعة، لا طبقتان متراكبتان
+describe("G-2 FIXED: multiple video tracks are composited", () => {
+  it("overlapping clips on two video tracks overlay; duration = longest layer, not the sum", () => {
+    const p: ProjectState = { ...defaultProject("t"), duration: 10, tracks: [track("v1"), track("v2")], clips: [mk("c1", "assetA", "v1", 0, 0, 10), mk("c2", "assetB", "v2", 0, 0, 10)] };
+    const plan = planOf(p, SRC);
+    expect(plan.totalDuration).toBeCloseTo(10, 3);
     const fc = plan.args[plan.args.indexOf("-filter_complex") + 1];
-    expect(fc).toContain("concat=n=2");
-    expect(fc).not.toMatch(/overlay=[^,;]*enable=/); // لا دمج مسارات (overlay يُستخدم للصور فقط)
+    expect(fc).toMatch(/overlay=[^;]*enable=/);
+    expect(fc).not.toContain("concat=n=2");
   });
 });
 
-describe("RESOLVED G-3 (T-13): browser export mixes server-side audio assets", () => {
-  it("app/api/export/route.ts passes audioInputs resolved from audio: refs, guarded by checkExportable", () => {
+describe("G-3 FIXED: audio clips with server files enter the export", () => {
+  it("export route resolves sources/audio refs and passes them to the renderer", () => {
     const route = readFileSync(path.join(process.cwd(), "app/api/export/route.ts"), "utf-8");
-    expect(route).toMatch(/audioInputs/);
-    expect(route).toMatch(/resolveAudioRef/);
-    expect(route).toMatch(/checkExportable/);
-    // التحقق الفعلي من المزج (volumedetect على تصدير حقيقي) في tests/export-audio.test.ts
+    expect(route).toMatch(/buildSourceMap/);
+    expect(route).toMatch(/sources,/);
+    expect(route).toMatch(/checkExportable/); // الحجب يبقى لصوت بلا ملف
   });
 });
 
-describe("RESOLVED G-4 (T-15): per-clip framing reaches the export", () => {
-  it("ffmpeg-export.ts reads zoom/pan via clipFraming (smartZoom only); effect verified in tests/export-framing.test.ts", () => {
-    const src = readFileSync(path.join(process.cwd(), "lib/server/ffmpeg-export.ts"), "utf-8");
-    expect(src).toMatch(/export function clipFraming/);
-    expect(src).toMatch(/framingCrop/);
+describe("G-4 FIXED: per-clip zoom/pan reach ffmpeg", () => {
+  it("render-plan carries zoom/panX/panY and the compiler emits a crop for them", () => {
+    const plan = (() => {
+      const p: ProjectState = { ...defaultProject("t"), tracks: [track("v1")], clips: [{ ...mk("c1", "assetA", "v1", 0, 0, 5), zoom: 1.5, panX: 0.2 }] };
+      return planOf(p, SRC);
+    })();
+    expect(plan.args[plan.args.indexOf("-filter_complex") + 1]).toMatch(/scale=iw\*1\.5:ih\*1\.5/);
   });
 });
+

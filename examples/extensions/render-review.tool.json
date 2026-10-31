@@ -1,0 +1,68 @@
+{
+  "format": "montage-extension",
+  "formatVersion": 1,
+  "kind": "tool",
+  "manifest": {
+    "kind": "tool",
+    "id": "render_review",
+    "version": "1.0.0",
+    "name": "مراجعة جودة المخرَج",
+    "description": "يعيد فحص مخرَج رندر مكتمل بـ ffprobe: ملف موجود، مدة، أبعاد، ليس أسود، صوت غير صامت.",
+    "category": "analysis",
+    "tags": [
+      "جودة",
+      "رندر"
+    ],
+    "author": "owner",
+    "stability": "stable",
+    "permissions": [
+      "media.read"
+    ],
+    "capabilities": [
+      "ffmpeg"
+    ],
+    "dependencies": {
+      "actions": [
+        "render.review"
+      ]
+    },
+    "input": {
+      "type": "object",
+      "properties": {
+        "projectId": {
+          "type": "string",
+          "maxLength": 80,
+          "description": "معرّف المشروع"
+        },
+        "jobId": {
+          "type": "string",
+          "maxLength": 80
+        }
+      },
+      "required": [
+        "projectId",
+        "jobId"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "review": {
+          "type": "object"
+        }
+      }
+    },
+    "execution": {
+      "type": "declarative",
+      "action": "render.review",
+      "args": {
+        "projectId": "{{input.projectId}}",
+        "jobId": "{{input.jobId}}"
+      }
+    }
+  },
+  "files": {}
+}
