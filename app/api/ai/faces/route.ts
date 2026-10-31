@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { parseJsonBody } from "@/lib/server/request";
+import { framesBody } from "@/lib/server/schemas";
 import { getVisionModel, getOpencodeKey, getHfToken, getOpencodeBaseUrl } from "@/lib/server/api-keys";
 import { guardCost, recordSpend } from "@/lib/server/cost-guard";
 
@@ -74,7 +76,9 @@ export async function POST(req: NextRequest) {
     const OPENCODE_BASE_URL = getOpencodeBaseUrl();
     const OPENCODE_API_KEY = getOpencodeKey(req);
     const HF_TOKEN = getHfToken(req);
-    const { duration = 30, frames = [] } = await req.json();
+    const reqBody = await parseJsonBody(req, framesBody);
+    if (!reqBody.ok) return reqBody.response;
+    const { duration = 30, frames = [] } = reqBody.data;
     const faces: { start: number; end: number; x: number; y: number; w: number; h: number }[] = [];
 
     if (frames.length > 0) {

@@ -152,7 +152,8 @@ export interface CeoResponse {
   highlights: HighlightInfo[];
   quality: QualityInfo;
   /** مسار الملف على الخادم (لعمليات التصدير اللاحقة). */
-  filePath: string;
+  /** مرجع معتمد للفيديو المرفوع (upload:<uuid>) — لا مسار قرص. */
+  sourceRef: string;
   /** true عندما لم يتوفر API key واستُخدمت خطة محلية بديلة. */
   mock: boolean;
   /** true عندما يكون التفريغ نصاً نموذجياً (لا Whisper حقيقي). */

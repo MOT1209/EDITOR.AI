@@ -4,6 +4,8 @@ import os from "os";
 import path from "path";
 import type { ProjectAspect, ProjectState, SubtitleCue, TextOverlay, VideoClip } from "@/lib/types";
 import { ASSETS_DIR } from "@/lib/server/assets";
+import { resolveImageRef } from "@/lib/server/media-ref";
+import { childEnv, hardenedSpawn } from "@/lib/engine/hardening";
 
 export const UPLOAD_DIR = path.join(process.cwd(), ".montage_ai", "uploads");
 export const EXPORT_DIR = path.join(process.cwd(), ".montage_ai", "exports");
@@ -387,8 +389,9 @@ export function buildSegments(project: ProjectState): Segment[] {
 // than replacing the base timeline — the natural "B-roll cutaway" behavior.
 export function buildImageOverlays(project: ProjectState): ImageOverlay[] {
   return project.clips
-    .filter((c): c is VideoClip & { imageUrl: string } => c.kind === "image" && !!c.imageUrl && isPathInside(c.imageUrl, ASSETS_DIR))
-    .map((c) => ({ path: c.imageUrl, start: c.start, end: c.start + c.duration }));
+    .map((c) => ({ c, p: c.kind === "image" && c.imageUrl ? resolveImageRef(c.imageUrl) : null }))
+    .filter((x): x is { c: VideoClip; p: string } => x.p !== null)
+    .map(({ c, p }) => ({ path: p, start: c.start, end: c.start + c.duration }));
 }
 
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
@@ -706,9 +709,12 @@ export async function runExport(req: ExportRequest): Promise<{ size: number; dur
   let outcome: "ok" | "timeout" | "cancel" | "error" = "error";
   try {
     await new Promise<void>((resolve, reject) => {
-      const proc = spawn(resolveFfmpegPath(), plan.args, {
+      const hardened = hardenedSpawn(resolveFfmpegPath(), plan.args);
+      const proc = spawn(hardened.cmd, hardened.args, {
         windowsHide: true,
         cwd: assDir || undefined,
+        env: childEnv(),
+        shell: false,
       });
       let stderrTail = "";
       let killedFor: "timeout" | "cancel" | null = null;

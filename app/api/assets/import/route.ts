@@ -1,3 +1,5 @@
+import path from "path";
+import { assetRef } from "@/lib/server/media-ref";
 import { NextRequest, NextResponse } from "next/server";
 import { importRemoteImage } from "@/lib/server/assets";
 
@@ -27,7 +29,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const { path: filePath, size } = await importRemoteImage(imageUrl);
-    return NextResponse.json({ path: filePath, size });
+    return NextResponse.json({ ref: assetRef(path.basename(filePath)), size });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "فشل استيراد الصورة";
     return NextResponse.json({ error: msg }, { status: 500 });

@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
+import { parseJsonBody } from "@/lib/server/request";
+import { musicSyncBody } from "@/lib/server/schemas";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
   try {
-    const { bpm: userBpm, duration = 30 } = await req.json();
+    const reqBody = await parseJsonBody(req, musicSyncBody);
+    if (!reqBody.ok) return reqBody.response;
+    const { bpm: userBpm, duration = 30 } = reqBody.data;
     const bpm = userBpm || 120;
     const beatInterval = 60 / bpm;
     const beats: number[] = [];

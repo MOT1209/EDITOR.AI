@@ -8,6 +8,9 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { spawn } from "child_process";
+import { logger } from "@/lib/server/logger";
+import { saveUpload, rejectOversizedRequest, QuotaError } from "@/lib/server/uploads";
+import { limitCommand } from "@/lib/engine/hardening";
 import { promises as fsp, existsSync, createReadStream } from "fs";
 import { Readable } from "stream";
 import path from "path";
@@ -33,13 +36,14 @@ function resolvePython(): string {
 /** يشغّل سطر أوامر Python ويعيد رمز الخروج */
 async function runPython(args: string[]): Promise<number> {
   return new Promise<number>((resolveExit, rejectExit) => {
-    const proc = spawn(resolvePython(), args, { cwd: process.cwd() });
+    const lim = limitCommand(resolvePython(), args);
+    const proc = spawn(lim.cmd, lim.args, { cwd: process.cwd(), shell: false });
     const killer = setTimeout(() => {
-      console.error("[pipeline] انتهت المهلة — قتل العملية");
+      logger.warn("pipeline.timeout", {});
       proc.kill();
     }, TIMEOUT_MS);
-    proc.stdout.on("data", (d: Buffer) => console.log(`[pipeline] ${d.toString().trimEnd()}`));
-    proc.stderr.on("data", (d: Buffer) => console.error(`[pipeline] ${d.toString().trimEnd()}`));
+    proc.stdout.on("data", (d: Buffer) => logger.info("pipeline.stdout", { line: d.toString().trimEnd() }));
+    proc.stderr.on("data", (d: Buffer) => logger.warn("pipeline.stderr", { line: d.toString().trimEnd() }));
     proc.on("error", (err) => {
       clearTimeout(killer);
       rejectExit(err);
@@ -53,6 +57,8 @@ async function runPython(args: string[]): Promise<number> {
 
 export async function POST(req: NextRequest) {
   try {
+    const tooBig = rejectOversizedRequest(req);
+    if (tooBig) return tooBig;
     const form = await req.formData();
     const phase = String(form.get("phase") || "plan"); // plan | render
     const jobId = String(form.get("jobId") || "");
@@ -98,11 +104,15 @@ export async function POST(req: NextRequest) {
     const demo = form.get("demo") === "true" || form.get("demo") === "1";
 
     // 1) احفظ الملف المرفوع
-    await fsp.mkdir(UPLOAD_DIR, { recursive: true });
-    const id = uuid();
-    const ext = path.extname(file.name) || ".mp4";
-    const filePath = path.join(UPLOAD_DIR, `${id}${ext}`);
-    await fsp.writeFile(filePath, Buffer.from(await file.arrayBuffer()));
+    let saved;
+    try {
+      saved = await saveUpload(file);
+    } catch (e) {
+      if (e instanceof QuotaError) return NextResponse.json({ error: e.message, code: "LIMIT_EXCEEDED" }, { status: 507 });
+      throw e;
+    }
+    const id = saved.id;
+    const filePath = saved.filepath;
 
     // 2) شغّل مسار Python مع كتابة النتيجة JSON
     const jsonOut = path.join(PIPELINE_DIR, `req_${id}.json`);

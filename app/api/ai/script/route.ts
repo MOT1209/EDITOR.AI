@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { parseJsonBody } from "@/lib/server/request";
+import { scriptBody } from "@/lib/server/schemas";
 import { getChatModel, getOpencodeKey, getOpencodeBaseUrl } from "@/lib/server/api-keys";
 import { guardCost, recordSpend } from "@/lib/server/cost-guard";
 
@@ -32,7 +34,9 @@ export async function POST(req: NextRequest) {
   try {
     const OPENCODE_BASE_URL = getOpencodeBaseUrl();
     const OPENCODE_API_KEY = getOpencodeKey(req);
-    const { topic, durationSec = 60, tone = "حماسي" } = await req.json();
+    const reqBody = await parseJsonBody(req, scriptBody);
+    if (!reqBody.ok) return reqBody.response;
+    const { topic, durationSec = 60, tone = "حماسي" } = reqBody.data;
 
     if (!topic || typeof topic !== "string") {
       return NextResponse.json({ error: "topic مطلوب" }, { status: 400 });

@@ -13,7 +13,8 @@ const MIME: Record<string, string> = {
   webm: "video/webm",
 };
 
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   if (!/^job_\d+_\d+$/.test(params.id)) {
     return NextResponse.json({ error: "معرّف مهمة غير صالح" }, { status: 400 });
   }

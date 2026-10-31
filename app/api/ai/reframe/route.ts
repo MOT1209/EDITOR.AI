@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { parseJsonBody } from "@/lib/server/request";
+import { reframeBody } from "@/lib/server/schemas";
 import { guardCost, recordSpend } from "@/lib/server/cost-guard";
 import { getVisionModel,
   getOpencodeKey, getOpencodeBaseUrl } from "@/lib/server/api-keys";
@@ -10,7 +12,9 @@ export async function POST(req: NextRequest) {
   try {
     const OPENCODE_BASE_URL = getOpencodeBaseUrl();
     const OPENCODE_API_KEY = getOpencodeKey(req);
-    const { duration = 30, frames = [], targetAspect = "9:16" } = await req.json();
+    const reqBody = await parseJsonBody(req, reframeBody);
+    if (!reqBody.ok) return reqBody.response;
+    const { duration = 30, frames = [], targetAspect = "9:16" } = reqBody.data;
     const reframePoints: { time: number; x: number; y: number; zoom: number }[] = [];
     const isVertical = targetAspect === "9:16" || targetAspect === "4:5";
 

@@ -83,6 +83,7 @@ import {
   formatTime,
   formatBytes,
 } from "@/lib/project";
+import { findLostAudio } from "@/lib/engine/export-guard";
 import { EFFECTS_LIBRARY, MUSIC_LIBRARY, aiJobs, generateToneTrack } from "@/lib/mockAi";
 import { apiConfig, apiFetch, SIMULATED_EVENT } from "@/lib/api-config";
 import { parseProject } from "@/lib/engine/project-schema";
@@ -143,7 +144,7 @@ export default function Editor() {
   const [showProjects, setShowProjects] = useState(false);
   const [savedProjects, setSavedProjects] = useState<ProjectState[]>([]);
   const [exportResult, setExportResult] = useState<{ name: string; size: number; jobId?: string } | null>(null);
-  const [serverVideoPath, setServerVideoPath] = useState<string | null>(null);
+  const [serverSourceRef, setServerSourceRef] = useState<string | null>(null);
   // مشروع مفتوح من مساحة عمل الخادم (MCP) — الحفظ يكتب إليه أيضاً.
   const [serverProjectId, setServerProjectId] = useState<string | null>(null);
   const [serverProjects, setServerProjects] = useState<ServerProjectSummary[] | null>(null);
@@ -274,7 +275,7 @@ export default function Editor() {
       dispatch({ type: "SET_VIDEO", file, url, meta });
       dispatch({ type: "SET_PLAYHEAD", t: 0 });
       playClipRef.current = -1;
-      setServerVideoPath(null);
+      setServerSourceRef(null);
       // إعادة ربط الوسائط: مشروع محفوظ مفتوح بلا فيديو + ملف بنفس المدة ⇒ نبقي التعديلات.
       const p = projectRef.current;
       const hasEdits = p.clips.length > 0 || p.subtitles.length > 0 || p.textOverlays.length > 0;
@@ -587,7 +588,7 @@ export default function Editor() {
       }
 
       // احتفظ بمسار الفيديو على الخادم لعمليات التصدير اللاحقة
-      if (data.filePath) setServerVideoPath(data.filePath);
+      if (data.sourceRef) setServerSourceRef(data.sourceRef);
 
       update(100, "اعتماد المديرة التنفيذية ✓");
       return {
@@ -606,21 +607,21 @@ export default function Editor() {
       // ارفع الفيديو للخادم (إن لم يُرفع بعد) حتى يعمل الكشف بففلتر FFmpeg الحقيقي
       // بدل المحاكاة العشوائية التي تُستخدم عند غياب filePath.
       update(10, "رفع الفيديو للتحليل...");
-      let sourcePath = serverVideoPath;
+      let sourcePath = serverSourceRef;
       if (!sourcePath) {
         const form = new FormData();
         form.append("file", videoFile);
         const uploadRes = await apiFetch("/api/ffmpeg/probe", { method: "POST", body: form }).then((r) =>
           r.json()
         );
-        if (!uploadRes?.path) throw new Error(uploadRes?.error || "فشل رفع الفيديو للتحليل");
-        sourcePath = uploadRes.path as string;
-        setServerVideoPath(sourcePath);
+        if (!uploadRes?.ref) throw new Error(uploadRes?.error || "فشل رفع الفيديو للتحليل");
+        sourcePath = uploadRes.ref as string;
+        setServerSourceRef(sourcePath);
       }
       const res = await apiFetch("/api/ai/silence", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ duration: totalDuration, filePath: sourcePath }),
+        body: JSON.stringify({ duration: totalDuration, sourceRef: sourcePath }),
       }).then((r) => r.json());
       update(50, "قص الصمت من التايملاين...");
       const cuts = (res.segments as { start: number; end: number }[])
@@ -1291,33 +1292,39 @@ export default function Editor() {
 
   const startExport = async () => {
     if (!state.videoMeta || !state.videoFile) return notify("warning", "ارفع فيديو أولاً");
-    // لا انحراف صامت: ما تسمعه في المعاينة من موسيقى/تعليق المتصفح لا يصل للمخرَج بعد.
-    if (state.project.audioClips.some((a) => a.url.startsWith("blob:")) || state.project.musicId) {
-      notify("warning", "الموسيقى/التعليق الصوتي لن يُضمَّنا", "الصوت المضاف من المتصفح للمعاينة فقط حالياً — المخرَج يحوي صوت الفيديو الأصلي.");
+    // لا انحراف صامت (T-01): ما تسمعه في المعاينة من موسيقى/تعليق المتصفح لا يصل للمخرَج بعد —
+    // نطلب إقراراً صريحاً، والخادم يرفض (409) إن لم يُرسَل الإقرار.
+    const lostAudio = findLostAudio(state.project);
+    if (lostAudio.length > 0) {
+      const ok = window.confirm(
+        `الصوت المضاف لن يدخل الملف المصدَّر (${lostAudio.slice(0, 3).join("، ")}${lostAudio.length > 3 ? "…" : ""}).\nالمخرَج سيحوي صوت الفيديو الأصلي فقط. هل تريد المتابعة؟`
+      );
+      if (!ok) return;
     }
     exportCancelledRef.current = false;
     exportJobRef.current = null;
     setIsExporting(true);
     setExportProgress(0);
     try {
-      let sourcePath = serverVideoPath;
+      let sourcePath = serverSourceRef;
       if (!sourcePath) {
         const form = new FormData();
         form.append("file", state.videoFile);
         const uploadRes = await apiFetch("/api/ffmpeg/probe", { method: "POST", body: form }).then((r) => r.json());
-        if (!uploadRes?.path) throw new Error(uploadRes?.error || "فشل رفع الفيديو للمعالجة");
-        sourcePath = uploadRes.path as string;
-        setServerVideoPath(sourcePath);
+        if (!uploadRes?.ref) throw new Error(uploadRes?.error || "فشل رفع الفيديو للمعالجة");
+        sourcePath = uploadRes.ref as string;
+        setServerSourceRef(sourcePath);
       }
 
       const startRes = await apiFetch("/api/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          sourcePath,
+          sourceRef: sourcePath,
           project: state.project,
           videoStabilize,
           colorGrading,
+          acknowledgeAudioLoss: lostAudio.length > 0,
         }),
       }).then((r) => r.json());
       if (!startRes?.job?.id) {
@@ -1553,7 +1560,7 @@ export default function Editor() {
       dispatch({ type: "CLEAR_VIDEO" });
       playClipRef.current = -1;
       setServerProjectId(parsed.project.id);
-      setServerVideoPath(r.media?.sourcePath ?? null);
+      setServerSourceRef(r.media?.sourceRef ?? null);
       if (!r.media) {
         notify("info", "فُتح المشروع", "لا فيديو في هذا المشروع بعد");
         return;
@@ -1611,7 +1618,7 @@ export default function Editor() {
   const loadProject = (p: ProjectState) => {
     dispatch({ type: "REPLACE_PROJECT", project: p });
     dispatch({ type: "CLEAR_VIDEO" });
-    setServerVideoPath(null);
+    setServerSourceRef(null);
     playClipRef.current = -1;
     setShowProjects(false);
     notify("info", "تم تحميل المشروع", `${p.name} — ارفع الفيديو المصدر (نفس الملف) لإعادة ربطه.`);
@@ -2687,7 +2694,7 @@ function ImageLibraryPanel({ state, dispatch }: { state: State; dispatch: React.
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ imageUrl: photo.fullUrl }),
       }).then((r) => r.json());
-      if (!res.path) return;
+      if (!res.ref) return;
       const start = state.playhead || 0;
       dispatch({
         type: "ADD_CLIP",
@@ -2707,7 +2714,7 @@ function ImageLibraryPanel({ state, dispatch }: { state: State; dispatch: React.
           panY: 0,
           smartZoom: false,
           kind: "image",
-          imageUrl: res.path,
+          imageUrl: res.ref as string,
         },
       });
     } finally {

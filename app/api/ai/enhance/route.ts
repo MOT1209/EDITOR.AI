@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
+import { parseJsonBody } from "@/lib/server/request";
+import { enhanceBody } from "@/lib/server/schemas";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
   try {
-    const { audioBase64 } = await req.json();
+    const reqBody = await parseJsonBody(req, enhanceBody);
+    if (!reqBody.ok) return reqBody.response;
+    const { audioBase64 } = reqBody.data;
 
     if (!audioBase64) {
       return NextResponse.json({

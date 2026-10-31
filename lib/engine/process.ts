@@ -4,6 +4,7 @@ import { existsSync } from "fs";
 import path from "path";
 import { resolveFfmpegPath } from "@/lib/server/ffmpeg-export";
 import { EngineError } from "./errors";
+import { childEnv, hardenedSpawn } from "./hardening";
 
 export interface RunOptions {
   timeoutMs: number;
@@ -33,7 +34,8 @@ export function runProcess(cmd: string, args: string[], opts: RunOptions): Promi
       reject(new EngineError("CANCELLED", "أُلغيت العملية قبل البدء"));
       return;
     }
-    const proc = spawn(cmd, args, { cwd: opts.cwd, env: opts.env ?? process.env, windowsHide: true });
+    const hardened = hardenedSpawn(cmd, args);
+    const proc = spawn(hardened.cmd, hardened.args, { cwd: opts.cwd, env: opts.env ?? childEnv(), windowsHide: true, shell: false });
     const maxOut = opts.maxStdoutBytes ?? 8 * 1024 * 1024;
     const chunks: Buffer[] = [];
     let outBytes = 0;

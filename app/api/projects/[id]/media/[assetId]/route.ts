@@ -15,7 +15,8 @@ const MIME: Record<string, string> = {
 };
 
 /** يبث وسيطاً من مجلد media للمشروع فقط (المسار يُحل من الأصل المسجّل، لا من العميل). */
-export async function GET(_req: NextRequest, { params }: { params: { id: string; assetId: string } }) {
+export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string; assetId: string }> }) {
+  const params = await ctx.params;
   try {
     const project = await getProject(params.id);
     const file = assetPath(project.id, findAsset(project, params.assetId));

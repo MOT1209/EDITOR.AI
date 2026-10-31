@@ -59,6 +59,8 @@ jobs:
         run: pip install "pydantic>=2.7" "httpx>=0.27" "python-dotenv>=1.0"
       - name: تثبيت الاعتماديات (lockfile مجمّد)
         run: pnpm install --frozen-lockfile
+      - name: تدقيق تبعيات الإنتاج (ثغرات high+ تفشل البناء)
+        run: pnpm audit --prod --audit-level=high
       - name: فحص TypeScript (tsc)
         run: npx tsc --noEmit
       - name: Lint

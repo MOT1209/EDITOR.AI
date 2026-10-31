@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { parseJsonBody } from "@/lib/server/request";
+import { analyzeBody } from "@/lib/server/schemas";
 import { guardCost, recordSpend } from "@/lib/server/cost-guard";
 import { getVisionModel,
   getOpencodeKey, getOpencodeBaseUrl } from "@/lib/server/api-keys";
@@ -10,7 +12,9 @@ export async function POST(req: NextRequest) {
   try {
     const OPENCODE_BASE_URL = getOpencodeBaseUrl();
     const OPENCODE_API_KEY = getOpencodeKey(req);
-    const { duration = 30, frameBase64 } = await req.json();
+    const reqBody = await parseJsonBody(req, analyzeBody);
+    if (!reqBody.ok) return reqBody.response;
+    const { duration = 30, frameBase64 } = reqBody.data;
 
     if (!OPENCODE_API_KEY || !frameBase64) {
       const sceneCount = Math.max(3, Math.floor(duration / 6));

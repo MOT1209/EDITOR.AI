@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawnSync } from "child_process";
+import { childEnv, hardenedSpawn } from "@/lib/engine/hardening";
 import { promises as fsp, existsSync } from "fs";
 import os from "os";
 import path from "path";
@@ -13,6 +14,8 @@ import {
 } from "@/lib/server/api-keys";
 import { hasFfmpeg, resolveFfmpegPath } from "@/lib/server/ffmpeg-export";
 import { guardCost, recordSpend } from "@/lib/server/cost-guard";
+import { uploadRef } from "@/lib/server/media-ref";
+import { saveUpload, rejectOversizedRequest, QuotaError } from "@/lib/server/uploads";
 import { validateVideoUpload } from "@/lib/server/validate";
 import type {
   CeoResponse,
@@ -42,6 +45,12 @@ const MAX_SEGMENTS = 60;
 /* أدوات التحليل (Data Analyst)                                        */
 /* ------------------------------------------------------------------ */
 
+/** تشغيل ffmpeg متزامن بوسائط مصفوفة + بيئة مصفّاة + منع بروتوكولات الشبكة + حدود الموارد. */
+function runFfmpegSync(args: string[], opts: Parameters<typeof spawnSync>[2] = {}) {
+  const h = hardenedSpawn(resolveFfmpegPath(), args);
+  return spawnSync(h.cmd, h.args, { ...opts, env: childEnv(), shell: false });
+}
+
 async function ensureDir(p: string) {
   try {
     await fsp.mkdir(p, { recursive: true });
@@ -50,8 +59,8 @@ async function ensureDir(p: string) {
 
 function detectSilencesFfmpeg(filePath: string): { start: number; end: number }[] {
   if (!hasFfmpeg()) return [];
-  const r = spawnSync(
-    resolveFfmpegPath(),
+  const r = runFfmpegSync(
+    
     [
       "-i", filePath,
       "-map", "0:a",
@@ -85,8 +94,8 @@ function detectSilencesFfmpeg(filePath: string): { start: number; end: number }[
 async function extractAudioMp3(filePath: string): Promise<string | null> {
   if (!hasFfmpeg()) return null;
   const out = path.join(os.tmpdir(), `montage_ceo_${uuid()}.mp3`);
-  const r = spawnSync(
-    resolveFfmpegPath(),
+  const r = runFfmpegSync(
+    
     [
       "-i", filePath,
       "-vn",
@@ -505,6 +514,8 @@ function normalizePlan(plan: DirectorPlan, duration: number): DirectorPlan {
 
 export async function POST(req: NextRequest) {
   try {
+    const tooBig = rejectOversizedRequest(req);
+    if (tooBig) return tooBig;
     const form = await req.formData();
     const file = form.get("file");
     const request = String(form.get("request") || "").slice(0, 800);
@@ -523,18 +534,20 @@ export async function POST(req: NextRequest) {
     const baseUrl = getOpencodeBaseUrl();
 
     // 1) احفظ الفيديو على الخادم
-    await ensureDir(UPLOAD_DIR);
-    const id = uuid();
-    const rawExt = path.extname(file.name).toLowerCase();
-    const ext = [".mp4", ".mov", ".webm", ".mkv", ".avi", ".m4v"].includes(rawExt) ? rawExt : ".mp4";
-    const filePath = path.join(UPLOAD_DIR, `${id}${ext}`);
-    const buf = Buffer.from(await file.arrayBuffer());
-    await fsp.writeFile(filePath, buf);
+    let saved;
+    try {
+      saved = await saveUpload(file);
+    } catch (e) {
+      if (e instanceof QuotaError) return NextResponse.json({ error: e.message, code: "LIMIT_EXCEEDED" }, { status: 507 });
+      throw e;
+    }
+    const id = saved.id;
+    const filePath = saved.filepath;
 
     // 2) المدة الفعلية
     let duration = durationInput;
     if (!duration || duration <= 0) {
-      const pr = spawnSync(resolveFfmpegPath(), ["-i", filePath], { encoding: "utf-8", timeout: 30000 });
+      const pr = runFfmpegSync(["-i", filePath], { encoding: "utf-8", timeout: 30000 });
       const m = /Duration:\s*(\d+):(\d+):(\d+\.\d+)/.exec(`${pr.stderr || ""}`);
       if (m) duration = Number(m[1]) * 3600 + Number(m[2]) * 60 + parseFloat(m[3]);
     }
@@ -625,7 +638,7 @@ export async function POST(req: NextRequest) {
       scenes,
       highlights,
       quality,
-      filePath,
+      sourceRef: uploadRef(id),
       mock,
       transcriptSimulated,
       warnings,

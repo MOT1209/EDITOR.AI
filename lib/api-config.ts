@@ -20,6 +20,18 @@ export const apiConfig = {
   get hfToken(): string | undefined { return getKey("HF_TOKEN"); },
   set hfToken(v: string) { setKey("HF_TOKEN", v); },
 
+  // رمز الوصول لخادم مفروض عليه MONTAGE_API_TOKEN (يُحفظ محلياً في المتصفح ويُرسل كترويسة فقط).
+  get montageToken(): string | undefined { return getKey("MONTAGE_API_TOKEN"); },
+  set montageToken(v: string) {
+    setKey("MONTAGE_API_TOKEN", v);
+    // كوكي Strict كي تعمل روابط <video src>/<a href> التي لا تستطيع إرسال ترويسات.
+    if (typeof document !== "undefined") {
+      document.cookie = v
+        ? `montage_token=${encodeURIComponent(v)}; Path=/; SameSite=Strict${location.protocol === "https:" ? "; Secure" : ""}`
+        : "montage_token=; Path=/; Max-Age=0; SameSite=Strict";
+    }
+  },
+
   get hfMcpUrl() { return "https://huggingface.co/mcp"; },
 
   opencodeBaseUrl: OPENCODE_BASE_URL,
@@ -35,6 +47,7 @@ export function authHeaders(): Record<string, string> {
   const headers: Record<string, string> = {};
   if (apiConfig.opencodeKey) headers["x-opencode-key"] = apiConfig.opencodeKey;
   if (apiConfig.hfToken) headers["x-hf-token"] = apiConfig.hfToken;
+  if (apiConfig.montageToken) headers["x-montage-token"] = apiConfig.montageToken;
   return headers;
 }
 

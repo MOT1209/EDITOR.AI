@@ -7,12 +7,14 @@ import { ModalShell } from "./ui";
 export function ApiSettingsModal({ onClose }: { onClose: () => void }) {
   const [opencodeKey, setOpenCodeKey] = useState(apiConfig.opencodeKey || "");
   const [hfToken, setHfToken] = useState(apiConfig.hfToken || "");
+  const [montageToken, setMontageToken] = useState(apiConfig.montageToken || "");
   const [hfStatus, setHfStatus] = useState<"idle" | "testing" | "ok" | "error">("idle");
   const [saved, setSaved] = useState(false);
 
   const handleSave = () => {
     apiConfig.opencodeKey = opencodeKey;
     apiConfig.hfToken = hfToken;
+    apiConfig.montageToken = montageToken;
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -72,6 +74,21 @@ export function ApiSettingsModal({ onClose }: { onClose: () => void }) {
           </div>
           {hfStatus === "ok" && <p className="text-[10px] text-emerald-400 mt-1">✓ التوكن صالح</p>}
           {hfStatus === "error" && <p className="text-[10px] text-red-400 mt-1">✗ التوكن غير صالح</p>}
+        </div>
+
+        <div className="bg-[#0f0f1a] rounded p-3 border border-[#1e1e2e]">
+          <div className="flex items-center gap-2 mb-2">
+            <Key className="h-4 w-4 text-emerald-400" />
+            <span className="text-sm font-medium text-zinc-200">رمز وصول الخادم (MONTAGE_API_TOKEN)</span>
+          </div>
+          <p className="text-[10px] text-zinc-500 mb-2">مطلوب فقط إن فُرض رمز على الخادم (نشر عن بُعد). يُرسل كترويسة وكوكي Strict ولا يُرسل لأي مزوّد.</p>
+          <input
+            type="password"
+            value={montageToken}
+            onChange={(e) => setMontageToken(e.target.value)}
+            placeholder="≥ 16 حرفاً"
+            className="w-full bg-[#12121e] border border-[#1e1e2e] rounded px-3 py-2 text-[12px] text-zinc-300 font-mono focus:outline-none focus:border-blue-600/50"
+          />
         </div>
 
         <div className="bg-amber-500/5 rounded p-3 border border-amber-500/25">
