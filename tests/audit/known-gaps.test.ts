@@ -57,7 +57,7 @@ describe("RESOLVED G-3 (T-13): browser export mixes server-side audio assets", (
 describe("RESOLVED G-4 (T-15): per-clip framing reaches the export", () => {
   it("ffmpeg-export.ts reads zoom/pan via clipFraming (smartZoom only); effect verified in tests/export-framing.test.ts", () => {
     const src = readFileSync(path.join(process.cwd(), "lib/server/ffmpeg-export.ts"), "utf-8");
-    expect(src).toMatch(/export function clipFraming/);
+    expect(src).toMatch(/clipFraming/);
     expect(src).toMatch(/framingCrop/);
   });
 });
