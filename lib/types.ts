@@ -53,6 +53,8 @@ export interface AudioClip {
   start: number;
   duration: number;
   url: string;
+  /** مرجع أصل صوت على الخادم (audio:<uuid>.<ext>) — شرط دخول الصوت في التصدير (T-13). */
+  ref?: string;
   volume: number;
   kind: "music" | "voiceover" | "dub" | "sfx";
 }

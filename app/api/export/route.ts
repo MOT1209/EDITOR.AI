@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { existsSync } from "fs";
 import path from "path";
 import { aiJobs } from "@/lib/mockAi";
 import { parseProject } from "@/lib/engine/project-schema";
@@ -11,10 +12,12 @@ import {
   hasFfmpeg,
   isPathInside,
   runExport,
+  type ExportSource,
   writeJobStatus,
 } from "@/lib/server/ffmpeg-export";
+import { probeMedia } from "@/lib/engine/media";
 import { checkExportable } from "@/lib/engine/export-guard";
-import { resolveVideoRef } from "@/lib/server/media-ref";
+import { resolveAudioRef, resolveVideoRef } from "@/lib/server/media-ref";
 import { cancelExport, registerExportController, releaseExportController } from "@/lib/server/export-jobs";
 
 export const runtime = "nodejs";
@@ -53,7 +56,30 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "بيانات المشروع غير صالحة", details: parsed.errors }, { status: 400 });
   }
   const project = parsed.project;
-  const guard = checkExportable(project, { acknowledgeAudioLoss: body?.acknowledgeAudioLoss === true });
+  // مصادر فيديو إضافية (T-02): [{assetId, ref}] — كل ref يُحلّ على الخادم ويُفحص بـ ffprobe.
+  const extraSources: ExportSource[] = [];
+  if (body?.sources !== undefined) {
+    if (!Array.isArray(body.sources) || body.sources.length > 16) {
+      return NextResponse.json({ error: "sources يجب أن تكون مصفوفة (≤16)", code: "INVALID_INPUT" }, { status: 400 });
+    }
+    for (const s of body.sources as { assetId?: unknown; ref?: unknown }[]) {
+      if (typeof s?.assetId !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(s.assetId)) {
+        return NextResponse.json({ error: "sources[].assetId غير صالح", code: "INVALID_INPUT" }, { status: 400 });
+      }
+      const p = await resolveVideoRef(s.ref);
+      if (!p) return NextResponse.json({ error: `مرجع مصدر الأصل «${s.assetId}» غير صالح أو غير موجود`, code: "INVALID_INPUT" }, { status: 400 });
+      try {
+        const info = await probeMedia(p);
+        extraSources.push({ assetId: s.assetId, path: p, hasAudio: !!info.audio });
+      } catch {
+        return NextResponse.json({ error: `تعذّر فحص مصدر الأصل «${s.assetId}»`, code: "INVALID_INPUT" }, { status: 400 });
+      }
+    }
+  }
+  const guard = checkExportable(project, {
+    acknowledgeAudioLoss: body?.acknowledgeAudioLoss === true,
+    supportedAssetIds: new Set(extraSources.map((s) => s.assetId)),
+  });
   if (!guard.ok) {
     return NextResponse.json({ error: guard.error, code: guard.code, details: guard.details }, { status: 409 });
   }
@@ -62,6 +88,18 @@ export async function POST(req: NextRequest) {
       { error: "ffmpeg غير مثبت على السيرفر. ثبّته ثم أعد المحاولة." },
       { status: 503 }
     );
+  }
+
+  // صوت الواجهة المرفوع كأصل خادم (T-13): يُمزج في المخرَج؛ المسارات المكتومة تُتخطّى.
+  const muted = new Set(project.tracks.filter((t) => t.muted).map((t) => t.id));
+  const audioInputs: { path: string; start: number; volume: number }[] = [];
+  for (const a of project.audioClips) {
+    if (muted.has(a.trackId) || !a.ref) continue;
+    const p = resolveAudioRef(a.ref);
+    if (!p || !existsSync(p)) {
+      return NextResponse.json({ error: `أصل الصوت «${a.name || a.id}» غير موجود على الخادم — أعد رفعه`, code: "INVALID_INPUT" }, { status: 400 });
+    }
+    audioInputs.push({ path: p, start: a.start, volume: a.volume });
   }
 
   await ensureExportDir();
@@ -74,6 +112,8 @@ export async function POST(req: NextRequest) {
     signal: controller.signal,
     sourcePath,
     outputPath,
+    audioInputs,
+    extraSources,
     project,
     videoStabilize,
     colorGrading,

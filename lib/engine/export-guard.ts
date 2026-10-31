@@ -14,27 +14,33 @@ export type ExportGuardResult =
  * مقاطع فيديو من أصل آخر غير الأصل الأساسي. يعمل فقط للمشاريع المُدارة على الخادم (لها `assets`)؛
  * مشاريع الواجهة بلا `assets` تأتي من فيديو مرفوع واحد (معرّفات اصطناعية مثل broll_0 مشتقة منه).
  */
-export function findForeignClips(project: ProjectState): VideoClip[] {
+export function findForeignClips(project: ProjectState, supportedAssetIds: ReadonlySet<string> = new Set()): VideoClip[] {
   const primary = project.assets?.find((a) => a.type === "video");
   if (!project.assets || !primary) return [];
-  return project.clips.filter((c) => c.kind !== "image" && c.assetId !== primary.id && c.assetId !== "main");
+  return project.clips.filter((c) => c.kind !== "image" && c.assetId !== primary.id && c.assetId !== "main" && !supportedAssetIds.has(c.assetId));
 }
 
-/** صوت إضافي غير مكتوم لا يضمّنه تصدير الواجهة (لا مسار رفع صوت بعد — F-12/F-13). */
+export const AUDIO_REF_RE = /^audio:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:mp3|wav|m4a|aac|ogg|flac|opus|webm)$/;
+export const isAudioRef = (v: unknown): v is string => typeof v === "string" && AUDIO_REF_RE.test(v);
+
+/** صوت إضافي غير مكتوم لن يدخل المخرَج: كل مقطع بلا مرجع أصل خادم صالح (T-13: المقاطع المرفوعة تُمزج). */
 export function findLostAudio(project: ProjectState): string[] {
   const muted = new Set(project.tracks.filter((t) => t.muted).map((t) => t.id));
-  const names = project.audioClips.filter((a) => !muted.has(a.trackId)).map((a) => a.name || a.id);
-  if (project.musicId && names.length === 0) names.push(`موسيقى: ${project.musicId}`);
+  const names = project.audioClips.filter((a) => !muted.has(a.trackId) && !isAudioRef(a.ref)).map((a) => a.name || a.id);
+  if (project.musicId && project.audioClips.length === 0) names.push(`موسيقى: ${project.musicId}`);
   return names;
 }
 
-export function checkExportable(project: ProjectState, opts: { acknowledgeAudioLoss?: boolean } = {}): ExportGuardResult {
-  const foreign = findForeignClips(project);
+export function checkExportable(
+  project: ProjectState,
+  opts: { acknowledgeAudioLoss?: boolean; supportedAssetIds?: ReadonlySet<string> } = {}
+): ExportGuardResult {
+  const foreign = findForeignClips(project, opts.supportedAssetIds);
   if (foreign.length > 0) {
     return {
       ok: false,
       code: "UNSUPPORTED_MULTI_SOURCE",
-      error: "التصدير يدعم مصدر فيديو واحداً — توجد مقاطع من أصول أخرى كانت ستُقصّ من الأصل الخطأ",
+      error: "توجد مقاطع من أصول فيديو لم يُمرَّر مصدرها للتصدير — كانت ستُقصّ من الأصل الخطأ",
       details: foreign.slice(0, 10).map((c) => `${c.id} (assetId=${c.assetId})`),
     };
   }

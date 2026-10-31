@@ -5,10 +5,10 @@
 // مراجعة ما بعد الرندر (reviewRender). المخرَج الموجود الذي فشل المراجعة
 // يُعلَّم "failed_validation" مع الأسباب — لا يُبلَّغ عنه كنجاح.
 // ====================================================================
-import { promises as fsp } from "fs";
+import { existsSync, promises as fsp } from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
-import { ExportCancelledError, runExport, isPathInside } from "@/lib/server/ffmpeg-export";
+import { ExportCancelledError, runExport, isPathInside, type ExportSource } from "@/lib/server/ffmpeg-export";
 import type { ProjectState } from "@/lib/types";
 import { EngineError } from "./errors";
 import { reviewRender, type RenderReview } from "./media";
@@ -117,9 +117,18 @@ const PREVIEW_MAX_SECONDS = 60;
 export async function startRender(projectId: string, opts: StartRenderOptions): Promise<RenderJob> {
   const project = await getProject(projectId);
   const primary = primaryVideoAsset(project);
-  const foreign = findForeignClips(project);
+  // T-02: أصول الفيديو الأخرى المشار إليها بمقاطع تصبح مدخلات إضافية (لا رفض) إن كانت أصولاً حقيقية في المشروع.
+  const extraSources: ExportSource[] = [];
+  for (const assetId of new Set(project.clips.filter((c) => c.kind !== "image" && c.assetId !== primary.id && c.assetId !== "main").map((c) => c.assetId))) {
+    const a = project.assets?.find((x) => x.id === assetId && x.type === "video");
+    if (!a) continue;
+    const p = assetPath(projectId, a);
+    if (!existsSync(p)) throw new EngineError("NOT_FOUND", `ملف الأصل «${a.name}» غير موجود على القرص`, "أعد استيراده عبر import_media.");
+    extraSources.push({ assetId, path: p, hasAudio: Number(a.meta?.hasAudio ?? 1) === 1 });
+  }
+  const foreign = findForeignClips(project, new Set(extraSources.map((s) => s.assetId)));
   if (foreign.length > 0) {
-    throw new EngineError("UNSUPPORTED", "التصدير يدعم مصدر فيديو واحداً — توجد مقاطع من أصول أخرى", `احذف المقاطع: ${foreign.map((c) => c.id).join(", ")}`);
+    throw new EngineError("UNSUPPORTED", "توجد مقاطع تشير إلى أصول فيديو غير موجودة في المشروع", `احذف المقاطع: ${foreign.map((c) => c.id).join(", ")}`);
   }
   const total = timelineDuration(project);
   let range = opts.range;
@@ -188,6 +197,7 @@ export async function startRender(projectId: string, opts: StartRenderOptions): 
         range,
         size,
         sourceHasAudio,
+        extraSources,
         encoderOverride: opts.kind === "preview" ? { preset: "ultrafast", crf: 30 } : undefined,
         signal: controller.signal,
         timeoutMs: opts.timeoutMs,

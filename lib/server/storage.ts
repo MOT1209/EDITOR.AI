@@ -127,6 +127,8 @@ export async function maybeCleanup(now = Date.now(), minIntervalMs = 10 * 60_000
 export async function ensureStorageQuota(extraBytes: number, cfg: StorageConfig = storageConfig(), cwd?: string): Promise<void> {
   let used = 0;
   for (const t of managedDirs(cwd)) used += await dirSize(t.dir);
+  // أصول الصوت المرفوعة (T-13) لا تُنظَّف تلقائياً لكنها تُحتسب في السقف.
+  used += await dirSize(path.join(cwd ?? process.cwd(), ".montage_ai", "assets", "audio"));
   if (used + extraBytes > cfg.maxStorageBytes) {
     const mb = Math.round(cfg.maxStorageBytes / MB);
     throw new EngineError("LIMIT_EXCEEDED", `تجاوز سقف التخزين (${mb}MB) — احذف ملفات قديمة أو شغّل pnpm cleanup`, "MONTAGE_MAX_STORAGE_BYTES يضبط السقف.");

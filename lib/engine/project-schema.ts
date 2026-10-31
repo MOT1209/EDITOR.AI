@@ -84,6 +84,7 @@ const audioClipSchema = z.looseObject({
   start: seconds,
   duration: z.number().min(0).max(LIMITS.maxSeconds),
   url: z.string().max(8192),
+  ref: z.string().max(200).optional(),
   volume: z.number().min(0).max(4),
   kind: z.enum(["music", "voiceover", "dub", "sfx"]),
 });
