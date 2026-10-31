@@ -44,3 +44,11 @@ describe("KNOWN GAP G-3: browser export route drops audio clips", () => {
     expect(jobs).toMatch(/blob:/); // ويحذّر من روابط المتصفح
   });
 });
+
+describe("KNOWN GAP G-4: per-clip zoom/pan/smartZoom are display-only", () => {
+  it("lib/server/ffmpeg-export.ts never reads VideoClip.zoom/panX/panY/smartZoom", () => {
+    const src = readFileSync(path.join(process.cwd(), "lib/server/ffmpeg-export.ts"), "utf-8");
+    expect(src).not.toMatch(/\.(panX|panY|smartZoom)\b/);
+    expect(src).not.toMatch(/\bc\.zoom\b/);
+  });
+});
