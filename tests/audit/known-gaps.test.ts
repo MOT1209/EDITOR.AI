@@ -35,10 +35,11 @@ describe("KNOWN GAP G-2: multiple video tracks are concatenated, not composited"
   });
 });
 
-describe("KNOWN GAP G-3: browser export route drops audio clips", () => {
-  it("app/api/export/route.ts never passes audioInputs (only the MCP job path mixes audio)", () => {
+describe("KNOWN GAP G-3: browser export route cannot mix audio clips (T-01: now refused unless acknowledged)", () => {
+  it("app/api/export/route.ts never passes audioInputs but is guarded by checkExportable (only the MCP job path mixes audio)", () => {
     const route = readFileSync(path.join(process.cwd(), "app/api/export/route.ts"), "utf-8");
     expect(route).not.toMatch(/audioInputs|audioClips/);
+    expect(route).toMatch(/checkExportable/);
     const jobs = readFileSync(path.join(process.cwd(), "lib/engine/jobs.ts"), "utf-8");
     expect(jobs).toMatch(/audioInputs: inputs/); // مسار MCP يمزج الصوت
     expect(jobs).toMatch(/blob:/); // ويحذّر من روابط المتصفح

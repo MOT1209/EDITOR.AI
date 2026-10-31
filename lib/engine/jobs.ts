@@ -14,6 +14,7 @@ import { EngineError } from "./errors";
 import { reviewRender, type RenderReview } from "./media";
 import { assertId, assetPath, auditLog, getProject, primaryVideoAsset, projectDir } from "./store";
 import { timelineDuration } from "./timeline";
+import { findForeignClips } from "./export-guard";
 
 export type JobKind = "preview" | "export";
 export type JobStatus = "queued" | "running" | "completed" | "failed" | "failed_validation" | "cancelled";
@@ -116,7 +117,7 @@ const PREVIEW_MAX_SECONDS = 60;
 export async function startRender(projectId: string, opts: StartRenderOptions): Promise<RenderJob> {
   const project = await getProject(projectId);
   const primary = primaryVideoAsset(project);
-  const foreign = project.clips.filter((c) => c.kind !== "image" && c.assetId !== primary.id && c.assetId !== "main");
+  const foreign = findForeignClips(project);
   if (foreign.length > 0) {
     throw new EngineError("UNSUPPORTED", "التصدير يدعم مصدر فيديو واحداً — توجد مقاطع من أصول أخرى", `احذف المقاطع: ${foreign.map((c) => c.id).join(", ")}`);
   }

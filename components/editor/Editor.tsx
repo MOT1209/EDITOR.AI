@@ -83,6 +83,7 @@ import {
   formatTime,
   formatBytes,
 } from "@/lib/project";
+import { findLostAudio } from "@/lib/engine/export-guard";
 import { EFFECTS_LIBRARY, MUSIC_LIBRARY, aiJobs, generateToneTrack } from "@/lib/mockAi";
 import { apiConfig, apiFetch, SIMULATED_EVENT } from "@/lib/api-config";
 import { parseProject } from "@/lib/engine/project-schema";
@@ -1291,9 +1292,14 @@ export default function Editor() {
 
   const startExport = async () => {
     if (!state.videoMeta || !state.videoFile) return notify("warning", "ارفع فيديو أولاً");
-    // لا انحراف صامت: ما تسمعه في المعاينة من موسيقى/تعليق المتصفح لا يصل للمخرَج بعد.
-    if (state.project.audioClips.some((a) => a.url.startsWith("blob:")) || state.project.musicId) {
-      notify("warning", "الموسيقى/التعليق الصوتي لن يُضمَّنا", "الصوت المضاف من المتصفح للمعاينة فقط حالياً — المخرَج يحوي صوت الفيديو الأصلي.");
+    // لا انحراف صامت (T-01): ما تسمعه في المعاينة من موسيقى/تعليق المتصفح لا يصل للمخرَج بعد —
+    // نطلب إقراراً صريحاً، والخادم يرفض (409) إن لم يُرسَل الإقرار.
+    const lostAudio = findLostAudio(state.project);
+    if (lostAudio.length > 0) {
+      const ok = window.confirm(
+        `الصوت المضاف لن يدخل الملف المصدَّر (${lostAudio.slice(0, 3).join("، ")}${lostAudio.length > 3 ? "…" : ""}).\nالمخرَج سيحوي صوت الفيديو الأصلي فقط. هل تريد المتابعة؟`
+      );
+      if (!ok) return;
     }
     exportCancelledRef.current = false;
     exportJobRef.current = null;
@@ -1318,6 +1324,7 @@ export default function Editor() {
           project: state.project,
           videoStabilize,
           colorGrading,
+          acknowledgeAudioLoss: lostAudio.length > 0,
         }),
       }).then((r) => r.json());
       if (!startRes?.job?.id) {

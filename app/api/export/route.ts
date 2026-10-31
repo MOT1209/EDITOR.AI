@@ -13,6 +13,7 @@ import {
   runExport,
   writeJobStatus,
 } from "@/lib/server/ffmpeg-export";
+import { checkExportable } from "@/lib/engine/export-guard";
 import { cancelExport, registerExportController, releaseExportController } from "@/lib/server/export-jobs";
 
 export const runtime = "nodejs";
@@ -54,6 +55,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "بيانات المشروع غير صالحة", details: parsed.errors }, { status: 400 });
   }
   const project = parsed.project;
+  const guard = checkExportable(project, { acknowledgeAudioLoss: body?.acknowledgeAudioLoss === true });
+  if (!guard.ok) {
+    return NextResponse.json({ error: guard.error, code: guard.code, details: guard.details }, { status: 409 });
+  }
   if (!hasFfmpeg()) {
     return NextResponse.json(
       { error: "ffmpeg غير مثبت على السيرفر. ثبّته ثم أعد المحاولة." },
