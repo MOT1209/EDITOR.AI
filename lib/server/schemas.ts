@@ -44,3 +44,14 @@ export const skillsBody = z.object({
   config: z.record(z.string().max(80), z.unknown()).optional(),
 });
 export const importImageBody = z.object({ imageUrl: z.string().max(2048) });
+
+export const thumbnailBody = z.object({
+  title: z.string().max(200).default("فيديو رائع"),
+  aspect: z.enum(["16:9", "9:16", "1:1", "4:5"]).default("16:9"),
+});
+export const assetsCheckBody = z.object({ refs: z.array(z.string().max(256)).max(200).default([]) });
+export const agentsExportBody = z.object({
+  jobId: z.string().max(64),
+  format: z.string().max(32),
+  plan: z.record(z.string(), z.unknown()).optional(),
+});
