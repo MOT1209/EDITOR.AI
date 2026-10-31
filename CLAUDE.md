@@ -4,7 +4,7 @@
 
 ## المعمارية (طبقة واحدة لكل سطر)
 
-- **الواجهة**: Next.js 14 (App Router, TypeScript) — `app/`, `components/editor/*`, `components/shorts/*`.
+- **الواجهة**: Next.js 15 (App Router, TypeScript) — `app/`, `components/editor/*`, `components/shorts/*`.
 - **مسارات API**: `app/api/*` — `ai/*` (ذكاء توليدي، بعضها مدفوع)، `agents/*` (تشغيل مسار Python)، `export/*`, `ffmpeg/*`, `skills/*`.
 - **مسار الوكلاء (Python)**: `src/agents/*` — CEO → Analyst → Director → Critic → Audio → Render، مع بوابات جودة (`validation.py`).
 - **نظام المهارات (TS)**: `lib/skills/*` — `BaseSkill` + `SkillManager` + `Workflow` + كتالوج (43 مهارة) + workflows (`default`, `viral-shorts`, `content-from-idea`).
@@ -29,6 +29,8 @@ pnpm mcp                          # خادم MCP (stdio)
 pnpm mcp:e2e                      # E2E حقيقي لخادم MCP على test_assets/test_video.mp4 (يشمل أداة مخصّصة ديناميكية)
 pnpm ext validate <مجلد|ملف>      # فحص/تثبيت/تصدير حزم الإضافات (انظر docs/EXTENSIONS.md)
 pnpm build                        # بناء الإنتاج
+pnpm ui:smoke                     # دخان الواجهة بمتصفح حقيقي (يتطلب خادماً يعمل: BASE_URL=...)
+pnpm cleanup [--dry-run]          # تنظيف uploads/exports/pipeline المنتهية
 ```
 
 CI (`.github/workflows/ci.yml`) يشغّل: py_compile + pytest + tsc + lint + Vitest (مع FFmpeg) + check-contract + E2E MCP + build + gitleaks على كل push/PR إلى main.
@@ -42,6 +44,14 @@ CI (`.github/workflows/ci.yml`) يشغّل: py_compile + pytest + tsc + lint + V
 5. **عربية كل الواجهات والتوثيق** (المستخدم النهائي عربي).
 6. **لا نتائج مُختلقة**: البديل التقديري يُوسم `simulated: true` + `warning` (الواجهة تعرضه تلقائياً عبر `apiFetch`)؛ الرندر لا يُعلن ناجحاً إلا بملف يجتاز المراجعة.
 7. **منطق التعديل مصدره واحد**: `lib/engine/timeline.ts` يستخدمه المحرّر وMCP معاً.
+
+## الأمان (إلزامي)
+
+- كل جسم JSON خارجي يمر عبر `parseJsonBody` + مخطط في `lib/server/schemas.ts` (حدود حجم/أطوال)؛ لا `req.json()` خام.
+- الوسائط تُمرَّر كمراجع معتمة (`upload:`/`audio:`/`asset:`/`project:`) وتُحلّ على الخادم (`lib/server/media-ref.ts`)؛ لا مسار قرص في أي استجابة أو طلب.
+- تشغيل ffmpeg/ffprobe/python عبر `lib/engine/hardening.ts` (بيئة مصفّاة، `-protocol_whitelist`، حدود `prlimit`)؛ لا `shell:true`.
+- العمليات الحساسة (منح صلاحيات/حذف/تشغيل إجراء مكلف) تتطلب مصافحة موافقة من الخادم (`lib/server/approvals.ts`) لا `confirmed:true` وحده.
+- المصادقة/الأدوار: `MONTAGE_API_TOKEN(S)` (`lib/server/auth*.ts`)؛ النشر عن بُعد بلا رمز ⇒ 503. التفاصيل: `docs/security/SECURITY_REMEDIATION_REPORT.md`.
 
 ## أعراف إلزامية عند التعديل
 

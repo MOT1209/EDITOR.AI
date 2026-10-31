@@ -80,3 +80,19 @@ describe("T-07: remaining JSON routes validated", () => {
     expect((await imp(post("/x", "{bad"))).status).toBe(400);
   });
 });
+
+describe("review fixes: thumbnail / assets-check / agents-export bodies", () => {
+  it("reject malformed bodies with 400; valid thumbnail still works", async () => {
+    const { POST: th } = await import("@/app/api/thumbnail/route");
+    const { POST: ck } = await import("@/app/api/assets/check/route");
+    const { POST: ex } = await import("@/app/api/agents/export/route");
+    expect((await th(post("/x", { title: "x".repeat(5000) }))).status).toBe(400);
+    expect((await th(post("/x", { title: 5, aspect: "weird" }))).status).toBe(400);
+    const ok = await th(post("/x", { title: "<script>alert(1)</script>", aspect: "9:16" }));
+    expect(ok.status).toBe(200);
+    const body = await ok.json();
+    expect(Buffer.from(body.svg.split(",")[1], "base64").toString()).not.toContain("<script>"); // الهروب سليم
+    expect((await ck(post("/x", { refs: Array(300).fill("upload:x") }))).status).toBe(400);
+    expect((await ex(post("/x", { jobId: 7 }))).status).toBe(400);
+  });
+});
