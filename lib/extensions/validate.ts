@@ -8,6 +8,7 @@ import { lintSchema } from "./schema";
 import { satisfiesRange } from "./semver";
 import { refsOf } from "./template";
 import { planSandbox } from "./sandbox";
+import { impliedCapabilities } from "./capabilities";
 
 export interface Issue {
   level: "error" | "warn";
@@ -104,6 +105,11 @@ export async function validatePackage(pkg: ExtensionPackage): Promise<Validation
   const integ = verifyIntegrity(m, pkg.files);
   if (integ === "mismatch") err("INTEGRITY", "بصمة SHA-256 لا تطابق المحتوى — الحزمة عُدّلت بعد توقيعها أو تالفة");
   else if (integ === "missing") warn("INTEGRITY", "لا توجد بصمة سلامة (integrity) في الحزمة");
+
+  // قدرات البيئة: ما يستلزمه التنفيذ يجب أن يكون معلناً (يُفحص توفره على الخادم عند التفعيل/التشغيل).
+  for (const c of impliedCapabilities(pkg, (id) => getAction(id)?.capabilities ?? [])) {
+    if (!m.capabilities.includes(c)) warn("DEPENDENCY", `التنفيذ يتطلب القدرة «${c}» لكنها غير معلنة في capabilities`);
+  }
 
   // تبعيات
   const builtin = new Set(buildSkillManager().list().map((s) => s.name));

@@ -1,0 +1,88 @@
+{
+  "format": "montage-extension",
+  "formatVersion": 1,
+  "kind": "tool",
+  "manifest": {
+    "kind": "tool",
+    "id": "render_preflight",
+    "version": "1.0.0",
+    "name": "فحص ما قبل الرندر",
+    "description": "يبني خطة الرندر المتحقَّقة للمشروع ويعيد المشاكل (مصدر مفقود، تداخل، صوت بلا ملف) دون رندر — ضبط جودة مبكر.",
+    "category": "analysis",
+    "tags": [
+      "جودة",
+      "رندر"
+    ],
+    "author": "owner",
+    "stability": "stable",
+    "permissions": [
+      "media.read"
+    ],
+    "capabilities": [
+      "ffmpeg"
+    ],
+    "dependencies": {
+      "actions": [
+        "timeline.preflight"
+      ]
+    },
+    "input": {
+      "type": "object",
+      "properties": {
+        "projectId": {
+          "type": "string",
+          "maxLength": 80,
+          "description": "معرّف المشروع"
+        }
+      },
+      "required": [
+        "projectId"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "engine": {
+          "type": "string"
+        },
+        "durationSeconds": {
+          "type": "number"
+        },
+        "unresolvedAssets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "severity": {
+                "type": "string"
+              },
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "execution": {
+      "type": "declarative",
+      "action": "timeline.preflight",
+      "args": {
+        "projectId": "{{input.projectId}}"
+      }
+    }
+  },
+  "files": {}
+}

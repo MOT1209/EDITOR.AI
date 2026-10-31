@@ -9,23 +9,71 @@
     "name": "تقرير الصمت",
     "description": "يكشف مقاطع الصمت في الفيديو الأساسي لمشروع (FFmpeg حقيقي) ويعيد المقاطع.",
     "category": "analysis",
-    "tags": ["صوت", "تحليل"],
+    "tags": [
+      "صوت",
+      "تحليل"
+    ],
     "author": "owner",
-    "permissions": ["media.read"],
-    "dependencies": { "actions": ["analysis.silence"] },
+    "permissions": [
+      "media.read"
+    ],
+    "dependencies": {
+      "actions": [
+        "analysis.silence"
+      ]
+    },
     "input": {
       "type": "object",
       "properties": {
-        "projectId": { "type": "string", "maxLength": 80, "description": "معرّف المشروع" },
-        "noiseDb": { "type": "number", "minimum": -90, "maximum": 0, "default": -30 }
+        "projectId": {
+          "type": "string",
+          "maxLength": 80,
+          "description": "معرّف المشروع"
+        },
+        "noiseDb": {
+          "type": "number",
+          "minimum": -90,
+          "maximum": 0,
+          "default": -30
+        }
       },
-      "required": ["projectId"]
+      "required": [
+        "projectId"
+      ]
     },
     "output": {
       "type": "object",
-      "properties": { "assetId": { "type": "string" }, "silences": { "type": "array", "items": { "type": "object", "properties": { "start": { "type": "number" }, "end": { "type": "number" } } } } }
+      "properties": {
+        "assetId": {
+          "type": "string"
+        },
+        "silences": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "number"
+              },
+              "end": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      }
     },
-    "execution": { "type": "declarative", "action": "analysis.silence", "args": { "projectId": "{{input.projectId}}", "noiseDb": "{{input.noiseDb}}" } }
+    "execution": {
+      "type": "declarative",
+      "action": "analysis.silence",
+      "args": {
+        "projectId": "{{input.projectId}}",
+        "noiseDb": "{{input.noiseDb}}"
+      }
+    },
+    "capabilities": [
+      "ffmpeg"
+    ]
   },
   "files": {}
 }

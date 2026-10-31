@@ -35,6 +35,10 @@ export const PERMISSIONS = [
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
+/** قدرات المضيف (التعريف والفحص في capabilities.ts). */
+export const CAPABILITIES = ["ffmpeg", "python", "ai.chat", "workspace"] as const;
+export type Capability = (typeof CAPABILITIES)[number];
+
 export const CATEGORIES = ["analysis", "editing", "audio", "visual", "text", "generation", "export", "utility"] as const;
 
 const jsonValue: z.ZodType = z.lazy(() => z.union([z.string().max(5000), z.number(), z.boolean(), z.null(), z.array(jsonValue).max(100), z.record(z.string(), jsonValue)]));
@@ -58,6 +62,8 @@ const common = {
     })
     .default({ formatVersion: FORMAT_VERSION, montage: ">=0.2.0" }),
   permissions: z.array(z.enum(PERMISSIONS)).max(PERMISSIONS.length).default([]),
+  /** قدرات المضيف المطلوبة (FFmpeg/Python/مفتاح نموذج/مساحة عمل) — تُفحص على الخادم، انظر capabilities.ts. */
+  capabilities: z.array(z.enum(CAPABILITIES)).max(CAPABILITIES.length).default([]),
   dependencies: z
     .object({
       skills: z.array(z.string().max(64)).max(20).default([]),
