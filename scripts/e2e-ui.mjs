@@ -31,7 +31,8 @@ try {
 
   await pg.getByRole("button", { name: "الوسائط" }).first().click();
   await pg.locator('input[aria-label="اختيار ملفات للاستيراد"]').setInputFiles([path.join(tmp, "green.mp4"), path.join(tmp, "bgm.mp3")]);
-  await pg.waitForSelector('li:has-text("green.mp4")', { timeout: 20000 });
+  await pg.waitForSelector('li:has-text("green.mp4")', { timeout: 30000 });
+  await pg.waitForSelector('li:has-text("bgm.mp3")', { timeout: 30000 }); // الرفع متتابع: انتظر الثاني أيضاً
   check("استيراد فيديو وصوت إلى المكتبة", (await pg.locator('li:has-text("للتايملاين")').count()) === 2);
 
   await pg.getByRole("button", { name: /إضافة مسار فيديو/ }).click();
