@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { parseJsonBody } from "@/lib/server/request";
+import { subtitlesBody } from "@/lib/server/schemas";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -12,7 +14,9 @@ const PHRASES = [
 ];
 
 export async function POST(req: NextRequest) {
-  const { duration = 30, lang = "ar" } = await req.json();
+  const reqBody = await parseJsonBody(req, subtitlesBody);
+  if (!reqBody.ok) return reqBody.response;
+  const { duration = 30, lang = "ar" } = reqBody.data;
   const cues = [];
   const cueCount = Math.max(4, Math.floor(duration / 3));
   const cueLen = duration / cueCount;

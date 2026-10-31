@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { parseJsonBody } from "@/lib/server/request";
+import { framesBody } from "@/lib/server/schemas";
 import { getHfToken } from "@/lib/server/api-keys";
 
 export const runtime = "nodejs";
@@ -32,7 +34,9 @@ async function detectObjectsHF(imageBase64: string, HF_TOKEN: string | undefined
 export async function POST(req: NextRequest) {
   try {
     const HF_TOKEN = getHfToken(req);
-    const { duration = 30, frames = [] } = await req.json();
+    const reqBody = await parseJsonBody(req, framesBody);
+    if (!reqBody.ok) return reqBody.response;
+    const { duration = 30, frames = [] } = reqBody.data;
     const objects: { start: number; end: number; label: string; confidence: number }[] = [];
 
     if (frames.length > 0 && HF_TOKEN) {

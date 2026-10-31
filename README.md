@@ -230,10 +230,11 @@ montage-ai/
 python -m pytest          # اختبارات مسار الوكلاء (Python) — 36 حالة
 npx tsc --noEmit          # فحص أنواع TypeScript
 pnpm lint                 # ESLint
-pnpm test                 # Vitest (116): المحرّك، التصدير، الحارس، المحرّر، الإضافات (عزل بعمليات حقيقية، توقيع، حدود)، وتكامل MCP بـ FFmpeg حقيقي
+pnpm test                 # Vitest (155 — منها tests/security للانحدارات الأمنية): المحرّك، التصدير، الحارس، المحرّر، الإضافات (عزل بعمليات حقيقية، توقيع، حدود)، وتكامل MCP بـ FFmpeg حقيقي
 node scripts/check-contract.ts   # تطابق عقد EDL بين Python وTypeScript
 pnpm mcp:e2e              # E2E عبر stdio + تحقق ffprobe مستقل (يشمل أداة مخصّصة ديناميكية وتصديراً)
 pnpm build                # بناء الإنتاج
+pnpm cleanup [--dry-run]  # تنظيف uploads/exports/pipeline المنتهية (انظر MONTAGE_*_TTL_HOURS)
 ```
 
 اختبارات FFmpeg/Python تُعلَّم **skipped** (لا passed) عند غياب الأدوات. يعمل CI على كل دفع:
@@ -243,7 +244,7 @@ Python + Vitest (مع FFmpeg) + lint + عقد + E2E MCP + بناء + حارس أ
 
 - التصدير يدعم **مصدر فيديو واحداً** لكل مشروع؛ الموسيقى المضافة من المتصفح (روابط `blob:`) لا تدخل
   المخرَج بعد (تحذير صريح عند التصدير) — الصوت المستورد عبر MCP (`add_audio_clip`) يُمزج فعلاً.
-- `next@14` عليه ثغرات معروفة لا تُصلح إلا في 15.5.x (الهجرة لم تُنفَّذ) — لا تعرض الخادم على الشبكة.
+- رُقّي `next` إلى 15.5.28 (المرحلة 2): `pnpm audit --prod` بلا ثغرات؛ ما تبقى 10 تحذيرات dev-only (انظر `docs/security/SECURITY_REMEDIATION_REPORT.md`).
 - اختبارات العزل تُتخطّى (skipped) إن لم تتوفر `bwrap`/user namespaces؛ لم يُختبر إشعار `listChanged` الحي مع عميل MCP حقيقي
   (جُرّب اكتشاف الأداة المخصّصة واستدعاؤها بـ Claude Code وعميل SDK).
-- لا مصادقة: التطبيق وخادم MCP للاستخدام المحلي فقط (لا نقطة MCP بعيدة). التفاصيل في `docs/audit/IMPLEMENTATION_REPORT.md`.
+- المصادقة اختيارية (`MONTAGE_API_TOKEN`) ومفروضة تلقائياً عند النشر عن بُعد؛ بدونها التطبيق وخادم MCP للاستخدام المحلي فقط (لا نقطة MCP بعيدة). التفاصيل في `docs/audit/IMPLEMENTATION_REPORT.md`.

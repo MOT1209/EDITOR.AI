@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { parseJsonBody } from "@/lib/server/request";
+import { translateBody } from "@/lib/server/schemas";
 import { getOpencodeKey, getHfToken, getOpencodeBaseUrl, getChatModel } from "@/lib/server/api-keys";
 import { guardCost, recordSpend } from "@/lib/server/cost-guard";
 
@@ -11,7 +13,9 @@ export async function POST(req: NextRequest) {
     const OPENCODE_BASE_URL = getOpencodeBaseUrl();
     const OPENCODE_API_KEY = getOpencodeKey(req);
     const HF_TOKEN = getHfToken(req);
-    const { texts, targetLang, sourceLang = "ar" } = await req.json();
+    const reqBody = await parseJsonBody(req, translateBody);
+    if (!reqBody.ok) return reqBody.response;
+    const { texts, targetLang, sourceLang = "ar" } = reqBody.data;
     if (!Array.isArray(texts) || texts.length === 0) {
       return NextResponse.json({ translated: [] });
     }

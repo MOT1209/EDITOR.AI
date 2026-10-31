@@ -15,7 +15,8 @@ function errorResponse(e: unknown) {
 }
 
 /** GET → المشروع + الوسيط الأساسي (رابط بث + مسار المصدر على الخادم لاستخدامه في التصدير). */
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   try {
     const project = await getProject(params.id);
     let media: { assetId: string; url: string; sourcePath: string; name: string } | null = null;
@@ -35,7 +36,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
  * PUT → حفظ تعديلات المحرّر في مساحة العمل كعملية واحدة قابلة للتراجع (يراها MCP).
  * الأصول (assets) لا يغيّرها العميل: تُؤخذ دائماً من نسخة الخادم.
  */
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   try {
     const body = await req.json().catch(() => null);
     const parsed = parseProject(body?.project);

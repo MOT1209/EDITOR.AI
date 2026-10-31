@@ -5,6 +5,7 @@ import { EngineError } from "@/lib/engine/errors";
 import type { ExtensionKind } from "@/lib/extensions/manifest";
 import type { ApproveFn } from "@/lib/extensions/runtime";
 import { getOpencodeKey } from "@/lib/server/api-keys";
+import { consumeApproval, requestApproval } from "@/lib/server/approvals";
 
 export const MAX_BODY_BYTES = 600_000;
 
@@ -36,10 +37,17 @@ export function errorResponse(e: unknown): NextResponse {
   return NextResponse.json({ error: `خطأ غير متوقع: ${(e as Error).message?.slice(0, 200) ?? "؟"}`, code: "INTERNAL" }, { status: 500 });
 }
 
-/** الواجهة تؤكد صراحة قبل التنفيذ الكاتب/المكلف/الخارجي (confirmed=true بعد نافذة تأكيد). */
-export function uiApprover(confirmed: boolean): ApproveFn {
+/**
+ * الواجهة تؤكد صراحة قبل التنفيذ الكاتب/المكلف/الخارجي. التأكيد لا يُقبل من العميل وحده:
+ * يجب أن يكون الخادم قد سجّل موافقة معلّقة لنفس (النطاق، الإجراء) في محاولة سابقة غير مؤكَّدة،
+ * وتُستهلك لمرة واحدة (lib/server/approvals.ts).
+ */
+export function uiApprover(confirmed: boolean, scope = ""): ApproveFn {
   return async ({ action, summary }) => {
-    if (!confirmed) throw new EngineError("APPROVAL_DENIED", `العملية «${action}» تتطلب تأكيد المستخدم: ${summary}`, "أكّد التنفيذ في نافذة التأكيد.");
+    const key = `${scope}:${action}`;
+    if (confirmed && consumeApproval(key)) return;
+    requestApproval(key);
+    throw new EngineError("APPROVAL_DENIED", `العملية «${action}» تتطلب تأكيد المستخدم: ${summary}`, "أكّد التنفيذ في نافذة التأكيد.");
   };
 }
 
