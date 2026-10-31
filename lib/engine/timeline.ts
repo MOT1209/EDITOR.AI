@@ -385,9 +385,20 @@ export interface PlaybackPosition {
   sourceTime: number;
 }
 
+/**
+ * مقاطع المعاينة الحية في المتصفح: مشغّل واحد = مصدر واحد. لمشروع متعدد المسارات تُشغَّل
+ * طبقة الأساس فقط (أدنى مسار فيديو فيه مقاطع)؛ الصورة المركّبة الكاملة = المعاينة المرندرة.
+ */
+export function previewClips(p: ProjectState): VideoClip[] {
+  const clips = exportClips(p);
+  if (!needsCompositor(p)) return clips;
+  const base = p.tracks.find((t) => t.kind === "video" && !t.hidden && clips.some((c) => c.trackId === t.id));
+  return base ? clips.filter((c) => c.trackId === base.id) : clips;
+}
+
 /** زمن تايملاين → المقطع وزمن المصدر. بلا مقاطع: تطابق مباشر مع المصدر. */
 export function timelineToSource(p: ProjectState, t: number): PlaybackPosition | null {
-  const clips = exportClips(p);
+  const clips = previewClips(p);
   if (clips.length === 0) return { clip: null, index: -1, sourceTime: Math.max(0, t) };
   let acc = 0;
   for (let i = 0; i < clips.length; i++) {
@@ -404,7 +415,7 @@ export function timelineToSource(p: ProjectState, t: number): PlaybackPosition |
 
 /** أثناء التشغيل: زمن المصدر الحالي ضمن المقطع رقم index → زمن التايملاين. */
 export function sourceToTimelineAt(p: ProjectState, index: number, sourceTime: number): number {
-  const clips = exportClips(p);
+  const clips = previewClips(p);
   if (index < 0 || clips.length === 0) return sourceTime;
   let acc = 0;
   for (let i = 0; i < index; i++) acc += clipDuration(clips[i]);
@@ -550,7 +561,7 @@ export function setTrackFlags(
 export function setAudioClipProps(
   p: ProjectState,
   id: string,
-  patch: Partial<Pick<AudioClip, "volume" | "start" | "duration" | "inPoint" | "fadeIn" | "fadeOut" | "trackId" | "ref">>
+  patch: Partial<Pick<AudioClip, "volume" | "start" | "duration" | "inPoint" | "fadeIn" | "fadeOut" | "trackId" | "ref" | "kind">>
 ): ProjectState {
   const a = p.audioClips.find((x) => x.id === id);
   if (!a) throw new EngineError("NOT_FOUND", `المقطع الصوتي غير موجود: ${id}`);
@@ -604,4 +615,23 @@ export function snapTime(p: ProjectState, t: number, opts: { threshold?: number;
   }
   if (best) return { time: round(best.time), snapped: true, to: best.label };
   return { time: round(snapToFrame(Math.max(0, t), p.fps || 30)), snapped: false };
+}
+
+/** ينسخ مقطعاً: مغناطيسي ⇒ يُدرَج بعد الأصل؛ حرّ ⇒ أول موضع خالٍ بعد نهاية الأصل. */
+export function duplicateClip(p: ProjectState, clipId: string): { project: ProjectState; newClipId: string } {
+  const c = findClip(p, clipId);
+  const track = p.tracks.find((t) => t.id === c.trackId);
+  if (track?.locked) throw new EngineError("CONFLICT", `المسار «${track.label}» مقفل`);
+  if (p.clips.length + 1 > LIMITS.maxClips) throw new EngineError("LIMIT_EXCEEDED", "تجاوز الحد الأقصى لعدد المقاطع");
+  const dur = clipDuration(c);
+  let start = round(c.start + dur);
+  if (!isMagnetic(p, c.trackId)) {
+    const others = p.clips.filter((x) => x.trackId === c.trackId && x.kind !== "image").sort((a, b) => a.start - b.start);
+    for (const o of others) {
+      if (start < o.start + clipDuration(o) - 1e-6 && start + dur > o.start + 1e-6) start = round(o.start + clipDuration(o));
+    }
+  }
+  const copy: VideoClip = { ...c, id: newId("clip"), start: start + (isMagnetic(p, c.trackId) ? -0.001 : 0) };
+  const clips = p.clips.flatMap((x) => (x.id === c.id ? [x, copy] : [x]));
+  return { project: touch(p, { clips: layoutTrack(p, clips, c.trackId) }), newClipId: copy.id };
 }

@@ -72,6 +72,11 @@ export interface State {
   isPlaying: boolean;
   zoom: number;
   selectedClipId: string | null;
+  /** تحديد متعدد (Shift/Ctrl) — selectedClipId هو آخر عنصر محدَّد (الأساسي). */
+  selectedClipIds: string[];
+  selectedAudioId: string | null;
+  /** الالتصاق بحدود المقاطع/المؤشر أثناء السحب. */
+  snapEnabled: boolean;
   selectedSubtitleId: string | null;
   showLeftPanel: boolean;
   showRightPanel: boolean;
@@ -99,6 +104,9 @@ export type Action =
   | { type: "TOGGLE_PLAY" }
   | { type: "SET_ZOOM"; z: number }
   | { type: "SELECT_CLIP"; id: string | null }
+  | { type: "SELECT_CLIPS"; ids: string[] }
+  | { type: "SELECT_AUDIO"; id: string | null }
+  | { type: "TOGGLE_SNAP" }
   | { type: "SELECT_SUBTITLE"; id: string | null }
   | { type: "TOGGLE_LEFT" }
   | { type: "TOGGLE_RIGHT" }
@@ -212,7 +220,13 @@ function baseReducer(state: State, action: Action): State {
     case "SET_ZOOM":
       return { ...state, zoom: action.z };
     case "SELECT_CLIP":
-      return { ...state, selectedClipId: action.id };
+      return { ...state, selectedClipId: action.id, selectedClipIds: action.id ? [action.id] : [], selectedAudioId: action.id ? null : state.selectedAudioId };
+    case "SELECT_CLIPS":
+      return { ...state, selectedClipIds: action.ids, selectedClipId: action.ids.length ? action.ids[action.ids.length - 1] : null, selectedAudioId: null };
+    case "SELECT_AUDIO":
+      return { ...state, selectedAudioId: action.id, selectedClipId: action.id ? null : state.selectedClipId, selectedClipIds: action.id ? [] : state.selectedClipIds };
+    case "TOGGLE_SNAP":
+      return { ...state, snapEnabled: !state.snapEnabled };
     case "SELECT_SUBTITLE":
       return { ...state, selectedSubtitleId: action.id };
     case "TOGGLE_LEFT":
@@ -369,6 +383,9 @@ export const initialState: State = {
   isPlaying: false,
   zoom: 60,
   selectedClipId: null,
+  selectedClipIds: [],
+  selectedAudioId: null,
+  snapEnabled: true,
   selectedSubtitleId: null,
   showLeftPanel: true,
   showRightPanel: true,

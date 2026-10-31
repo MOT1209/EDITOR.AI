@@ -64,3 +64,22 @@ describe("editor reducer undo/redo", () => {
     expect(s.project.clips).toHaveLength(1);
   });
 });
+
+describe("editor reducer: selection and snapping state (Phase 4)", () => {
+  it("multi-select keeps the last id as primary; single select and audio select are exclusive", () => {
+    let s = reducer(initialState, { type: "SELECT_CLIPS", ids: ["a", "b", "c"] });
+    expect(s.selectedClipIds).toEqual(["a", "b", "c"]);
+    expect(s.selectedClipId).toBe("c");
+    s = reducer(s, { type: "SELECT_AUDIO", id: "au1" });
+    expect(s).toMatchObject({ selectedAudioId: "au1", selectedClipId: null, selectedClipIds: [] });
+    s = reducer(s, { type: "SELECT_CLIP", id: "x" });
+    expect(s).toMatchObject({ selectedAudioId: null, selectedClipId: "x", selectedClipIds: ["x"] });
+    expect(reducer(s, { type: "SELECT_CLIP", id: null }).selectedClipIds).toEqual([]);
+  });
+  it("selection and snap toggles are UI-only (no undo entries)", () => {
+    let s = reducer(initialState, { type: "TOGGLE_SNAP" });
+    expect(s.snapEnabled).toBe(false);
+    s = reducer(s, { type: "SELECT_CLIPS", ids: ["a"] });
+    expect(s.past).toHaveLength(0);
+  });
+});

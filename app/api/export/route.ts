@@ -17,6 +17,8 @@ import {
 import { checkExportable } from "@/lib/engine/export-guard";
 import { resolveVideoRef } from "@/lib/server/media-ref";
 import { buildSourceMap } from "@/lib/server/render-sources";
+import { previewSize } from "@/lib/engine/jobs";
+import { timelineDuration } from "@/lib/engine/timeline";
 import { cancelExport, registerExportController, releaseExportController } from "@/lib/server/export-jobs";
 
 export const runtime = "nodejs";
@@ -66,7 +68,20 @@ export async function POST(req: NextRequest) {
   if (!parsed.ok) {
     return NextResponse.json({ error: "بيانات المشروع غير صالحة", details: parsed.errors }, { status: 400 });
   }
-  const project = parsed.project;
+  // معاينة مرندرة: نفس خطة التصدير بنافذة قصيرة ودقة منخفضة (≤60s) — المرجع الحاكم لمطابقة المعاينة.
+  let range: { start: number; end: number } | undefined;
+  let size: [number, number] | undefined;
+  if (body?.preview !== undefined) {
+    const a = Number(body.preview?.start);
+    const b = Number(body.preview?.end);
+    const total = timelineDuration(parsed.project);
+    if (!Number.isFinite(a) || !Number.isFinite(b) || a < 0 || b <= a || b - a > 60) {
+      return NextResponse.json({ error: "نافذة المعاينة غير صالحة (0 ≤ start < end، حتى 60 ثانية)", code: "INVALID_INPUT" }, { status: 400 });
+    }
+    range = { start: a, end: Math.min(b, Math.max(total, a + 0.1)) };
+    size = previewSize(parsed.project.aspect);
+  }
+  const project = range ? { ...parsed.project, format: "mp4" as const } : parsed.project;
   const { map: sources, unresolved } = await buildSourceMap(project, { refs, primaryPath: sourcePath });
   const resolvedAssets = new Set(Object.keys(sources));
   const resolvedAudio = new Set(Object.keys(sources).filter((k) => k.startsWith("audio:")).map((k) => k.slice(6)));
@@ -93,6 +108,9 @@ export async function POST(req: NextRequest) {
     outputPath,
     project,
     sources,
+    range,
+    size,
+    encoderOverride: range ? { preset: "ultrafast", crf: 30 } : undefined,
     allowMissingAudio: body?.acknowledgeAudioLoss === true,
     videoStabilize,
     colorGrading,

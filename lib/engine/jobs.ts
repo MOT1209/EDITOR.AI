@@ -271,7 +271,7 @@ export async function revalidateJob(projectId: string, jobId: string): Promise<R
   return job;
 }
 
-function previewSize(aspect: ProjectState["aspect"]): [number, number] {
+export function previewSize(aspect: ProjectState["aspect"]): [number, number] {
   switch (aspect) {
     case "9:16":
       return [360, 640];

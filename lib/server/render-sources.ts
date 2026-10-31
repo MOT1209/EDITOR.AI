@@ -51,7 +51,14 @@ export async function buildSourceMap(project: ProjectState, opts: SourceBuildOpt
     }
     if (map[c.assetId]) continue;
     try {
-      const ref = refMap.get(c.assetId);
+      const asset0 = project.assets?.find((a) => a.id === c.assetId);
+      const metaRef = typeof asset0?.meta?.ref === "string" ? asset0.meta.ref : undefined;
+      // «main» = الفيديو الأساسي المرفوع من الواجهة (ليس أصلاً في assets).
+      if (c.assetId === "main" && opts.primaryPath && c.kind !== "image" && !refMap.has("main")) {
+        map[c.assetId] = await infoFor(opts.primaryPath, "video", cache);
+        continue;
+      }
+      const ref = refMap.get(c.assetId) ?? metaRef;
       if (ref) {
         const r = await resolveMediaRef(ref);
         if (r && (r.kind === "video" || r.kind === "image")) { map[c.assetId] = await infoFor(r.path, r.kind, cache); continue; }
