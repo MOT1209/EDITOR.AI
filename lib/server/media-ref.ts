@@ -13,10 +13,13 @@ import { assetPath, findAsset, getProject } from "@/lib/engine/store";
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const UPLOAD_RE = new RegExp(`^upload:(${UUID})$`);
 const PROJECT_RE = /^project:([A-Za-z0-9_-]{1,80}):([A-Za-z0-9_-]{1,80})$/;
+export const AUDIO_DIR = path.join(ASSETS_DIR, "audio");
+const AUDIO_RE = new RegExp(`^audio:(${UUID}\\.(?:mp3|wav|m4a|aac|ogg|flac|opus|webm))$`);
 const ASSET_RE = new RegExp(`^asset:(${UUID}\\.(?:jpg|jpeg|png|webp|gif))$`);
 
 export const uploadRef = (id: string) => `upload:${id}`;
 export const projectRef = (projectId: string, assetId: string) => `project:${projectId}:${assetId}`;
+export const audioRef = (filename: string) => `audio:${filename}`;
 export const assetRef = (filename: string) => `asset:${filename}`;
 
 /** يحلّ مرجع فيديو (upload:/project:) إلى مسار آمن، أو null. */
@@ -51,4 +54,11 @@ export function resolveImageRef(ref: unknown): string | null {
   const m = ASSET_RE.exec(ref);
   if (m) return path.join(ASSETS_DIR, m[1]);
   return isPathInside(ref, ASSETS_DIR) ? ref : null;
+}
+
+/** مرجع صوت audio:<uuid>.<ext> → مسار داخل AUDIO_DIR، أو null. */
+export function resolveAudioRef(ref: unknown): string | null {
+  if (typeof ref !== "string") return null;
+  const m = AUDIO_RE.exec(ref);
+  return m ? path.join(AUDIO_DIR, m[1]) : null;
 }

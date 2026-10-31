@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { existsSync } from "fs";
 import path from "path";
 import { aiJobs } from "@/lib/mockAi";
 import { parseProject } from "@/lib/engine/project-schema";
@@ -14,7 +15,7 @@ import {
   writeJobStatus,
 } from "@/lib/server/ffmpeg-export";
 import { checkExportable } from "@/lib/engine/export-guard";
-import { resolveVideoRef } from "@/lib/server/media-ref";
+import { resolveAudioRef, resolveVideoRef } from "@/lib/server/media-ref";
 import { cancelExport, registerExportController, releaseExportController } from "@/lib/server/export-jobs";
 
 export const runtime = "nodejs";
@@ -64,6 +65,18 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // صوت الواجهة المرفوع كأصل خادم (T-13): يُمزج في المخرَج؛ المسارات المكتومة تُتخطّى.
+  const muted = new Set(project.tracks.filter((t) => t.muted).map((t) => t.id));
+  const audioInputs: { path: string; start: number; volume: number }[] = [];
+  for (const a of project.audioClips) {
+    if (muted.has(a.trackId) || !a.ref) continue;
+    const p = resolveAudioRef(a.ref);
+    if (!p || !existsSync(p)) {
+      return NextResponse.json({ error: `أصل الصوت «${a.name || a.id}» غير موجود على الخادم — أعد رفعه`, code: "INVALID_INPUT" }, { status: 400 });
+    }
+    audioInputs.push({ path: p, start: a.start, volume: a.volume });
+  }
+
   await ensureExportDir();
   const job = aiJobs.create("export", "تصدير الفيديو");
   const outputPath = path.join(EXPORT_DIR, `${job.id}.${project.format}`);
@@ -74,6 +87,7 @@ export async function POST(req: NextRequest) {
     signal: controller.signal,
     sourcePath,
     outputPath,
+    audioInputs,
     project,
     videoStabilize,
     colorGrading,

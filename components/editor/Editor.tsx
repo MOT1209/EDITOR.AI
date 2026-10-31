@@ -84,6 +84,7 @@ import {
   formatBytes,
 } from "@/lib/project";
 import { findLostAudio } from "@/lib/engine/export-guard";
+import { ensureAudioRefs } from "@/lib/client/audio-upload";
 import { EFFECTS_LIBRARY, MUSIC_LIBRARY, aiJobs, generateToneTrack } from "@/lib/mockAi";
 import { apiConfig, apiFetch, SIMULATED_EVENT } from "@/lib/api-config";
 import { parseProject } from "@/lib/engine/project-schema";
@@ -1294,10 +1295,12 @@ export default function Editor() {
     if (!state.videoMeta || !state.videoFile) return notify("warning", "ارفع فيديو أولاً");
     // لا انحراف صامت (T-01): ما تسمعه في المعاينة من موسيقى/تعليق المتصفح لا يصل للمخرَج بعد —
     // نطلب إقراراً صريحاً، والخادم يرفض (409) إن لم يُرسَل الإقرار.
-    const lostAudio = findLostAudio(state.project);
+    // T-13: نرفع صوت التايملاين (blob/data) كأصول خادم أولاً ليُمزج فعلاً؛ ما يفشل رفعه يبقى «مفقوداً» ويتطلب إقراراً.
+    const { project: exportProject } = await ensureAudioRefs(state.project);
+    const lostAudio = findLostAudio(exportProject);
     if (lostAudio.length > 0) {
       const ok = window.confirm(
-        `الصوت المضاف لن يدخل الملف المصدَّر (${lostAudio.slice(0, 3).join("، ")}${lostAudio.length > 3 ? "…" : ""}).\nالمخرَج سيحوي صوت الفيديو الأصلي فقط. هل تريد المتابعة؟`
+        `بعض الصوت المضاف تعذّر رفعه ولن يدخل الملف المصدَّر (${lostAudio.slice(0, 3).join("، ")}${lostAudio.length > 3 ? "…" : ""}).\nالمخرَج سيحوي صوت الفيديو الأصلي فقط. هل تريد المتابعة؟`
       );
       if (!ok) return;
     }
@@ -1321,7 +1324,7 @@ export default function Editor() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sourceRef: sourcePath,
-          project: state.project,
+          project: exportProject,
           videoStabilize,
           colorGrading,
           acknowledgeAudioLoss: lostAudio.length > 0,

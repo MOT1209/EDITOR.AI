@@ -20,11 +20,14 @@ export function findForeignClips(project: ProjectState): VideoClip[] {
   return project.clips.filter((c) => c.kind !== "image" && c.assetId !== primary.id && c.assetId !== "main");
 }
 
-/** صوت إضافي غير مكتوم لا يضمّنه تصدير الواجهة (لا مسار رفع صوت بعد — F-12/F-13). */
+export const AUDIO_REF_RE = /^audio:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:mp3|wav|m4a|aac|ogg|flac|opus|webm)$/;
+export const isAudioRef = (v: unknown): v is string => typeof v === "string" && AUDIO_REF_RE.test(v);
+
+/** صوت إضافي غير مكتوم لن يدخل المخرَج: كل مقطع بلا مرجع أصل خادم صالح (T-13: المقاطع المرفوعة تُمزج). */
 export function findLostAudio(project: ProjectState): string[] {
   const muted = new Set(project.tracks.filter((t) => t.muted).map((t) => t.id));
-  const names = project.audioClips.filter((a) => !muted.has(a.trackId)).map((a) => a.name || a.id);
-  if (project.musicId && names.length === 0) names.push(`موسيقى: ${project.musicId}`);
+  const names = project.audioClips.filter((a) => !muted.has(a.trackId) && !isAudioRef(a.ref)).map((a) => a.name || a.id);
+  if (project.musicId && project.audioClips.length === 0) names.push(`موسيقى: ${project.musicId}`);
   return names;
 }
 
