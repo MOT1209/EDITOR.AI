@@ -1971,6 +1971,7 @@ export default function Editor() {
               <input
                 ref={fileInputRef}
                 type="file"
+                aria-label="رفع فيديو"
                 accept="video/*"
                 hidden
                 onChange={handleFileInput}
@@ -2634,6 +2635,7 @@ function AIQuickPanel({
         <div className="flex items-center gap-2">
           <input
             type="range"
+            aria-label="BPM للمزامنة"
             min={60}
             max={200}
             step={5}
@@ -2816,7 +2818,7 @@ function ImageLibraryPanel({ state, dispatch }: { state: State; dispatch: React.
           placeholder="ابحث عن صورة... (مثلاً: nature)"
           className="flex-1 bg-bg-soft border border-line rounded-md px-2 py-1.5 text-xs"
         />
-        <button onClick={search} disabled={loading} className="btn-outline px-2.5">
+        <button onClick={search} disabled={loading} className="btn-outline px-2.5" aria-label="بحث">
           <Search className="h-3.5 w-3.5" />
         </button>
       </div>

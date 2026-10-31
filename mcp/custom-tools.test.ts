@@ -52,7 +52,7 @@ async function setup(elicit?: boolean) {
   const call = async (name: string, args: Record<string, unknown> = {}) => {
     const r = await client.callTool({ name, arguments: args });
     const text = (r.content as { text: string }[])[0]?.text ?? "";
-    return { isError: !!r.isError, data: (r.structuredContent ?? {}) as Record<string, any>, err: r.isError ? parseToolError(text) : null }; // eslint-disable-line @typescript-eslint/no-explicit-any
+    return { isError: !!r.isError, data: (r.structuredContent ?? {}) as Record<string, any>, err: r.isError ? parseToolError(text) : null };
   };
   return { client, custom, names, call, approvals, changed: () => changed };
 }

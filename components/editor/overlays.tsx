@@ -113,7 +113,7 @@ export function Notifications({
               <div className="text-xs font-semibold">{n.title}</div>
               {n.message && <div className="text-[10px] text-ink-soft mt-0.5">{n.message}</div>}
             </div>
-            <button onClick={() => onRemove(n.id)} className="text-ink-mute hover:text-ink">
+            <button onClick={() => onRemove(n.id)} className="text-ink-mute hover:text-ink" aria-label="إغلاق الإشعار">
               <X className="h-3 w-3" />
             </button>
           </div>
