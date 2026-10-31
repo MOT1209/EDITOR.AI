@@ -84,6 +84,7 @@ import {
   formatBytes,
 } from "@/lib/project";
 import { findLostAudio } from "@/lib/engine/export-guard";
+import { activeVideoClip, clipFraming, framingCss } from "@/lib/engine/framing";
 import { ensureAudioRefs } from "@/lib/client/audio-upload";
 import { EFFECTS_LIBRARY, MUSIC_LIBRARY, aiJobs, generateToneTrack } from "@/lib/mockAi";
 import { apiConfig, apiFetch, SIMULATED_EVENT } from "@/lib/api-config";
@@ -1786,6 +1787,8 @@ export default function Editor() {
                   playsInline
                   onTimeUpdate={handleVideoTimeUpdate}
                   style={{
+                    // معاينة التأطير الذكي بنفس هندسة قصّ التصدير (T-15)
+                    transform: framingCss(clipFraming(activeVideoClip(state.project.clips, state.playhead) ?? ({ smartZoom: false, zoom: 1, panX: 0, panY: 0 }))),
                     filter: (() => {
                       const base = COLOR_FILTERS.find((c) => c.id === state.project.clips[0]?.colorFilter);
                       let f = base && base.id !== "none" ? base.css : "none";

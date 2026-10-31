@@ -15,7 +15,7 @@
 | صوت إضافي (موسيقى/تعليق) في تصدير الواجهة | ❌ | V: G-3 | `app/api/export/route.ts` | يُسمع في المعاينة ويُفقد في الملف | F-12 |
 | صوت إضافي في تصدير MCP (أصول الخادم) | ✅ | V: اختبار MCP + `jobs.ts` | `lib/engine/jobs.ts` | `blob:` يُرفض بتحذير | — |
 | معالجة audio blob | ✅ (T-13) | V: `tests/export-audio.test.ts` (رفع ffprobe، رفض المزيّف، تصدير حقيقي) | `app/api/assets/audio`, `lib/client/audio-upload.ts` | الواجهة ترفع blob تلقائياً قبل التصدير؛ لم تُجرَّب في متصفح | F-13 |
-| تكبير/تحريك (zoom/pan/smartZoom) للمقطع | ◐ (T-15) | V: `tests/export-framing.test.ts` (لون الإطار) | `clipFraming` في `ffmpeg-export.ts` | يُطبَّق عند `smartZoom=true` فقط؛ **المعاينة لا تعرضه** ⇒ انحراف عكسي جديد (معاينة بلا تأطير، تصدير مؤطَّر) | F-14 |
+| تكبير/تحريك (zoom/pan/smartZoom) للمقطع | ◐ (T-15) | V: `tests/export-framing.test.ts` (لون الإطار) | `clipFraming` في `ffmpeg-export.ts` | يُطبَّق عند `smartZoom=true` فقط؛ المعاينة تعرضه بـ CSS transform بنفس هندسة القصّ (`lib/engine/framing.ts`، مُختبَر وحدةً فقط — لم يُرصد في المتصفح؛ تقريبي عند اختلاف النسبة لأن المعاينة letterbox والتصدير cover) | F-14 |
 | تأثيرات على مستوى المشروع | ✅ | V: `ffmpeg-export.test.ts` (8) | `buildEffectChain` | `clip.effects` للعرض فقط | F-15 |
 | ترجمات/نصوص (ASS) | ✅ | V: اختبارات بانٍ + e2e | `buildAss` | — | — |
 | صور B-roll كطبقات | ✅ | C + اختبار بانٍ | `buildImageOverlays` | مقيّد بـ `ASSETS_DIR` | — |
