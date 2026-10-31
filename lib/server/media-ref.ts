@@ -7,7 +7,7 @@ import { existsSync } from "fs";
 import path from "path";
 import { ASSETS_DIR } from "@/lib/server/assets";
 import { UPLOAD_DIR, isPathInside } from "@/lib/server/ffmpeg-export";
-import { UPLOAD_EXTS } from "@/lib/server/uploads";
+import { UPLOAD_ALL_EXTS, UPLOAD_EXTS } from "@/lib/server/uploads";
 import { assetPath, findAsset, getProject } from "@/lib/engine/store";
 
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
@@ -51,4 +51,43 @@ export function resolveImageRef(ref: unknown): string | null {
   const m = ASSET_RE.exec(ref);
   if (m) return path.join(ASSETS_DIR, m[1]);
   return isPathInside(ref, ASSETS_DIR) ? ref : null;
+}
+
+export type MediaKind = "video" | "audio" | "image";
+const AUDIO_SET = new Set([".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".opus"]);
+const IMAGE_SET = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
+export const kindOfExt = (ext: string): MediaKind => (AUDIO_SET.has(ext) ? "audio" : IMAGE_SET.has(ext) ? "image" : "video");
+
+/**
+ * يحلّ أي مرجع معتم (فيديو/صوت/صورة) إلى مسار آمن + نوعه، أو null.
+ * upload:<uuid> قد يكون بأي امتداد من القائمة البيضاء؛ project:/asset: كما سبق.
+ */
+export async function resolveMediaRef(ref: unknown): Promise<{ path: string; kind: MediaKind } | null> {
+  if (typeof ref !== "string") return null;
+  const u = UPLOAD_RE.exec(ref);
+  if (u) {
+    for (const ext of UPLOAD_ALL_EXTS) {
+      const p = path.join(UPLOAD_DIR, `${u[1]}${ext}`);
+      if (isPathInside(p, UPLOAD_DIR) && existsSync(p)) return { path: p, kind: kindOfExt(ext) };
+    }
+    return null;
+  }
+  const pr = PROJECT_RE.exec(ref);
+  if (pr) {
+    try {
+      const project = await getProject(pr[1]);
+      const asset = findAsset(project, pr[2]);
+      const p = assetPath(pr[1], asset);
+      if (!existsSync(p)) return null;
+      return { path: p, kind: asset.type === "video" ? "video" : asset.type === "image" ? "image" : "audio" };
+    } catch {
+      return null;
+    }
+  }
+  const a = ASSET_RE.exec(ref);
+  if (a) {
+    const p = path.join(ASSETS_DIR, a[1]);
+    return existsSync(p) ? { path: p, kind: "image" } : null;
+  }
+  return null;
 }

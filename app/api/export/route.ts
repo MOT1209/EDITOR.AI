@@ -5,6 +5,7 @@ import { parseProject } from "@/lib/engine/project-schema";
 import { workspaceRoot } from "@/lib/engine/store";
 import {
   ExportCancelledError,
+  RenderPlanError,
   EXPORT_DIR,
   UPLOAD_DIR,
   ensureExportDir,
@@ -15,6 +16,7 @@ import {
 } from "@/lib/server/ffmpeg-export";
 import { checkExportable } from "@/lib/engine/export-guard";
 import { resolveVideoRef } from "@/lib/server/media-ref";
+import { buildSourceMap } from "@/lib/server/render-sources";
 import { cancelExport, registerExportController, releaseExportController } from "@/lib/server/export-jobs";
 
 export const runtime = "nodejs";
@@ -42,7 +44,19 @@ export async function POST(req: NextRequest) {
     typeof body?.colorGrading === "number" ? body.colorGrading : 0.5;
 
   // المصدر: مرجع معتمد (upload:/project:) لا مسار — يُحلّ على الخادم حصراً (T-03).
-  const sourcePath = await resolveVideoRef(body?.sourceRef);
+  // `sources` (assetId → مرجع) يتيح تصدير عدة ملفات؛ `sourceRef` يبقى المصدر الأساسي/الاحتياطي.
+  const rawRefs = body?.sources && typeof body.sources === "object" && !Array.isArray(body.sources) ? (body.sources as Record<string, unknown>) : {};
+  const refs: Record<string, string> = {};
+  for (const [k, v] of Object.entries(rawRefs).slice(0, 64)) {
+    if (typeof v === "string" && /^[A-Za-z0-9_:.-]{1,128}$/.test(k)) refs[k] = v;
+  }
+  let sourcePath = await resolveVideoRef(body?.sourceRef);
+  if (!sourcePath) {
+    for (const v of Object.values(refs)) {
+      sourcePath = await resolveVideoRef(v);
+      if (sourcePath) break;
+    }
+  }
   if (!sourcePath) {
     return NextResponse.json({ error: "مرجع الفيديو غير صالح أو غير موجود. ارفع الفيديو أولاً.", code: "INVALID_INPUT" }, { status: 400 });
   }
@@ -53,7 +67,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "بيانات المشروع غير صالحة", details: parsed.errors }, { status: 400 });
   }
   const project = parsed.project;
-  const guard = checkExportable(project, { acknowledgeAudioLoss: body?.acknowledgeAudioLoss === true });
+  const { map: sources, unresolved } = await buildSourceMap(project, { refs, primaryPath: sourcePath });
+  const resolvedAssets = new Set(Object.keys(sources));
+  const resolvedAudio = new Set(Object.keys(sources).filter((k) => k.startsWith("audio:")).map((k) => k.slice(6)));
+  const guard = checkExportable(project, { acknowledgeAudioLoss: body?.acknowledgeAudioLoss === true, resolvedAssets, resolvedAudio });
   if (!guard.ok) {
     return NextResponse.json({ error: guard.error, code: guard.code, details: guard.details }, { status: 409 });
   }
@@ -75,6 +92,8 @@ export async function POST(req: NextRequest) {
     sourcePath,
     outputPath,
     project,
+    sources,
+    allowMissingAudio: body?.acknowledgeAudioLoss === true,
     videoStabilize,
     colorGrading,
     onProgress: (fraction) => {
@@ -96,9 +115,15 @@ export async function POST(req: NextRequest) {
       const cancelled = err instanceof ExportCancelledError;
       const message = err instanceof Error ? err.message : "فشل التصدير";
       aiJobs.fail(job.id, message);
-      await writeJobStatus({ id: job.id, status: cancelled ? "cancelled" : "failed", progress: 0, message });
+      await writeJobStatus({
+        id: job.id,
+        status: cancelled ? "cancelled" : "failed",
+        progress: 0,
+        message,
+        ...(err instanceof RenderPlanError ? { issues: err.issues } : {}),
+      });
     })
     .finally(() => releaseExportController(job.id));
 
-  return NextResponse.json({ ok: true, job });
+  return NextResponse.json({ ok: true, job, ...(unresolved.length ? { warnings: [`مصادر لم تُحلّ: ${unresolved.join(", ")}`] } : {}) });
 }

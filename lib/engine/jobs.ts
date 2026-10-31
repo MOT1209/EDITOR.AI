@@ -14,7 +14,8 @@ import { EngineError } from "./errors";
 import { reviewRender, type RenderReview } from "./media";
 import { assertId, assetPath, auditLog, getProject, primaryVideoAsset, projectDir } from "./store";
 import { timelineDuration } from "./timeline";
-import { findForeignClips } from "./export-guard";
+import { buildSourceMap } from "@/lib/server/render-sources";
+import { needsCompositor } from "./render-plan";
 
 export type JobKind = "preview" | "export";
 export type JobStatus = "queued" | "running" | "completed" | "failed" | "failed_validation" | "cancelled";
@@ -117,10 +118,6 @@ const PREVIEW_MAX_SECONDS = 60;
 export async function startRender(projectId: string, opts: StartRenderOptions): Promise<RenderJob> {
   const project = await getProject(projectId);
   const primary = primaryVideoAsset(project);
-  const foreign = findForeignClips(project);
-  if (foreign.length > 0) {
-    throw new EngineError("UNSUPPORTED", "التصدير يدعم مصدر فيديو واحداً — توجد مقاطع من أصول أخرى", `احذف المقاطع: ${foreign.map((c) => c.id).join(", ")}`);
-  }
   const total = timelineDuration(project);
   let range = opts.range;
   if (opts.kind === "preview") {
@@ -143,6 +140,12 @@ export async function startRender(projectId: string, opts: StartRenderOptions): 
 
   const source = assetPath(projectId, primary);
   const { inputs, warnings } = resolveAudioInputs(project);
+  // مصادر متعددة: كل أصل فيديو/صورة/صوت داخل مساحة العمل يُحلّ بمسار آمن (بلا مسارات من العميل).
+  const { map: sources, unresolved } = await buildSourceMap(project, { primaryPath: source });
+  if (unresolved.length > 0) {
+    throw new EngineError("NOT_FOUND", `أصول مفقودة أو غير قابلة للقراءة: ${unresolved.join(", ")}`, "استورد الوسائط عبر import_media أو احذف المقاطع التي تشير إليها.");
+  }
+  const compositor = needsCompositor(project, sources);
   const sourceHasAudio = Number(primary.meta?.hasAudio ?? 1) === 1;
   const id = `r_${Date.now().toString(36)}_${randomUUID().slice(0, 8)}`;
   const ext = opts.kind === "preview" ? "mp4" : project.format;
@@ -161,7 +164,7 @@ export async function startRender(projectId: string, opts: StartRenderOptions): 
     expected: {
       durationSeconds: range ? Math.round((range.end - range.start) * 1000) / 1000 : total,
       // مصدر بلا صوت يُرندر بصمت مولَّد — لا نطالب المراجعة بصوت مسموع حينها.
-      hasAudio: sourceHasAudio || inputs.length > 0,
+      hasAudio: compositor ? Object.values(sources).some((x) => x.hasAudio) : sourceHasAudio || inputs.length > 0,
       ...(size ? { width: size[0], height: size[1] } : {}),
     },
     range,
@@ -185,6 +188,8 @@ export async function startRender(projectId: string, opts: StartRenderOptions): 
         outputPath: outPath,
         project: previewProject,
         audioInputs: inputs,
+        sources,
+        allowMissingAudio: true, // الصوت غير القابل للحل يُبلَّغ في job.warnings (سلوك MCP السابق)
         range,
         size,
         sourceHasAudio,

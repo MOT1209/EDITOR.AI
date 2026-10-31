@@ -10,7 +10,8 @@
 // ====================================================================
 import type { AudioClip, ProjectState, SubtitleCue, TextOverlay, VideoClip } from "@/lib/types";
 import { EngineError } from "./errors";
-import { COLOR_FILTER_IDS, EFFECT_IDS, LIMITS } from "./project-schema";
+import { COLOR_FILTER_IDS, EFFECT_IDS, LIMITS, TRANSITION_TYPES, audioClipSchema, clipSchema } from "./project-schema";
+import { needsCompositor, snapToFrame } from "./render-plan";
 
 /** أقصر مقطع مسموح بعد التقسيم/القص (ثوانٍ). */
 export const MIN_CLIP_SECONDS = 0.05;
@@ -47,7 +48,37 @@ export function exportClips(p: ProjectState): VideoClip[] {
 export function timelineDuration(p: ProjectState): number {
   const clips = exportClips(p);
   if (clips.length === 0) return round(Math.max(p.duration, 0));
+  if (needsCompositor(p)) return compositeDuration(p);
   return round(clips.reduce((s, c) => s + clipDuration(c), 0));
+}
+
+/** مدة المركِّب: نهاية أبعد طبقة (مسار مغناطيسي = مجموع مدده؛ حرّ = start+مدة). */
+export function compositeDuration(p: ProjectState): number {
+  const hidden = new Set(p.tracks.filter((t) => t.hidden).map((t) => t.id));
+  const perTrack = new Map<string, VideoClip[]>();
+  for (const c of exportClips(p)) {
+    if (hidden.has(c.trackId)) continue;
+    perTrack.set(c.trackId, [...(perTrack.get(c.trackId) ?? []), c]);
+  }
+  let end = 0;
+  for (const [trackId, clips] of perTrack) {
+    if (isMagnetic(p, trackId)) end = Math.max(end, clips.reduce((s, c) => s + clipDuration(c), 0));
+    else for (const c of clips) end = Math.max(end, snapToFrame(c.start, p.fps) + clipDuration(c));
+  }
+  return round(end);
+}
+
+/** المسار مغناطيسي (ترصيف بلا فجوات) ما لم يُعلَّم magnetic:false. */
+export function isMagnetic(p: ProjectState, trackId: string): boolean {
+  return p.tracks.find((t) => t.id === trackId)?.magnetic !== false;
+}
+
+/** يرصّف المسار إن كان مغناطيسياً؛ المسارات الحرّة تحتفظ بمواضعها المطلقة. */
+function layoutTrack(p: ProjectState, clips: VideoClip[], trackId: string): VideoClip[] {
+  if (!isMagnetic(p, trackId)) {
+    return clips.map((c) => (c.trackId === trackId && c.kind !== "image" ? { ...c, duration: clipDuration(c) } : c));
+  }
+  return rippleTrack(clips, trackId);
 }
 
 /** يعيد ترصيف مقاطع مسار: تتابع بلا فجوات بالترتيب الحالي، ومدة متسقة مع in/out/speed. */
@@ -124,7 +155,7 @@ export function splitClip(p: ProjectState, clipId: string, atTime: number): { pr
     if (x.id === c.id) clips.push(first, second);
     else clips.push(x);
   }
-  return { project: touch(p, { clips: rippleTrack(clips, c.trackId) }), newClipId: second.id };
+  return { project: touch(p, { clips: layoutTrack(p, clips, c.trackId) }), newClipId: second.id };
 }
 
 /** يقصّ نقطتي الدخول/الخروج في زمن المصدر. */
@@ -151,7 +182,7 @@ export function trimClip(
   const clips = p.clips.map((x) =>
     x.id === c.id ? { ...x, inPoint: round(inPoint), outPoint: round(outPoint), duration: round((outPoint - inPoint) / (x.speed || 1)) } : x
   );
-  return touch(p, { clips: rippleTrack(clips, c.trackId) });
+  return touch(p, { clips: layoutTrack(p, clips, c.trackId) });
 }
 
 /** ينقل مقطعاً إلى ترتيب جديد داخل مساره (نموذج مغناطيسي: الترتيب هو الموضع). */
@@ -169,7 +200,7 @@ export function moveClip(p: ProjectState, clipId: string, toIndex: number): Proj
   // إعادة ترقيم start مؤقتاً بالترتيب الجديد ثم الترصيف يحسب القيم النهائية.
   const order = new Map(without.map((x, i) => [x.id, i]));
   const clips = p.clips.map((x) => (order.has(x.id) ? { ...x, start: order.get(x.id)! } : x));
-  return touch(p, { clips: rippleTrack(clips, c.trackId) });
+  return touch(p, { clips: layoutTrack(p, clips, c.trackId) });
 }
 
 export function deleteClip(p: ProjectState, clipId: string): ProjectState {
@@ -177,7 +208,7 @@ export function deleteClip(p: ProjectState, clipId: string): ProjectState {
   const track = p.tracks.find((t) => t.id === c.trackId);
   if (track?.locked) throw new EngineError("CONFLICT", `المسار «${track.label}» مقفل`);
   const clips = p.clips.filter((x) => x.id !== clipId);
-  return touch(p, { clips: rippleTrack(clips, c.trackId) });
+  return touch(p, { clips: layoutTrack(p, clips, c.trackId) });
 }
 
 export function setClipVolume(p: ProjectState, clipId: string, volume: number): ProjectState {
@@ -384,4 +415,193 @@ export function sourceToTimelineAt(p: ProjectState, index: number, sourceTime: n
 /** نهاية مقطع بزمن المصدر (مع مراعاة مقاطع المشاهد بلا outPoint). */
 export function clipSourceEnd(c: VideoClip): number {
   return c.outPoint > c.inPoint ? c.outPoint : c.inPoint + c.duration * (c.speed || 1);
+}
+
+// ---------------------------------------------------------------- مسارات متعددة ورؤوس الخصائص
+// كل ما يلي دوال نقية يستخدمها المحرّر وMCP معاً؛ التحقق من القيم عبر مخطط project-schema
+// (مصدر واحد للحدود) فلا تُقبل قيمة تعجز خطة الرندر عن تنفيذها.
+
+export { snapToFrame };
+
+function findTrack(p: ProjectState, trackId: string) {
+  const t = p.tracks.find((x) => x.id === trackId);
+  if (!t) throw new EngineError("NOT_FOUND", `المسار غير موجود: ${trackId}`);
+  return t;
+}
+
+export type ClipPatch = Partial<
+  Pick<VideoClip, "volume" | "speed" | "zoom" | "panX" | "panY" | "rotation" | "opacity" | "scale" | "posX" | "posY" | "crop" | "fadeIn" | "fadeOut" | "audioFadeIn" | "audioFadeOut" | "color" | "colorFilter" | "effects">
+> & { transitionIn?: VideoClip["transitionIn"] | null };
+
+const CLIP_PATCH_KEYS = new Set(["volume", "speed", "zoom", "panX", "panY", "rotation", "opacity", "scale", "posX", "posY", "crop", "fadeIn", "fadeOut", "audioFadeIn", "audioFadeOut", "color", "colorFilter", "effects", "transitionIn"]);
+
+/** يعدّل خصائص مقطع (موضع/تحجيم/تدوير/شفافية/اقتصاص/صوت/سرعة/ألوان/انتقال) بتحقق صارم. */
+export function setClipProps(p: ProjectState, clipId: string, patch: ClipPatch): ProjectState {
+  const c = findClip(p, clipId);
+  const track = p.tracks.find((t) => t.id === c.trackId);
+  if (track?.locked) throw new EngineError("CONFLICT", `المسار «${track.label}» مقفل`, "ألغِ قفل المسار أولاً.");
+  for (const k of Object.keys(patch)) {
+    if (!CLIP_PATCH_KEYS.has(k)) throw new EngineError("INVALID_INPUT", `خاصية غير قابلة للتعديل: ${k}`);
+  }
+  const { transitionIn, ...rest } = patch;
+  const merged: VideoClip = { ...c, ...rest };
+  if (transitionIn === null) delete merged.transitionIn;
+  else if (transitionIn) {
+    if (!(TRANSITION_TYPES as readonly string[]).includes(transitionIn.type)) throw new EngineError("INVALID_INPUT", `نوع انتقال غير مدعوم: ${transitionIn.type}`);
+    merged.transitionIn = transitionIn;
+  }
+  if (merged.colorFilter && !(COLOR_FILTER_IDS as readonly string[]).includes(merged.colorFilter)) {
+    throw new EngineError("INVALID_INPUT", `مرشح لوني غير معروف: ${merged.colorFilter}`);
+  }
+  for (const e of merged.effects) {
+    if (!(EFFECT_IDS as readonly string[]).includes(e)) throw new EngineError("INVALID_INPUT", `تأثير غير مدعوم: ${e}`);
+  }
+  const r = clipSchema.safeParse(merged);
+  if (!r.success) {
+    throw new EngineError("OUT_OF_RANGE", r.error.issues.slice(0, 3).map((i) => `${i.path.join(".")}: ${i.message}`).join("؛ "));
+  }
+  const next: VideoClip = { ...merged, duration: clipDuration(merged) };
+  const clips = p.clips.map((x) => (x.id === clipId ? next : x));
+  return touch(p, { clips: layoutTrack(p, clips, c.trackId) });
+}
+
+/** يدمج مقطعين متتاليين من الأصل نفسه بمصدر متصل (عكس التقسيم). */
+export function mergeClips(p: ProjectState, firstId: string, secondId: string): ProjectState {
+  const a = findClip(p, firstId);
+  const b = findClip(p, secondId);
+  assertEditable(p, a);
+  assertEditable(p, b);
+  if (a.trackId !== b.trackId) throw new EngineError("CONFLICT", "المقطعان على مسارين مختلفين");
+  if (a.assetId !== b.assetId) throw new EngineError("CONFLICT", "المقطعان من أصلين مختلفين");
+  if ((a.speed || 1) !== (b.speed || 1)) throw new EngineError("CONFLICT", "سرعتا المقطعين مختلفتان");
+  const aEnd = a.start + clipDuration(a);
+  const frame = 1 / (p.fps || 30);
+  if (Math.abs(b.start - aEnd) > frame) throw new EngineError("CONFLICT", "المقطعان غير متلاصقين على التايملاين");
+  if (Math.abs(clipSourceEnd(a) - b.inPoint) > frame) {
+    throw new EngineError("CONFLICT", "المصدر غير متصل بين المقطعين — الدمج سيغيّر المحتوى", "الدمج مسموح فقط لمقطعين نتجا عن تقسيم دون قص بينهما.");
+  }
+  const merged: VideoClip = { ...a, outPoint: round(clipSourceEnd(b)), duration: round((clipSourceEnd(b) - a.inPoint) / (a.speed || 1)) };
+  const clips = p.clips.filter((x) => x.id !== b.id).map((x) => (x.id === a.id ? merged : x));
+  return touch(p, { clips: layoutTrack(p, clips, a.trackId) });
+}
+
+/** ينقل مقطعاً إلى مسار فيديو آخر (أو يعيد تموضعه) — start للمسارات الحرّة، وللمغناطيسية يحدد الترتيب. */
+export function moveClipToTrack(p: ProjectState, clipId: string, trackId: string, start?: number): ProjectState {
+  const c = findClip(p, clipId);
+  assertEditable(p, c);
+  const target = findTrack(p, trackId);
+  if (target.kind !== "video") throw new EngineError("INVALID_INPUT", `المسار «${target.label}» ليس مسار فيديو`);
+  if (target.locked) throw new EngineError("CONFLICT", `المسار «${target.label}» مقفل`);
+  const at = start === undefined ? c.start : start;
+  if (!Number.isFinite(at) || at < 0) throw new EngineError("INVALID_INPUT", "start يجب أن يكون ≥ 0");
+  const snapped = snapToFrame(at, p.fps || 30);
+  const dur = clipDuration(c);
+  if (!isMagnetic(p, trackId)) {
+    const clash = p.clips.find(
+      (x) => x.id !== c.id && x.trackId === trackId && x.kind !== "image" && snapped < x.start + clipDuration(x) - 1e-6 && snapped + dur > x.start + 1e-6
+    );
+    if (clash) throw new EngineError("CONFLICT", `يتداخل مع المقطع «${clash.id}» على المسار نفسه`, "اختر موضعاً خالياً أو مساراً آخر.");
+  }
+  const moved: VideoClip = { ...c, trackId, start: round(snapped) };
+  let clips = p.clips.map((x) => (x.id === c.id ? moved : x));
+  clips = layoutTrack(p, clips, trackId);
+  if (c.trackId !== trackId) clips = layoutTrack(p, clips, c.trackId);
+  return touch(p, { clips });
+}
+
+export function addTrack(p: ProjectState, kind: "video" | "audio", opts: { label?: string; magnetic?: boolean } = {}): { project: ProjectState; trackId: string } {
+  if (p.tracks.length >= LIMITS.maxTracks) throw new EngineError("LIMIT_EXCEEDED", "تجاوز الحد الأقصى لعدد المسارات");
+  const n = p.tracks.filter((t) => t.kind === kind).length + 1;
+  const id = newId(kind === "video" ? "tv" : "ta");
+  const track = {
+    id,
+    kind,
+    label: (opts.label ?? (kind === "video" ? `فيديو ${n}` : `صوت ${n}`)).slice(0, LIMITS.maxName),
+    height: kind === "video" ? 64 : 48,
+    muted: false,
+    locked: false,
+    ...(kind === "video" ? { magnetic: opts.magnetic ?? (n === 1) } : {}),
+  };
+  return { project: touch(p, { tracks: [...p.tracks, track] }), trackId: id };
+}
+
+export function removeTrack(p: ProjectState, trackId: string): ProjectState {
+  const t = findTrack(p, trackId);
+  const used = p.clips.some((c) => c.trackId === trackId) || p.audioClips.some((a) => a.trackId === trackId);
+  if (used) throw new EngineError("CONFLICT", `المسار «${t.label}» يحتوي مقاطع`, "انقل المقاطع أو احذفها أولاً.");
+  if (p.tracks.filter((x) => x.kind === t.kind).length <= 1) throw new EngineError("CONFLICT", "لا يمكن حذف آخر مسار من هذا النوع");
+  return touch(p, { tracks: p.tracks.filter((x) => x.id !== trackId) });
+}
+
+export function setTrackFlags(
+  p: ProjectState,
+  trackId: string,
+  flags: { muted?: boolean; hidden?: boolean; locked?: boolean; magnetic?: boolean; label?: string; height?: number }
+): ProjectState {
+  const t = findTrack(p, trackId);
+  if (flags.hidden !== undefined && t.kind !== "video") throw new EngineError("INVALID_INPUT", "الإخفاء لمسارات الفيديو فقط");
+  if (flags.height !== undefined && !(flags.height >= 24 && flags.height <= 240)) throw new EngineError("OUT_OF_RANGE", "ارتفاع المسار بين 24 و240");
+  const next = { ...t, ...Object.fromEntries(Object.entries(flags).filter(([, v]) => v !== undefined)) };
+  let out = touch(p, { tracks: p.tracks.map((x) => (x.id === trackId ? next : x)) });
+  if (flags.magnetic === true && t.kind === "video") out = touch(out, { clips: rippleTrack(out.clips, trackId) });
+  return out;
+}
+
+export function setAudioClipProps(
+  p: ProjectState,
+  id: string,
+  patch: Partial<Pick<AudioClip, "volume" | "start" | "duration" | "inPoint" | "fadeIn" | "fadeOut" | "trackId" | "ref">>
+): ProjectState {
+  const a = p.audioClips.find((x) => x.id === id);
+  if (!a) throw new EngineError("NOT_FOUND", `المقطع الصوتي غير موجود: ${id}`);
+  const merged = { ...a, ...patch };
+  if (patch.trackId) {
+    const t = findTrack(p, patch.trackId);
+    if (t.kind !== "audio") throw new EngineError("INVALID_INPUT", `المسار «${t.label}» ليس مسار صوت`);
+  }
+  const r = audioClipSchema.safeParse(merged);
+  if (!r.success) throw new EngineError("OUT_OF_RANGE", r.error.issues.slice(0, 3).map((i) => `${i.path.join(".")}: ${i.message}`).join("؛ "));
+  if (merged.duration <= 0) throw new EngineError("OUT_OF_RANGE", "مدة المقطع الصوتي يجب أن تكون موجبة");
+  return touch(p, { audioClips: p.audioClips.map((x) => (x.id === id ? { ...merged, start: round(snapToFrame(merged.start, p.fps || 30)) } : x)) });
+}
+
+export function splitAudioClip(p: ProjectState, id: string, atTime: number): { project: ProjectState; newClipId: string } {
+  const a = p.audioClips.find((x) => x.id === id);
+  if (!a) throw new EngineError("NOT_FOUND", `المقطع الصوتي غير موجود: ${id}`);
+  const rel = atTime - a.start;
+  if (!(rel > MIN_CLIP_SECONDS && rel < a.duration - MIN_CLIP_SECONDS)) throw new EngineError("OUT_OF_RANGE", `زمن التقسيم خارج المقطع الصوتي [${a.start}, ${round(a.start + a.duration)}]`);
+  const first: AudioClip = { ...a, duration: round(rel), fadeOut: undefined };
+  const second: AudioClip = { ...a, id: newId("aclip"), start: round(atTime), inPoint: round((a.inPoint ?? 0) + rel), duration: round(a.duration - rel), fadeIn: undefined };
+  const audioClips = p.audioClips.flatMap((x) => (x.id === a.id ? [first, second] : [x]));
+  return { project: touch(p, { audioClips }), newClipId: second.id };
+}
+
+export interface SnapResult {
+  time: number;
+  snapped: boolean;
+  to?: string;
+}
+
+/** نقاط الالتصاق: الصفر، رأس التشغيل، حدود كل المقاطع/الترجمات/النصوص. */
+export function snapPoints(p: ProjectState, extra: { playhead?: number } = {}): { time: number; label: string }[] {
+  const pts: { time: number; label: string }[] = [{ time: 0, label: "البداية" }];
+  if (extra.playhead !== undefined) pts.push({ time: extra.playhead, label: "رأس التشغيل" });
+  for (const c of exportClips(p)) {
+    pts.push({ time: c.start, label: `بداية ${c.id}` }, { time: round(c.start + clipDuration(c)), label: `نهاية ${c.id}` });
+  }
+  for (const a of p.audioClips) pts.push({ time: a.start, label: `بداية ${a.name || a.id}` }, { time: round(a.start + a.duration), label: `نهاية ${a.name || a.id}` });
+  for (const s of p.subtitles) pts.push({ time: s.start, label: "ترجمة" }, { time: s.end, label: "ترجمة" });
+  for (const t of p.textOverlays) pts.push({ time: t.start, label: "نص" }, { time: t.end, label: "نص" });
+  return pts;
+}
+
+/** يلصق زمناً بأقرب نقطة ضمن العتبة (بالثواني)، وإلا يقرّبه لشبكة الإطارات. */
+export function snapTime(p: ProjectState, t: number, opts: { threshold?: number; playhead?: number; exclude?: Set<number> } = {}): SnapResult {
+  const threshold = opts.threshold ?? 0.15;
+  let best: { time: number; label: string } | null = null;
+  for (const pt of snapPoints(p, { playhead: opts.playhead })) {
+    if (Math.abs(pt.time - t) <= threshold && (!best || Math.abs(pt.time - t) < Math.abs(best.time - t))) best = pt;
+  }
+  if (best) return { time: round(best.time), snapped: true, to: best.label };
+  return { time: round(snapToFrame(Math.max(0, t), p.fps || 30)), snapped: false };
 }

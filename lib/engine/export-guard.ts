@@ -14,22 +14,28 @@ export type ExportGuardResult =
  * مقاطع فيديو من أصل آخر غير الأصل الأساسي. يعمل فقط للمشاريع المُدارة على الخادم (لها `assets`)؛
  * مشاريع الواجهة بلا `assets` تأتي من فيديو مرفوع واحد (معرّفات اصطناعية مثل broll_0 مشتقة منه).
  */
-export function findForeignClips(project: ProjectState): VideoClip[] {
+export function findForeignClips(project: ProjectState, resolved?: Set<string>): VideoClip[] {
   const primary = project.assets?.find((a) => a.type === "video");
   if (!project.assets || !primary) return [];
-  return project.clips.filter((c) => c.kind !== "image" && c.assetId !== primary.id && c.assetId !== "main");
+  // أصول حُلّت مصادرها (مركِّب متعدد المصادر) لم تعد «أجنبية».
+  return project.clips.filter((c) => c.kind !== "image" && c.assetId !== primary.id && c.assetId !== "main" && !resolved?.has(c.assetId));
 }
 
 /** صوت إضافي غير مكتوم لا يضمّنه تصدير الواجهة (لا مسار رفع صوت بعد — F-12/F-13). */
-export function findLostAudio(project: ProjectState): string[] {
+export function findLostAudio(project: ProjectState, resolved?: Set<string>): string[] {
   const muted = new Set(project.tracks.filter((t) => t.muted).map((t) => t.id));
-  const names = project.audioClips.filter((a) => !muted.has(a.trackId)).map((a) => a.name || a.id);
-  if (project.musicId && names.length === 0) names.push(`موسيقى: ${project.musicId}`);
+  // مقاطع صوت حُلّ ملفها على الخادم (مرجع معتم) تدخل المخرَج ولا تُعدّ مفقودة.
+  const names = project.audioClips.filter((a) => !muted.has(a.trackId) && !resolved?.has(a.id)).map((a) => a.name || a.id);
+  const anyAudio = project.audioClips.some((a) => !muted.has(a.trackId));
+  if (project.musicId && names.length === 0 && !anyAudio) names.push(`موسيقى: ${project.musicId}`);
   return names;
 }
 
-export function checkExportable(project: ProjectState, opts: { acknowledgeAudioLoss?: boolean } = {}): ExportGuardResult {
-  const foreign = findForeignClips(project);
+export function checkExportable(
+  project: ProjectState,
+  opts: { acknowledgeAudioLoss?: boolean; resolvedAssets?: Set<string>; resolvedAudio?: Set<string> } = {}
+): ExportGuardResult {
+  const foreign = findForeignClips(project, opts.resolvedAssets);
   if (foreign.length > 0) {
     return {
       ok: false,
@@ -38,7 +44,7 @@ export function checkExportable(project: ProjectState, opts: { acknowledgeAudioL
       details: foreign.slice(0, 10).map((c) => `${c.id} (assetId=${c.assetId})`),
     };
   }
-  const lost = findLostAudio(project);
+  const lost = findLostAudio(project, opts.resolvedAudio);
   if (lost.length > 0 && !opts.acknowledgeAudioLoss) {
     return {
       ok: false,

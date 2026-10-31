@@ -13,43 +13,61 @@ const mk = (id: string, assetId: string, trackId: string, start: number, inP: nu
 });
 const track = (id: string): TimelineTrack => ({ id, kind: "video", label: id, height: 60, muted: false, locked: false });
 
-describe("KNOWN GAP G-1: single media source per export", () => {
-  it("clips from two different assets are cut from ONE input (assetId ignored)", () => {
+import type { SourceMap } from "@/lib/engine/render-plan";
+
+const SRC: SourceMap = {
+  assetA: { path: "/ws/a.mp4", kind: "video", hasAudio: true, duration: 20 },
+  assetB: { path: "/ws/b.mp4", kind: "video", hasAudio: true, duration: 20 },
+};
+const planOf = (p: ProjectState, sources?: SourceMap) =>
+  buildExportPlan({ sourcePath: "/ws/a.mp4", outputPath: "/ws/o.mp4", project: p, sources }, { allowNvenc: false });
+
+// المرحلة 3: الفجوات G-1..G-4 أُغلقت بالمركِّب (lib/engine/render-plan.ts + render-compile.ts).
+// المسار القديم (بلا sources) يبقى كما كان لمشاريع المصدر الواحد — التوصيف أدناه يثبت الاثنين.
+describe("G-1 FIXED: one -i per media source", () => {
+  it("clips from two assets use two inputs and index [k:v] by asset", () => {
     const p: ProjectState = { ...defaultProject("t"), duration: 20, tracks: [track("v1")], clips: [mk("c1", "assetA", "v1", 0, 0, 5), mk("c2", "assetB", "v1", 5, 0, 5)] };
-    const plan = buildExportPlan({ sourcePath: "/ws/a.mp4", outputPath: "/ws/o.mp4", project: p }, { allowNvenc: false });
-    expect(plan.args.filter((a) => a === "-i")).toHaveLength(1); // مدخل فيديو واحد فقط
+    const plan = planOf(p, SRC);
+    expect(plan.engine).toBe("compositor");
+    expect(plan.args.filter((a) => a === "-i")).toHaveLength(2);
     const fc = plan.args[plan.args.indexOf("-filter_complex") + 1];
-    expect((fc.match(/\[0:v\]/g) || []).length).toBeGreaterThanOrEqual(2); // المقطعان من [0:v] نفسه
+    expect(fc).toContain("[0:v]");
+    expect(fc).toContain("[1:v]");
+  });
+  it("legacy single-source behaviour is unchanged when no sources are supplied", () => {
+    const p: ProjectState = { ...defaultProject("t"), duration: 20, tracks: [track("v1")], clips: [mk("c1", "assetA", "v1", 0, 0, 5)] };
+    expect(planOf(p).engine).toBe("legacy");
     expect(buildSegments(p).every((s) => !("assetId" in s))).toBe(true);
   });
 });
 
-describe("KNOWN GAP G-2: multiple video tracks are concatenated, not composited", () => {
-  it("overlapping clips on two video tracks add up in duration instead of overlaying", () => {
-    const p: ProjectState = { ...defaultProject("t"), duration: 10, tracks: [track("v1"), track("v2")], clips: [mk("c1", "a", "v1", 0, 0, 10), mk("c2", "a", "v2", 0, 0, 10)] };
-    const plan = buildExportPlan({ sourcePath: "/ws/a.mp4", outputPath: "/ws/o.mp4", project: p }, { allowNvenc: false });
-    expect(plan.totalDuration).toBeCloseTo(20, 3); // 10s + 10s متتابعة، لا طبقتان متراكبتان
+describe("G-2 FIXED: multiple video tracks are composited", () => {
+  it("overlapping clips on two video tracks overlay; duration = longest layer, not the sum", () => {
+    const p: ProjectState = { ...defaultProject("t"), duration: 10, tracks: [track("v1"), track("v2")], clips: [mk("c1", "assetA", "v1", 0, 0, 10), mk("c2", "assetB", "v2", 0, 0, 10)] };
+    const plan = planOf(p, SRC);
+    expect(plan.totalDuration).toBeCloseTo(10, 3);
     const fc = plan.args[plan.args.indexOf("-filter_complex") + 1];
-    expect(fc).toContain("concat=n=2");
-    expect(fc).not.toMatch(/overlay=[^,;]*enable=/); // لا دمج مسارات (overlay يُستخدم للصور فقط)
+    expect(fc).toMatch(/overlay=[^;]*enable=/);
+    expect(fc).not.toContain("concat=n=2");
   });
 });
 
-describe("KNOWN GAP G-3: browser export route cannot mix audio clips (T-01: now refused unless acknowledged)", () => {
-  it("app/api/export/route.ts never passes audioInputs but is guarded by checkExportable (only the MCP job path mixes audio)", () => {
+describe("G-3 FIXED: audio clips with server files enter the export", () => {
+  it("export route resolves sources/audio refs and passes them to the renderer", () => {
     const route = readFileSync(path.join(process.cwd(), "app/api/export/route.ts"), "utf-8");
-    expect(route).not.toMatch(/audioInputs|audioClips/);
-    expect(route).toMatch(/checkExportable/);
-    const jobs = readFileSync(path.join(process.cwd(), "lib/engine/jobs.ts"), "utf-8");
-    expect(jobs).toMatch(/audioInputs: inputs/); // مسار MCP يمزج الصوت
-    expect(jobs).toMatch(/blob:/); // ويحذّر من روابط المتصفح
+    expect(route).toMatch(/buildSourceMap/);
+    expect(route).toMatch(/sources,/);
+    expect(route).toMatch(/checkExportable/); // الحجب يبقى لصوت بلا ملف
   });
 });
 
-describe("KNOWN GAP G-4: per-clip zoom/pan/smartZoom are display-only", () => {
-  it("lib/server/ffmpeg-export.ts never reads VideoClip.zoom/panX/panY/smartZoom", () => {
-    const src = readFileSync(path.join(process.cwd(), "lib/server/ffmpeg-export.ts"), "utf-8");
-    expect(src).not.toMatch(/\.(panX|panY|smartZoom)\b/);
-    expect(src).not.toMatch(/\bc\.zoom\b/);
+describe("G-4 FIXED: per-clip zoom/pan reach ffmpeg", () => {
+  it("render-plan carries zoom/panX/panY and the compiler emits a crop for them", () => {
+    const plan = (() => {
+      const p: ProjectState = { ...defaultProject("t"), tracks: [track("v1")], clips: [{ ...mk("c1", "assetA", "v1", 0, 0, 5), zoom: 1.5, panX: 0.2 }] };
+      return planOf(p, SRC);
+    })();
+    expect(plan.args[plan.args.indexOf("-filter_complex") + 1]).toMatch(/scale=iw\*1\.5:ih\*1\.5/);
   });
 });
+

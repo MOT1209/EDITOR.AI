@@ -11,6 +11,10 @@ import { maxUploadBytes } from "@/lib/server/validate";
 import { logger } from "@/lib/server/logger";
 
 export const UPLOAD_EXTS = [".mp4", ".mov", ".webm", ".mkv", ".avi", ".m4v"] as const;
+/** كل الامتدادات المسموحة لمسار الرفع العام (فيديو + صوت + صورة). */
+export const UPLOAD_AUDIO_EXTS = [".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".opus"] as const;
+export const UPLOAD_IMAGE_EXTS = [".jpg", ".jpeg", ".png", ".webp", ".gif"] as const;
+export const UPLOAD_ALL_EXTS = [...UPLOAD_EXTS, ...UPLOAD_AUDIO_EXTS, ...UPLOAD_IMAGE_EXTS] as const;
 
 /** رفض مبكر قبل قراءة الجسم إن أعلن Content-Length حجماً يتجاوز الحد. */
 export function rejectOversizedRequest(req: NextRequest): NextResponse | null {
@@ -26,10 +30,16 @@ export function safeUploadExt(name: string): string {
   return (UPLOAD_EXTS as readonly string[]).includes(e) ? e : ".mp4";
 }
 
+/** امتداد من القائمة الموسّعة (فيديو/صوت/صورة) أو null إن لم يُسمح به. */
+export function allowedMediaExt(name: string): string | null {
+  const e = path.extname(name).toLowerCase();
+  return (UPLOAD_ALL_EXTS as readonly string[]).includes(e) ? e : null;
+}
+
 export class QuotaError extends Error {}
 
 /** يحفظ File في UPLOAD_DIR باسم عشوائي. يرمي QuotaError عند تجاوز السقف. */
-export async function saveUpload(file: File): Promise<{ id: string; filename: string; filepath: string }> {
+export async function saveUpload(file: File, extOverride?: string): Promise<{ id: string; filename: string; filepath: string }> {
   await fsp.mkdir(UPLOAD_DIR, { recursive: true });
   void maybeCleanup();
   try {
@@ -39,7 +49,7 @@ export async function saveUpload(file: File): Promise<{ id: string; filename: st
     throw new QuotaError((e as Error).message);
   }
   const id = uuid();
-  const filename = `${id}${safeUploadExt(file.name)}`;
+  const filename = `${id}${extOverride ?? safeUploadExt(file.name)}`;
   const filepath = path.join(UPLOAD_DIR, filename);
   await pipeline(Readable.fromWeb(file.stream() as import("stream/web").ReadableStream), createWriteStream(filepath, { mode: 0o600 }));
   return { id, filename, filepath };

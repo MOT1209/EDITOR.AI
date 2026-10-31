@@ -23,6 +23,8 @@ export interface ExportJobStatus {
   status: "running" | "completed" | "failed" | "cancelled";
   progress: number;
   message?: string;
+  /** مشاكل خطة الرندر المهيكلة (عند فشل التحقق) لعرضها بدقة في الواجهة. */
+  issues?: RenderIssue[];
   result?: { path: string; size: number; format: string };
 }
 
@@ -162,155 +164,12 @@ export function hasNvenc(): boolean {
   return nvencCached;
 }
 
-// ffmpeg's subtitles filter chokes on a Windows drive-letter colon in an
-// absolute path no matter how it's escaped/quoted (tested: backslash-escape
-// and single-quote-wrap both fail with "Unable to parse original_size"). The
-// reliable workaround is to run ffmpeg with cwd set to the file's directory
-// and reference it by bare filename, avoiding the colon entirely.
-
-function assTimestamp(seconds: number): string {
-  const cs = Math.max(0, Math.round(seconds * 100));
-  const h = Math.floor(cs / 360000);
-  const m = Math.floor((cs % 360000) / 6000);
-  const s = Math.floor((cs % 6000) / 100);
-  const csRem = cs % 100;
-  const pad = (n: number, len = 2) => String(n).padStart(len, "0");
-  return `${h}:${pad(m)}:${pad(s)}.${pad(csRem)}`;
-}
-
-// TextOverlay.color is a CSS "#RRGGBB" hex; ASS override tags use "&HBBGGRR&"
-// (reversed byte order, no leading #).
-function cssColorToAssBgr(hex: string): string {
-  const m = /^#?([0-9a-fA-F]{6})$/.exec(hex || "");
-  if (!m) return "FFFFFF";
-  const [r, g, b] = [m[1].slice(0, 2), m[1].slice(2, 4), m[1].slice(4, 6)];
-  return `${b}${g}${r}`.toUpperCase();
-}
-
-const ALIGN_CODE: Record<TextOverlay["position"], number> = { bottom: 2, center: 5, top: 8 };
-
-function assAnimationTag(animation: TextOverlay["animation"]): string {
-  if (animation === "fade") return "\\fad(300,300)";
-  if (animation === "pop") return "\\t(0,200,\\fscx115\\fscy115)\\t(200,400,\\fscx100\\fscy100)";
-  return "";
-}
-
-// Regular timed subtitles use a single plain default style (bottom-center) —
-// the same look the old plain-.srt rendering produced. Text overlays get an
-// inline override tag per line for position/font/size/color, so no per-item
-// named ASS style is needed.
-export function buildAss(
-  subtitles: SubtitleCue[],
-  textOverlays: TextOverlay[],
-  width: number,
-  height: number
-): string {
-  const header = [
-    "[Script Info]",
-    "ScriptType: v4.00+",
-    `PlayResX: ${width}`,
-    `PlayResY: ${height}`,
-    "",
-    "[V4+ Styles]",
-    "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-    "Style: Default,Arial,44,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,1,2,20,20,30,1",
-    "",
-    "[Events]",
-    "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
-  ].join("\n");
-
-  const subtitleLines = subtitles.map(
-    (c) => `Dialogue: 0,${assTimestamp(c.start)},${assTimestamp(c.end)},Default,,0,0,0,,${c.text.replace(/\n/g, "\\N")}`
-  );
-
-  const overlayLines = textOverlays.map((t) => {
-    const align = ALIGN_CODE[t.position] ?? 5;
-    const bgr = cssColorToAssBgr(t.color);
-    const tags = `{\\an${align}\\fs${t.fontSize}\\c&H${bgr}&${assAnimationTag(t.animation)}}`;
-    return `Dialogue: 1,${assTimestamp(t.start)},${assTimestamp(t.end)},Default,,0,0,0,,${tags}${t.text.replace(/\n/g, "\\N")}`;
-  });
-
-  return [header, ...subtitleLines, ...overlayLines].join("\n") + "\n";
-}
-
-const RESOLUTION_SIZES: Record<string, Record<ProjectAspect, [number, number]>> = {
-  "720p": { "16:9": [1280, 720], "9:16": [720, 1280], "1:1": [720, 720], "4:5": [720, 900] },
-  "1080p": { "16:9": [1920, 1080], "9:16": [1080, 1920], "1:1": [1080, 1080], "4:5": [1080, 1350] },
-  "4k": { "16:9": [3840, 2160], "9:16": [2160, 3840], "1:1": [2160, 2160], "4:5": [2160, 2700] },
-};
-
-export function resolveOutputSize(resolution: string, aspect: ProjectAspect): [number, number] {
-  return RESOLUTION_SIZES[resolution]?.[aspect] || RESOLUTION_SIZES["1080p"]["16:9"];
-}
-
-const QUALITY_CRF: Record<string, { crf: number; preset: string }> = {
-  draft: { crf: 32, preset: "veryfast" },
-  standard: { crf: 26, preset: "fast" },
-  high: { crf: 20, preset: "medium" },
-  ultra: { crf: 16, preset: "slow" },
-};
-
-// Rough approximations of the editor's CSS preview filters (components/editor/Editor.tsx
-// COLOR_FILTERS), expressed as ffmpeg filter chains. Not pixel-identical to the CSS
-// preview — good enough for a first real export, refine later if needed.
-const COLOR_FILTER_FFMPEG: Record<string, string> = {
-  none: "",
-  cinematic: "eq=contrast=1.1:saturation=1.15:brightness=-0.03",
-  warm: "eq=saturation=1.25:gamma_r=1.05:gamma_b=0.95",
-  cool: "eq=saturation=0.9:brightness=0.03,hue=h=12",
-  vhs: "eq=contrast=1.2:saturation=0.85,hue=h=5",
-  bw: "hue=s=0",
-  vivid: "eq=saturation=1.6:contrast=1.1",
-  dreamy: "eq=brightness=0.08:saturation=1.15,gblur=sigma=1.2",
-};
-
-// Maps EFFECTS_LIBRARY ids (lib/mockAi.ts) to real per-segment ffmpeg filter
-// chains, given the segment's duration (seconds) and output canvas size.
-// fade/zoom/color/glitch/shake are high-fidelity; light-leak is a stylized
-// brightness-pulse approximation (documented — still a real, dynamic, visible
-// effect, just not a literal light-leak texture since that needs a second
-// blended input source, which is future work).
-const EFFECT_FFMPEG: Record<string, (dur: number, w: number, h: number) => string | null> = {
-  fx_fade: (dur) =>
-    dur > 1
-      ? `fade=t=in:st=0:d=0.5,fade=t=out:st=${Math.max(0.5, dur - 0.5).toFixed(3)}:d=0.5`
-      : null,
-  fx_zoom_punch: (_dur, w, h) => `zoompan=z='min(1+0.0025*on,1.3)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${w}x${h}`,
-  fx_kenburns: (_dur, w, h) => `zoompan=z='min(1+0.0006*on,1.15)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${w}x${h}`,
-  fx_zoom_blur: (_dur, w, h) => `zoompan=z='min(1+0.0015*on,1.2)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${w}x${h},gblur=sigma=1.5`,
-  fx_shake: () => "crop=iw-24:ih-24:x='12+8*sin(2*PI*t*5)':y='12+6*cos(2*PI*t*7)'",
-  fx_glitch: () => "rgbashift=rh=6:bv=-6:edge=smear",
-  fx_light_leak: () => "eq=eval=frame:brightness='0.06*sin(2*PI*t*0.4)':saturation=1.1",
-  fx_warm: () => COLOR_FILTER_FFMPEG.warm,
-  fx_cinematic: () => COLOR_FILTER_FFMPEG.cinematic,
-  fx_vhs: () => COLOR_FILTER_FFMPEG.vhs,
-  fx_cool: () => COLOR_FILTER_FFMPEG.cool,
-  // fx_slide_l is handled structurally in buildFilterComplex (xfade between
-  // segments), not as a per-segment filter — it has no entry here.
-};
-
-function buildEffectChain(effectIds: string[], dur: number, w: number, h: number): string[] {
-  const chain: string[] = [];
-  for (const id of effectIds) {
-    const build = EFFECT_FFMPEG[id];
-    if (!build) continue;
-    const filter = build(dur, w, h);
-    if (filter) chain.push(filter);
-  }
-  return chain;
-}
-
-const FORMAT_CODEC: Record<string, { video: string; audio: string; extraArgs: string[] }> = {
-  mp4: { video: "libx264", audio: "aac", extraArgs: ["-pix_fmt", "yuv420p", "-movflags", "+faststart"] },
-  mov: { video: "libx264", audio: "aac", extraArgs: ["-pix_fmt", "yuv420p"] },
-  mkv: { video: "libx264", audio: "aac", extraArgs: ["-pix_fmt", "yuv420p"] },
-  webm: { video: "libvpx-vp9", audio: "libopus", extraArgs: [] },
-};
-
-// Speed changes beyond this range would need chained atempo filters; clamp for v1.
-function clampSpeed(speed: number): number {
-  return Math.min(2, Math.max(0.5, speed || 1));
-}
+export { buildAss } from "@/lib/engine/ass";
+export { resolveOutputSize } from "@/lib/engine/render-presets";
+import { COLOR_FILTER_FFMPEG, EFFECT_FFMPEG, QUALITY_CRF, FORMAT_CODEC, buildEffectChain, clampSpeed, resolveOutputSize } from "@/lib/engine/render-presets";
+import { buildAss } from "@/lib/engine/ass";
+import { buildRenderPlan, needsCompositor, type RenderIssue, type SourceMap } from "@/lib/engine/render-plan";
+import { compileRenderPlan } from "@/lib/engine/render-compile";
 
 export interface AudioInput {
   /** ملف صوت على الخادم (مسار مطلق مُتحقَّق منه مسبقاً). */
@@ -343,6 +202,23 @@ export interface ExportRequest {
   encoderOverride?: { preset: string; crf: number };
   /** هل للمصدر مسار صوت؟ (افتراضي true — عند false يُولَّد صمت). */
   sourceHasAudio?: boolean;
+  /**
+   * مصادر متعددة (assetId → ملف). عند وجودها واحتياج المشروع للمركِّب (مسارات/مصادر
+   * متعددة أو خصائص طبقات) يُستخدم render-plan/render-compile بدل المسار القديم.
+   */
+  sources?: SourceMap;
+  /** فرض المركِّب حتى لمشروع بسيط (للاختبار). */
+  forceCompositor?: boolean;
+  /** اعتبار الصوت المفقود تحذيراً لا خطأ (إقرار المستخدم). */
+  allowMissingAudio?: boolean;
+}
+
+/** خطة رندر غير صالحة: تحمل المشاكل المهيكلة لتُعرض للمستخدم. */
+export class RenderPlanError extends Error {
+  constructor(public issues: RenderIssue[]) {
+    super(`خطة الرندر غير صالحة: ${issues.filter((i) => i.severity === "error").map((i) => i.message).join("؛ ")}`);
+    this.name = "RenderPlanError";
+  }
 }
 
 interface Segment {
@@ -589,6 +465,28 @@ export interface ExportPlan {
   height: number;
   segmentCount: number;
   useNvenc: boolean;
+  /** "legacy" = لصق تتابعي من مصدر واحد؛ "compositor" = طبقات متعددة المسارات/المصادر. */
+  engine?: "legacy" | "compositor";
+  /** مشاكل الخطة (تحذيرات) — الأخطاء ترمي RenderPlanError. */
+  issues?: RenderIssue[];
+}
+
+function buildCompositorPlan(req: Omit<ExportRequest, "onProgress" | "signal">, allowNvenc: boolean): ExportPlan {
+  const { project, range } = req;
+  const plan = buildRenderPlan(project, req.sources!, { range, size: req.size, allowMissingAudio: req.allowMissingAudio });
+  if (!plan.ok) throw new RenderPlanError(plan.issues);
+  const codec = FORMAT_CODEC[project.format] || FORMAT_CODEC.mp4;
+  const useNvenc = allowNvenc && codec.video === "libx264" && !req.encoderOverride && hasNvenc();
+  const compiled = compileRenderPlan(plan, req.sources!, {
+    outputPath: req.outputPath,
+    format: project.format,
+    quality: project.quality,
+    encoderOverride: req.encoderOverride,
+    useNvenc,
+    videoStabilize: req.videoStabilize,
+    gradingFilter: colorGradingFilter(req.colorGrading ?? 0.5),
+  });
+  return { ...compiled, useNvenc, engine: "compositor", issues: plan.issues };
 }
 
 /**
@@ -597,6 +495,9 @@ export interface ExportPlan {
  */
 export function buildExportPlan(req: Omit<ExportRequest, "onProgress" | "signal">, opts: { allowNvenc?: boolean } = {}): ExportPlan {
   const { sourcePath, outputPath, project, videoStabilize, colorGrading, range } = req;
+  if (req.sources && (req.forceCompositor || needsCompositor(project, req.sources))) {
+    return buildCompositorPlan(req, opts.allowNvenc ?? true);
+  }
   let segments = buildSegments(project);
   let imageOverlays = buildImageOverlays(project);
   let subtitles = project.subtitles;
@@ -679,7 +580,7 @@ export function buildExportPlan(req: Omit<ExportRequest, "onProgress" | "signal"
     outputPath,
   ];
 
-  return { args, ass, assFilename, totalDuration, width, height, segmentCount: segments.length, useNvenc };
+  return { args, ass, assFilename, totalDuration, width, height, segmentCount: segments.length, useNvenc, engine: "legacy", issues: [] };
 }
 
 export class ExportCancelledError extends Error {
