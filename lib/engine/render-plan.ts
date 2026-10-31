@@ -141,7 +141,8 @@ export function needsCompositor(p: ProjectState, sources?: SourceMap): boolean {
   if (live.some((c) => (c.zoom ?? 1) > 1.0001 || Math.abs(c.panX ?? 0) > 1e-4 || Math.abs(c.panY ?? 0) > 1e-4 || (c.effects ?? []).some((e) => e !== "fx_slide_l"))) return true;
   const assetIds = new Set(live.filter((c) => c.kind !== "image").map((c) => c.assetId));
   if (assetIds.size > 1 && (p.assets || (sources && [...assetIds].every((a) => sources[a])))) return true;
-  if (p.audioClips.some((a) => a.ref || a.fadeIn || a.fadeOut || a.inPoint)) return true;
+  // صوت مرفوع بسيط (ref فقط) يمزجه المسار القديم؛ المركِّب لما يتجاوزه (تلاشي/نقطة دخول/إعدادات مزج).
+  if (p.audioClips.some((a) => a.fadeIn || a.fadeOut || a.inPoint)) return true;
   if (p.audioMix) return true;
   return false;
 }

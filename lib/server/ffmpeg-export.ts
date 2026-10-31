@@ -202,8 +202,10 @@ export interface ExportRequest {
   encoderOverride?: { preset: string; crf: number };
   /** هل للمصدر مسار صوت؟ (افتراضي true — عند false يُولَّد صمت). */
   sourceHasAudio?: boolean;
+  /** مصادر فيديو إضافية (T-02، المسار القديم): مقاطع assetId المطابق تُقصّ منها بدل المصدر الأساسي. */
+  extraSources?: ExportSource[];
   /**
-   * مصادر متعددة (assetId → ملف). عند وجودها واحتياج المشروع للمركِّب (مسارات/مصادر
+   * مصادر متعددة (assetId → ملف) للمركِّب. عند وجودها واحتياج المشروع للمركِّب (مسارات/مصادر
    * متعددة أو خصائص طبقات) يُستخدم render-plan/render-compile بدل المسار القديم.
    */
   sources?: SourceMap;
@@ -211,6 +213,13 @@ export interface ExportRequest {
   forceCompositor?: boolean;
   /** اعتبار الصوت المفقود تحذيراً لا خطأ (إقرار المستخدم). */
   allowMissingAudio?: boolean;
+}
+
+/** مصدر فيديو إضافي يُضاف كمدخل `-i` ويُربط بمقاطع assetId. */
+export interface ExportSource {
+  assetId: string;
+  path: string;
+  hasAudio: boolean;
 }
 
 /** خطة رندر غير صالحة: تحمل المشاكل المهيكلة لتُعرض للمستخدم. */
@@ -222,6 +231,12 @@ export class RenderPlanError extends Error {
 }
 
 interface Segment {
+  /** معرّف الأصل الذي يُقصّ منه المقطع. */
+  assetId?: string;
+  /** فهرس مدخل ffmpeg (0 = المصدر الأساسي). يُعيَّن في buildExportPlan. */
+  sourceIndex?: number;
+  /** تأطير ذكي (T-15): تكبير ≥1 وإزاحة المركز كنسبة من الإطار (-0.5..0.5). يُطبَّق فقط إن smartZoom=true. */
+  framing?: { zoom: number; panX: number; panY: number };
   inPoint: number;
   outPoint: number;
   speed: number;
@@ -233,6 +248,17 @@ export interface ImageOverlay {
   path: string;
   start: number;
   end: number;
+}
+
+/** تأطير المقطع من zoom/panX/panY عند smartZoom فقط؛ null إن لا أثر (zoom≈1 وبلا إزاحة). */
+export function clipFraming(c: Pick<VideoClip, "smartZoom" | "zoom" | "panX" | "panY">): Segment["framing"] | undefined {
+  if (!c.smartZoom) return undefined;
+  const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Number.isFinite(n) ? n : 0));
+  const zoom = clamp(c.zoom, 1, 4);
+  const panX = clamp(c.panX, -0.5, 0.5);
+  const panY = clamp(c.panY, -0.5, 0.5);
+  if (zoom < 1.001 && Math.abs(panX) < 0.001 && Math.abs(panY) < 0.001) return undefined;
+  return { zoom: r3(zoom), panX: r3(panX), panY: r3(panY) };
 }
 
 export function buildSegments(project: ProjectState): Segment[] {
@@ -252,6 +278,8 @@ export function buildSegments(project: ProjectState): Segment[] {
   }
 
   return clips.map((c: VideoClip) => ({
+    assetId: c.assetId,
+    framing: clipFraming(c),
     inPoint: Math.max(0, c.inPoint),
     outPoint: c.outPoint > c.inPoint ? c.outPoint : c.inPoint + c.duration * (c.speed || 1),
     speed: clampSpeed(c.speed),
@@ -321,6 +349,8 @@ interface FilterOptions {
   videoStabilize?: boolean;
   gradingFilter?: string | null;
   sourceHasAudio: boolean;
+  /** مصادر إضافية بعد الأساسي (مدخلات 1..k)، ثم صور، ثم صوت. */
+  extraSources: ExportSource[];
 }
 
 function buildFilterComplex(o: FilterOptions): { filterComplex: string; audioLabel: string } {
@@ -331,19 +361,28 @@ function buildFilterComplex(o: FilterOptions): { filterComplex: string; audioLab
   segments.forEach((seg, i) => {
     const colorExpr = COLOR_FILTER_FFMPEG[seg.colorFilter || "none"] || "";
     const effectChain = buildEffectChain(effects, durations[i], width, height);
+    const fr = seg.framing;
+    // قصّ نافذة بحجم الإطار/zoom حول المركز المُزاح (مقيّدة داخل الإطار) قبل التوحيد إلى أبعاد الإخراج.
+    const framingCrop = fr
+      ? [`crop=w=iw/${fr.zoom}:h=ih/${fr.zoom}:x='min(max(iw/2+(${fr.panX})*iw-iw/${fr.zoom}/2,0),iw-iw/${fr.zoom})':y='min(max(ih/2+(${fr.panY})*ih-ih/${fr.zoom}/2,0),ih-ih/${fr.zoom})'`]
+      : [];
     const videoChain = [
       `trim=start=${seg.inPoint}:end=${seg.outPoint}`,
       "setpts=(PTS-STARTPTS)" + (seg.speed !== 1 ? `/${seg.speed}` : ""),
+      ...framingCrop,
       // توحيد الأبعاد قبل الدمج: concat/xfade يفشلان مع مقاطع بأبعاد مختلفة (zoompan يغيّرها).
       `scale=${width}:${height}:force_original_aspect_ratio=increase`,
       `crop=${width}:${height}`,
       "setsar=1",
+      ...(o.extraSources.length > 0 ? [`fps=${fps}`] : []),
       ...(colorExpr ? [colorExpr] : []),
       ...effectChain,
     ].join(",");
-    parts.push(`[0:v]${videoChain}[v${i}]`);
+    const srcIdx = seg.sourceIndex ?? 0;
+    parts.push(`[${srcIdx}:v]${videoChain}[v${i}]`);
 
-    if (o.sourceHasAudio) {
+    const srcHasAudio = srcIdx === 0 ? o.sourceHasAudio : (o.extraSources[srcIdx - 1]?.hasAudio ?? false);
+    if (srcHasAudio) {
       const audioChain = [
         `atrim=start=${seg.inPoint}:end=${seg.outPoint}`,
         "asetpts=PTS-STARTPTS",
@@ -351,7 +390,7 @@ function buildFilterComplex(o: FilterOptions): { filterComplex: string; audioLab
         ...(seg.volume !== 1 ? [`volume=${seg.volume}`] : []),
         "aformat=sample_rates=48000:channel_layouts=stereo",
       ].join(",");
-      parts.push(`[0:a]${audioChain}[a${i}]`);
+      parts.push(`[${srcIdx}:a]${audioChain}[a${i}]`);
     } else {
       parts.push(`anullsrc=r=48000:cl=stereo,atrim=duration=${durations[i].toFixed(3)}[a${i}]`);
     }
@@ -389,7 +428,7 @@ function buildFilterComplex(o: FilterOptions): { filterComplex: string; audioLab
   // Image overlays are extra -i inputs, indexed 1..N (0 is the main source).
   // Each is only visible during its own [start, end] window via `enable`.
   imageOverlays.forEach((ov, i) => {
-    const inputIndex = i + 1;
+    const inputIndex = i + 1 + o.extraSources.length;
     const scaledLabel = `imgsc${i}`;
     parts.push(
       `[${inputIndex}:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}[${scaledLabel}]`
@@ -503,6 +542,10 @@ export function buildExportPlan(req: Omit<ExportRequest, "onProgress" | "signal"
   let subtitles = project.subtitles;
   let textOverlays = project.textOverlays;
   let audioInputs = (req.audioInputs ?? []).slice();
+  const extraSources = req.extraSources ?? [];
+  // ربط كل مقطع بمدخله حسب assetId (غير المطابق ⇒ المصدر الأساسي 0).
+  const indexByAsset = new Map(extraSources.map((s, k) => [s.assetId, k + 1] as const));
+  segments = segments.map((s) => ({ ...s, sourceIndex: (s.assetId && indexByAsset.get(s.assetId)) || 0 }));
   if (range) {
     segments = applyRange(segments, range);
     imageOverlays = shiftTimed(imageOverlays, range);
@@ -529,7 +572,7 @@ export function buildExportPlan(req: Omit<ExportRequest, "onProgress" | "signal"
     effects: project.effects,
     imageOverlays,
     audioInputs,
-    audioInputOffset: 1 + imageOverlays.length,
+    audioInputOffset: 1 + extraSources.length + imageOverlays.length,
     subtitlesFilename: assFilename,
     width,
     height,
@@ -537,6 +580,7 @@ export function buildExportPlan(req: Omit<ExportRequest, "onProgress" | "signal"
     videoStabilize,
     gradingFilter,
     sourceHasAudio: req.sourceHasAudio ?? true,
+    extraSources,
   });
 
   const totalDuration = Math.max(
@@ -548,6 +592,7 @@ export function buildExportPlan(req: Omit<ExportRequest, "onProgress" | "signal"
   const args = [
     "-y",
     "-i", sourcePath,
+    ...extraSources.flatMap((s) => ["-i", s.path]),
     // -loop 1 turns a still image into an unbounded video source (otherwise it
     // supplies exactly one frame and the overlay vanishes after a frame).
     ...imageOverlays.flatMap((ov) => ["-loop", "1", "-i", ov.path]),

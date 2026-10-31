@@ -92,7 +92,7 @@ export interface AudioClip {
   url: string;
   volume: number;
   kind: "music" | "voiceover" | "dub" | "sfx";
-  /** مرجع وسائط معتم على الخادم (upload:<uuid>…) — شرط دخول الصوت في التصدير. */
+  /** مرجع وسائط معتم على الخادم (audio:<uuid>.<ext> أو upload:<uuid>) — شرط دخول الصوت في التصدير (T-13). */
   ref?: string;
   /** نقطة البداية داخل ملف الصوت (ثوانٍ). */
   inPoint?: number;

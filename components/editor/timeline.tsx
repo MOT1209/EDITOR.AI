@@ -541,7 +541,7 @@ export function Timeline({
       onClick={onClick}
       disabled={disabled}
       title={title}
-      aria-label={title}
+      aria-label={title.replace(/\s*\([^)]*\)\s*$/, "")}
       aria-pressed={active}
       className={`p-1 rounded ${active ? "bg-brand/20 text-brand-glow" : "text-zinc-500 hover:text-zinc-300"} disabled:opacity-30 disabled:hover:text-zinc-500`}
     >

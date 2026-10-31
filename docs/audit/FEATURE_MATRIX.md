@@ -11,10 +11,10 @@
 | عمليات التايملاين (قص/تقسيم/نقل/حذف/تراجع) | ✅ | V: 16 اختبار وحدة + MCP e2e | `lib/engine/timeline.ts` | واجهة المستخدم: NR | — |
 | تايملاين متعدد المسارات | ✅ (المرحلة 3/4) | V: `render.integration.test.ts` + Playwright يدوي | `render-plan.ts`, `timeline.tsx` | يُركَّب عند التصدير؛ المعاينة الحية تقريبية (المرندرة مرجعية) | F-11 |
 | **تصدير متعدد المسارات (تركيب)** | ✅ (المرحلة 3) | V: اختبار PIP بالبكسل | `render-compile.ts` | المسار القديم باقٍ لمشاريع المصدر الواحد | F-11 |
-| **تصدير من عدة مصادر وسائط** | ✅ (المرحلة 3) | V: ffmpeg حقيقي | `render-sources.ts` | مصدر مفقود = خطأ صريح | F-10 |
+| **تصدير من عدة مصادر وسائط** | ✅ (المرحلة 3) | V: ffmpeg حقيقي | `render-sources.ts` + `extraSources` (المسار القديم) | مصدر مفقود = خطأ صريح؛ المسار القديم مغطى بـ `tests/export-multisource.test.ts` | F-10 |
 | صوت إضافي (موسيقى/تعليق) في تصدير الواجهة | ✅ (المرحلة 3/4) | V: volumedetect | `/api/assets/upload`, `Inspector` | الصوت بلا ref يُحجب (إقرار صريح) | F-12 |
 | صوت إضافي في تصدير MCP (أصول الخادم) | ✅ | V: اختبار MCP + `jobs.ts` | `lib/engine/jobs.ts` | `blob:` يُرفض بتحذير | — |
-| معالجة audio blob | ✅ (المرحلة 4) | V: زر «رفع للخادم» في الخصائص | `inspector.tsx` | — | F-13 |
+| معالجة audio blob | ✅ (المرحلة 4) | V: زر «رفع للخادم» في الخصائص | `inspector.tsx` + `lib/client/audio-upload.ts` | رفع تلقائي قبل التصدير (`/api/assets/audio`، مراجع `audio:`) ويدويّاً (`upload:`) — كلاهما يُحلّ بـ `resolveMediaRef`؛ `tests/export-audio.test.ts` | F-13 |
 | تكبير/تحريك (zoom/pan/smartZoom) للمقطع | ✅ (المرحلة 3) | V: اختبار خطة | `render-compile.ts` | smartZoom كقيم ثابتة (لا مفاتيح) | F-14 |
 | تأثيرات على مستوى المشروع | ✅ | V: `ffmpeg-export.test.ts` (8) | `buildEffectChain` | `clip.effects` للعرض فقط | F-15 |
 | ترجمات/نصوص (ASS) | ✅ | V: اختبارات بانٍ + e2e | `buildAss` | — | — |
@@ -42,4 +42,5 @@
 | مصادقة/مستخدمون/أدوار | ❌ → ◐ | V: رمز واحد مشترك | `lib/server/auth.ts` | لا مستخدمين ولا أدوار | SEC-02 |
 | تسجيل مهيكل | ◐ | V: tests/security | `lib/server/logger.ts` | مطبّق على المسارات الجديدة/pipeline؛ باقي `console` في `mcp/stdio.ts` مقصود | D-05 |
 | ترويسات أمان | ✅ | V: curl/اختبار | `next.config.js` | CSP كاملة مؤجلة | SEC-12 |
-| CI | ✅ | C (YAML)؛ NT على GitHub | `.github/workflows/ci.yml` | لا Playwright | F-16 |
+| CI | ✅ | C (YAML)؛ NT على GitHub | `.github/workflows/ci.yml` | يشمل Playwright smoke (T-16) | F-16 |
+| دخان الواجهة (متصفح حقيقي) | ✅ | V: `pnpm ui:smoke` — 9 فحوص: رفع، تقسيم، تراجع/إعادة، إزالة صمت، تصدير، ffprobe، لا أخطاء console | `scripts/ui-smoke.mjs` | لا يغطي رفع الصوت من الواجهة ولا تأكيد فقدان الصوت | F-16 |

@@ -37,7 +37,7 @@ describe("G-1 FIXED: one -i per media source", () => {
   it("legacy single-source behaviour is unchanged when no sources are supplied", () => {
     const p: ProjectState = { ...defaultProject("t"), duration: 20, tracks: [track("v1")], clips: [mk("c1", "assetA", "v1", 0, 0, 5)] };
     expect(planOf(p).engine).toBe("legacy");
-    expect(buildSegments(p).every((s) => !("assetId" in s))).toBe(true);
+    expect(buildSegments(p).every((s) => s.assetId === "assetA")).toBe(true); // T-02 (المسار القديم): كل مقطع يحمل أصله
   });
 });
 

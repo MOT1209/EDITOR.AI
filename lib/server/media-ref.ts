@@ -13,10 +13,13 @@ import { assetPath, findAsset, getProject } from "@/lib/engine/store";
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const UPLOAD_RE = new RegExp(`^upload:(${UUID})$`);
 const PROJECT_RE = /^project:([A-Za-z0-9_-]{1,80}):([A-Za-z0-9_-]{1,80})$/;
+export const AUDIO_DIR = path.join(ASSETS_DIR, "audio");
+const AUDIO_RE = new RegExp(`^audio:(${UUID}\\.(?:mp3|wav|m4a|aac|ogg|flac|opus|webm))$`);
 const ASSET_RE = new RegExp(`^asset:(${UUID}\\.(?:jpg|jpeg|png|webp|gif))$`);
 
 export const uploadRef = (id: string) => `upload:${id}`;
 export const projectRef = (projectId: string, assetId: string) => `project:${projectId}:${assetId}`;
+export const audioRef = (filename: string) => `audio:${filename}`;
 export const assetRef = (filename: string) => `asset:${filename}`;
 
 /** يحلّ مرجع فيديو (upload:/project:) إلى مسار آمن، أو null. */
@@ -58,12 +61,21 @@ const AUDIO_SET = new Set([".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".op
 const IMAGE_SET = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
 export const kindOfExt = (ext: string): MediaKind => (AUDIO_SET.has(ext) ? "audio" : IMAGE_SET.has(ext) ? "image" : "video");
 
+/** مرجع صوت audio:<uuid>.<ext> → مسار داخل AUDIO_DIR، أو null. */
+export function resolveAudioRef(ref: unknown): string | null {
+  if (typeof ref !== "string") return null;
+  const m = AUDIO_RE.exec(ref);
+  return m ? path.join(AUDIO_DIR, m[1]) : null;
+}
+
 /**
  * يحلّ أي مرجع معتم (فيديو/صوت/صورة) إلى مسار آمن + نوعه، أو null.
- * upload:<uuid> قد يكون بأي امتداد من القائمة البيضاء؛ project:/asset: كما سبق.
+ * upload:<uuid> بأي امتداد من القائمة البيضاء؛ audio:<uuid>.<ext> (مسار /api/assets/audio)؛ project:/asset: كما سبق.
  */
 export async function resolveMediaRef(ref: unknown): Promise<{ path: string; kind: MediaKind } | null> {
   if (typeof ref !== "string") return null;
+  const au = resolveAudioRef(ref);
+  if (au) return existsSync(au) ? { path: au, kind: "audio" } : null;
   const u = UPLOAD_RE.exec(ref);
   if (u) {
     for (const ext of UPLOAD_ALL_EXTS) {

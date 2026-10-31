@@ -86,6 +86,7 @@ import {
   formatBytes,
 } from "@/lib/project";
 import { findLostAudio } from "@/lib/engine/export-guard";
+import { ensureAudioRefs } from "@/lib/client/audio-upload";
 import { EFFECTS_LIBRARY, MUSIC_LIBRARY, aiJobs, generateToneTrack } from "@/lib/mockAi";
 import { apiConfig, apiFetch, SIMULATED_EVENT } from "@/lib/api-config";
 import { parseProject } from "@/lib/engine/project-schema";
@@ -1322,12 +1323,14 @@ export default function Editor() {
     const refs = buildSourceRefs();
     const hasLibrary = Object.keys(refs).length > 0;
     if ((!state.videoMeta || !state.videoFile) && !hasLibrary) return notify("warning", "ارفع فيديو أولاً");
-    // لا انحراف صامت (T-01): صوت المتصفح (blob) لا يصل للمخرَج — مقاطع الصوت المرفوعة للخادم (ref) تدخل.
-    const withRef = new Set(state.project.audioClips.filter((a) => a.ref).map((a) => a.id));
-    const lostAudio = findLostAudio(state.project, withRef);
+    // لا انحراف صامت (T-01): ما تسمعه في المعاينة من موسيقى/تعليق المتصفح لا يصل للمخرَج إلا إن رُفع للخادم.
+    // T-13: نرفع صوت التايملاين (blob/data) كأصول خادم أولاً ليُمزج فعلاً؛ ما يفشل رفعه يبقى «مفقوداً» ويتطلب إقراراً.
+    const { project: exportProject } = await ensureAudioRefs(state.project);
+    const withRef = new Set(exportProject.audioClips.filter((a) => a.ref).map((a) => a.id));
+    const lostAudio = findLostAudio(exportProject, withRef);
     if (lostAudio.length > 0) {
       const ok = window.confirm(
-        `الصوت التالي لم يُرفع للخادم فلن يدخل الملف (${lostAudio.slice(0, 3).join("، ")}${lostAudio.length > 3 ? "…" : ""}).\nحدّده من التايملاين واضغط «رفع للخادم» في الخصائص، أو تابع بدونه. هل تتابع بدونه؟`
+        `بعض الصوت المضاف تعذّر رفعه ولن يدخل الملف المصدَّر (${lostAudio.slice(0, 3).join("، ")}${lostAudio.length > 3 ? "…" : ""}).\nالمخرَج سيحوي صوت الفيديو الأصلي فقط. هل تريد المتابعة؟`
       );
       if (!ok) return;
     }
@@ -1351,8 +1354,8 @@ export default function Editor() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...(sourcePath ? { sourceRef: sourcePath } : {}),
-          sources: refs,
-          project: state.project,
+          sources: Object.entries(refs).map(([assetId, ref]) => ({ assetId, ref })),
+          project: exportProject,
           videoStabilize,
           colorGrading,
           acknowledgeAudioLoss: lostAudio.length > 0,

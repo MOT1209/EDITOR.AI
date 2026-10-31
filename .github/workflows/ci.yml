@@ -79,6 +79,14 @@ jobs:
           pnpm start -p 3000 &
           npx --yes wait-on -t 60000 http://localhost:3000
           pnpm e2e:ui
+      # دخان الواجهة (T-16): متصفح حقيقي: رفع → تقسيم → تراجع → إزالة صمت → تصدير → ffprobe.
+      - name: تثبيت Chromium لاختبار الواجهة
+        run: npx playwright install --with-deps chromium
+      - name: دخان الواجهة (Playwright)
+        run: |
+          PORT=3100 npx next start -p 3100 &
+          for i in $(seq 1 60); do curl -sf http://localhost:3100 >/dev/null && break; sleep 1; done
+          BASE_URL=http://localhost:3100 pnpm ui:smoke
 
   secrets:
     name: حارس الأسرار (gitleaks)

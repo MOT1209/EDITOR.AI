@@ -12,7 +12,8 @@
     "mcp:e2e": "tsx --tsconfig tsconfig.json scripts/mcp-e2e.ts",
     "ext": "tsx --tsconfig tsconfig.json scripts/extensions.ts",
     "cleanup": "tsx --tsconfig tsconfig.json scripts/cleanup.ts",
-    "e2e:ui": "node scripts/e2e-ui.mjs"
+    "e2e:ui": "node scripts/e2e-ui.mjs",
+    "ui:smoke": "node scripts/ui-smoke.mjs"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -49,7 +50,7 @@
     "autoprefixer": "^10.4.19",
     "eslint": "^8.57.1",
     "eslint-config-next": "^15.5.28",
-    "playwright": "^1.64.1",
+    "playwright": "1.63.0",
     "postcss": "^8.5.32",
     "tailwindcss": "^3.4.3",
     "tsx": "4.23.15",
