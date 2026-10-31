@@ -2,6 +2,7 @@
 // → معاينة مرندرة صالحة. الاستخدام: BASE_URL=http://localhost:3000 node scripts/e2e-ui.mjs
 import { chromium } from "playwright";
 import { execFileSync } from "child_process";
+import { readFileSync } from "fs";
 import { mkdtempSync, rmSync } from "fs";
 import os from "os";
 import path from "path";
@@ -62,6 +63,60 @@ try {
   await pg.keyboard.press("Control+z");
   await pg.waitForTimeout(300);
   check("التراجع يعيد الموضع", Math.abs((await clips.nth(n - 1).boundingBox()).x - box.x) < 3);
+
+  // تحديد متعدد: Ctrl+نقر على المقطعين
+  await clips.nth(0).click();
+  await clips.nth(n - 1).click({ modifiers: ["Control"] });
+  check("تحديد متعدد (Ctrl+نقر)", (await pg.locator("text=2 محدّدة").count()) === 1);
+  await pg.keyboard.press("Escape");
+
+  // قائمة السياق: عناصر المقطع
+  await clips.nth(n - 1).click({ button: "right" });
+  const items = await pg.locator("[role=menu] [role=menuitem]").allTextContents();
+  check("قائمة السياق: تقسيم/دمج/نسخ/حذف", ["تقسيم", "دمج", "نسخ", "حذف"].every((w) => items.some((t) => t.includes(w))), items.join("|"));
+  await pg.keyboard.press("Escape");
+
+  // تغيير ارتفاع المسار بالسحب
+  const row = pg.locator("[data-track-id]").first();
+  const h0 = (await row.boundingBox()).height;
+  const sep = pg.locator('[role=separator][aria-orientation=horizontal]').first();
+  const sb = await sep.boundingBox();
+  await pg.mouse.move(sb.x + sb.width / 2, sb.y + sb.height / 2);
+  await pg.mouse.down();
+  await pg.mouse.move(sb.x + sb.width / 2, sb.y + sb.height / 2 + 40, { steps: 5 });
+  await pg.mouse.up();
+  check("تغيير ارتفاع المسار بالسحب", (await row.boundingBox()).height > h0 + 20);
+
+  // مجلدات المكتبة: إنشاء مجلد وتصفية
+  await pg.locator('input[aria-label="اسم مجلد جديد"]').fill("لقطات");
+  await pg.keyboard.press("Enter");
+  check("إنشاء مجلد في المكتبة", (await pg.getByRole("button", { name: "لقطات", pressed: true }).count()) === 1);
+  await pg.getByRole("button", { name: "كل الوسائط" }).click();
+  await pg.locator('input[aria-label="بحث في الوسائط"]').fill("bgm");
+  check("بحث المكتبة يصفّي النتائج", (await pg.locator('li:has-text("للتايملاين")').count()) === 1);
+  await pg.locator('input[aria-label="بحث في الوسائط"]').fill("");
+
+  // وصولية أساسية: لا زر ولا حقل بلا اسم
+  const unnamed = await pg.evaluate(() => {
+    const bad = [];
+    for (const b of document.querySelectorAll("button, [role=button]")) {
+      if (!(b.getAttribute("aria-label") || b.textContent?.trim() || b.getAttribute("title"))) bad.push(b.outerHTML.slice(0, 80));
+    }
+    for (const i of document.querySelectorAll("input:not([type=hidden]), select, textarea")) {
+      const id = i.id;
+      const labelled = i.getAttribute("aria-label") || i.getAttribute("title") || i.getAttribute("placeholder") || (id && document.querySelector(`label[for="${id}"]`)) || i.closest("label");
+      if (!labelled) bad.push(i.outerHTML.slice(0, 80));
+    }
+    return bad;
+  });
+  check("وصولية: كل زر وحقل له اسم", unnamed.length === 0, unnamed.slice(0, 5).join(" || "));
+
+  await pg.getByRole("button", { name: "الوسائط" }).first().click(); // يعيد التركيز بعد فحص الوصولية
+  await clips.nth(n - 1).click(); // أعد تحديد الطبقة (الخطوات السابقة ألغت التحديد)
+  // axe-core (WCAG 2 A/AA) على الشاشة الرئيسية: لا مخالفات (تباين/أسماء/أدوار)
+  await pg.addScriptTag({ content: readFileSync("node_modules/axe-core/axe.min.js", "utf-8") });
+  const axe = await pg.evaluate(async () => (await window.axe.run(document, { runOnly: ["wcag2a", "wcag2aa"] })).violations.map((v) => `${v.id}×${v.nodes.length}`));
+  check("axe-core WCAG A/AA: لا مخالفات", axe.length === 0, axe.join(","));
 
   const slider = pg.locator('[role=slider][aria-label="مؤشر التشغيل"]');
   await pg.keyboard.press("Shift+ArrowRight");

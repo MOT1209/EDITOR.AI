@@ -26,7 +26,7 @@ export function ModalShell({
         <div className="h-12 border-b border-line flex items-center px-4 gap-2">
           <Icon className="h-4 w-4 text-brand-glow" />
           <span className="text-sm font-semibold flex-1">{title}</span>
-          <button onClick={onClose} className="btn-ghost p-1">
+          <button onClick={onClose} className="btn-ghost p-1" aria-label="إغلاق">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -107,6 +107,7 @@ export function SliderRow({
       </div>
       <input
         type="range"
+        aria-label={label}
         min={min}
         max={max}
         step={step}
@@ -124,6 +125,7 @@ export function ColorRow({ label, value, onChange }: { label: string; value: str
       <span className="text-[11px] text-ink-soft flex-1">{label}</span>
       <input
         type="color"
+        aria-label={label}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="h-6 w-10 rounded border border-line bg-transparent"

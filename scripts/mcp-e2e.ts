@@ -12,7 +12,7 @@ import * as ext from "../lib/extensions/service";
 import os from "os";
 import path from "path";
 
-type Json = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+type Json = Record<string, any>;
 
 const root = process.cwd();
 const ws = mkdtempSync(path.join(os.tmpdir(), "montage_mcp_e2e_"));

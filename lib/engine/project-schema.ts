@@ -89,6 +89,7 @@ export const clipSchema = z.looseObject({
       posY: keyframes(-2, 2),
       rotation: keyframes(-360, 360),
       opacity: keyframes(0, 1),
+      scale: keyframes(0.05, 5),
     })
     .optional(),
 });

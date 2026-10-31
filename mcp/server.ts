@@ -176,7 +176,6 @@ export function createMontageServerWithControls(opts: MontageServerOptions = {})
         outputSchema: config.output,
         annotations: { openWorldHint: false, ...config.annotations },
       },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (async (args: any, extra: { signal: AbortSignal }) => {
         const started = Date.now();
         const pid = typeof args?.projectId === "string" ? args.projectId : undefined;

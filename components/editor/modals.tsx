@@ -38,7 +38,7 @@ export function ApiSettingsModal({ onClose }: { onClose: () => void }) {
             <Key className="h-4 w-4 text-amber-400" />
             <span className="text-sm font-medium text-zinc-200">OpenAI / OpenCode API</span>
           </div>
-          <p className="text-[10px] text-zinc-500 mb-2">مفتاح API للنسخ الصوتي (Whisper) والتحليل (GPT-4o)</p>
+          <p className="text-[10px] text-zinc-400 mb-2">مفتاح API للنسخ الصوتي (Whisper) والتحليل (GPT-4o)</p>
           <input
             type="password"
             value={opencodeKey}
@@ -53,7 +53,7 @@ export function ApiSettingsModal({ onClose }: { onClose: () => void }) {
             <Key className="h-4 w-4 text-indigo-400" />
             <span className="text-sm font-medium text-zinc-200">Hugging Face Token</span>
           </div>
-          <p className="text-[10px] text-zinc-500 mb-2">رمز Hugging Face للترجمة والتوليد (اختياري)</p>
+          <p className="text-[10px] text-zinc-400 mb-2">رمز Hugging Face للترجمة والتوليد (اختياري)</p>
           <div className="flex gap-2">
             <input
               type="password"
@@ -81,7 +81,7 @@ export function ApiSettingsModal({ onClose }: { onClose: () => void }) {
             <Key className="h-4 w-4 text-emerald-400" />
             <span className="text-sm font-medium text-zinc-200">رمز وصول الخادم (MONTAGE_API_TOKEN)</span>
           </div>
-          <p className="text-[10px] text-zinc-500 mb-2">مطلوب فقط إن فُرض رمز على الخادم (نشر عن بُعد). يُرسل كترويسة وكوكي Strict ولا يُرسل لأي مزوّد.</p>
+          <p className="text-[10px] text-zinc-400 mb-2">مطلوب فقط إن فُرض رمز على الخادم (نشر عن بُعد). يُرسل كترويسة وكوكي Strict ولا يُرسل لأي مزوّد.</p>
           <input
             type="password"
             value={montageToken}

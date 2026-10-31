@@ -23,7 +23,7 @@ let outside: string;
 const approvals: string[] = [];
 let approveNext = true;
 
-type Json = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+type Json = Record<string, any>;
 
 async function connect(opts: { approver?: Approver; elicitation?: boolean } = {}) {
   const server = createMontageServer({ approver: opts.approver });

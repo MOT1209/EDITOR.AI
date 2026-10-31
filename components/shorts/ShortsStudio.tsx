@@ -235,7 +235,7 @@ export default function ShortsStudio() {
         </div>
         <div className="flex items-center gap-3">
           <Link href="/extensions" className="text-xs text-zinc-400 hover:text-white transition">🧩 الإضافات</Link>
-          <span className="text-xs text-zinc-500 hidden sm:inline">ترجمة متحركة • Shorts • نشر</span>
+          <span className="text-xs text-zinc-400 hidden sm:inline">ترجمة متحركة • Shorts • نشر</span>
         </div>
       </header>
 
@@ -246,7 +246,7 @@ export default function ShortsStudio() {
             <div className="w-[420px] max-w-[90vw] border-2 border-dashed border-white/15 rounded-2xl p-12 text-center hover:border-violet-500/60 transition bg-white/[0.02]">
               <Upload size={44} className="mx-auto text-violet-400 mb-4 group-hover:scale-110 transition" />
               <p className="font-semibold mb-1">ارفع فيديو لإنشاء Short</p>
-              <p className="text-sm text-zinc-500">MP4 / MOV / WebM — يُفضّل فيديو فيه كلام واضح</p>
+              <p className="text-sm text-zinc-400">MP4 / MOV / WebM — يُفضّل فيديو فيه كلام واضح</p>
             </div>
             <input
               type="file"
@@ -342,7 +342,7 @@ export default function ShortsStudio() {
                 {transcript ? "إعادة النسخ" : "نسخ الكلام (Whisper)"}
               </button>
               {transcript && (
-                <p className="text-xs text-zinc-500 mt-2">
+                <p className="text-xs text-zinc-400 mt-2">
                   ✓ {transcript.words.length} كلمة • {lines.length} سطر • لغة: {transcript.language}
                 </p>
               )}
@@ -378,7 +378,7 @@ export default function ShortsStudio() {
 
               {meta && (
                 <div className="mt-3 space-y-2 text-xs">
-                  <div><span className="text-zinc-500">العنوان:</span> {meta.title}</div>
+                  <div><span className="text-zinc-400">العنوان:</span> {meta.title}</div>
                   {meta.tags?.length > 0 && (
                     <div className="flex flex-wrap gap-1">
                       {meta.tags.slice(0, 8).map((t, i) => (
@@ -393,7 +393,7 @@ export default function ShortsStudio() {
 
               {shorts.length > 0 && (
                 <div className="mt-3">
-                  <p className="text-xs text-zinc-500 mb-1 flex items-center gap-1"><Scissors size={11} /> مقاطع مقترحة:</p>
+                  <p className="text-xs text-zinc-400 mb-1 flex items-center gap-1"><Scissors size={11} /> مقاطع مقترحة:</p>
                   <div className="space-y-1">
                     {shorts.map((s) => (
                       <button
@@ -410,7 +410,7 @@ export default function ShortsStudio() {
               )}
 
               {(broll.length > 0 || sfx.length > 0) && (
-                <p className="text-xs text-zinc-500 mt-2">
+                <p className="text-xs text-zinc-400 mt-2">
                   {broll.length > 0 && `B-roll: ${broll.length} مقترح`}
                   {broll.length > 0 && sfx.length > 0 && " • "}
                   {sfx.length > 0 && `مؤثرات: ${sfx.length}`}
@@ -436,7 +436,7 @@ export default function ShortsStudio() {
                   ASS (كاريوكي)
                 </button>
               </div>
-              <p className="text-[11px] text-zinc-600 mt-2">
+              <p className="text-[11px] text-zinc-400 mt-2">
                 ASS يحفظ تأثير الكلمة-بكلمة، قابل للحرق في أي محرّر أو ffmpeg.
               </p>
             </Panel>

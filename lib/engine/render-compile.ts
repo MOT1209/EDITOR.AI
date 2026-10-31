@@ -72,16 +72,18 @@ function slideOffset(type: string, W: number, H: number): { ax: "x" | "y"; sign:
 
 function videoLayerChain(l: VideoLayer, plan: RenderPlan, inputIdx: number): { chain: string; overlayX: string; overlayY: string; hasAlphaAnim: boolean } {
   const { width: W, height: H, fps } = plan;
-  const bw = even(W * l.scale);
-  const bh = even(H * l.scale);
+  // مفاتيح الحجم: القاعدة تغطية الإطار كاملاً ثم تكبير/تصغير متحرك (الحجم الثابت يُهمل).
+  const bw = even(W * (l.keyframes?.scale?.length ? 1 : l.scale));
+  const bh = even(H * (l.keyframes?.scale?.length ? 1 : l.scale));
   const f: string[] = [];
   if (l.kind === "video") {
-    f.push(`trim=start=${n(l.inPoint)}:end=${n(l.inPoint + l.duration * l.speed)}`);
+    f.push(`trim=start=${n(l.inPoint)}:end=${n(l.inPoint + (l.duration + (l.tailFromSource ? l.holdTail : 0)) * l.speed)}`);
     f.push(`setpts=(PTS-STARTPTS)/${n(l.speed, 5)}`);
   } else {
     f.push("setpts=PTS-STARTPTS", `trim=duration=${n(l.duration)}`);
   }
   f.push(`fps=${fps}`);
+  const kScale = l.keyframes?.scale && l.keyframes.scale.length > 0 ? l.keyframes.scale : null;
   if (l.crop) {
     const { left, top, right, bottom } = l.crop;
     const wFrac = Math.max(0.05, 1 - left - right);
@@ -107,8 +109,9 @@ function videoLayerChain(l: VideoLayer, plan: RenderPlan, inputIdx: number): { c
     if (b !== 0 || c !== 1 || s !== 1) f.push(`eq=brightness=${n(b)}:contrast=${n(c)}:saturation=${n(s)}`);
   }
   for (const e of buildEffectChain(l.effects, l.duration, bw, bh)) f.push(e);
-  if (l.holdTail > 0) f.push(`tpad=stop_mode=clone:stop_duration=${n(l.holdTail)}`);
+  if (l.holdTail > 0 && !l.tailFromSource) f.push(`tpad=stop_mode=clone:stop_duration=${n(l.holdTail)}`);
 
+  if (kScale) f.push(`scale=w='max(2,trunc(iw*(${keyframeExpr(kScale, "t")})/2)*2)':h='max(2,trunc(ih*(${keyframeExpr(kScale, "t")})/2)*2)':eval=frame`);
   const trans = l.transitionIn;
   const slide = trans ? slideOffset(trans.type, W, H) : null;
   const dissolve = trans?.type === "dissolve";

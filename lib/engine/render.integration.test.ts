@@ -376,3 +376,44 @@ d("render: keyframes", () => {
     expect(early[0]).toBeGreaterThan(60); // والأحمر ما زال ظاهراً
   });
 });
+
+d("render: scale keyframes and source-footage transition tails", () => {
+  it("scale keyframes grow the layer over time (small at start, large later)", async () => {
+    const p = proj({
+      clips: [
+        clip("base", "red", "v1", 0, 0, 4),
+        clip("pip", "green", "v2", 0, 0, 4, { keyframes: { scale: [{ t: 0, v: 0.2 }, { t: 3, v: 1 }] } }),
+      ],
+    });
+    const out = f("kfscale.mp4");
+    await runExport({ sourcePath: src.red.path, outputPath: out, project: p, sources: src });
+    expect(Math.abs((await probeMedia(out)).durationSeconds - 4)).toBeLessThan(0.15);
+    // قرب البداية: الركن أحمر (الطبقة صغيرة)؛ في النهاية: الركن أخضر (الطبقة تملأ الإطار)
+    expect(near(pixel(out, 0.1, 100, 100), [255, 0, 0])).toBe(true);
+    expect(near(pixel(out, 3.6, 100, 100), [0, 255, 0], 40)).toBe(true);
+    expect(near(pixel(out, 0.1, 640, 360), [0, 255, 0], 40)).toBe(true); // المركز أخضر دائماً
+  });
+
+  it("transition tail uses real source footage when available, frozen last frame otherwise", () => {
+    const s: SourceMap = {
+      long: { path: "/x/long.mp4", kind: "video", hasAudio: false, duration: 10 },
+      tight: { path: "/x/tight.mp4", kind: "video", hasAudio: false, duration: 2 },
+    };
+    const mk = (a: string) =>
+      proj({ clips: [clip("a", a, "v1", 0, 0, 2), clip("b", "long", "v1", 2, 0, 2, { transitionIn: { type: "dissolve", duration: 1 } })] });
+    const long = buildRenderPlan(mk("long"), s).layers[0];
+    const tight = buildRenderPlan(mk("tight"), s).layers[0];
+    expect(long.tailFromSource).toBe(true);
+    expect(tight.tailFromSource).toBe(false); // لا لقطات بعد outPoint ⇒ تجميد
+  });
+
+  it("a dissolve over real footage renders with exact duration", async () => {
+    const p = proj({ clips: [clip("a", "red", "v1", 0, 0, 2), clip("b", "green", "v1", 2, 0, 2, { transitionIn: { type: "dissolve", duration: 1 } })] });
+    const out = f("handles.mp4");
+    await runExport({ sourcePath: src.red.path, outputPath: out, project: p, sources: src });
+    expect(Math.abs((await probeMedia(out)).durationSeconds - 4)).toBeLessThan(0.15);
+    const mid = pixel(out, 2.5, 640, 360);
+    expect(mid[0]).toBeGreaterThan(60); // الأحمر ما زال ظاهراً أثناء الانتقال (من لقطات المصدر 2..3 ثانية)
+    expect(mid[1]).toBeGreaterThan(60);
+  });
+});

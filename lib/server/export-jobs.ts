@@ -19,3 +19,8 @@ export function cancelExport(id: string): boolean {
   c.abort();
   return true;
 }
+
+/** هل المهمة جارية فعلاً في هذه العملية؟ (حالة running على القرص بلا متحكم = توقفت العملية السابقة). */
+export function isExportActive(id: string): boolean {
+  return controllers.has(id);
+}

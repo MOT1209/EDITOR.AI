@@ -637,10 +637,11 @@ export function duplicateClip(p: ProjectState, clipId: string): { project: Proje
 }
 
 // ---------------------------------------------------------------- مفاتيح (keyframes)
-const KF_RANGE: Record<"posX" | "posY" | "rotation" | "opacity", [number, number]> = { posX: [-2, 2], posY: [-2, 2], rotation: [-360, 360], opacity: [0, 1] };
+type KfProp = "posX" | "posY" | "rotation" | "opacity" | "scale";
+const KF_RANGE: Record<KfProp, [number, number]> = { posX: [-2, 2], posY: [-2, 2], rotation: [-360, 360], opacity: [0, 1], scale: [0.05, 5] };
 
 /** يضيف/يحدّث مفتاحاً عند t (ثوانٍ من بداية المقطع). مفتاح بنفس الزمن (±نصف إطار) يُستبدل. */
-export function setClipKeyframe(p: ProjectState, clipId: string, prop: "posX" | "posY" | "rotation" | "opacity", t: number, v: number): ProjectState {
+export function setClipKeyframe(p: ProjectState, clipId: string, prop: KfProp, t: number, v: number): ProjectState {
   const c = findClip(p, clipId);
   assertEditable(p, c);
   const [lo, hi] = KF_RANGE[prop] ?? [NaN, NaN];
@@ -655,7 +656,7 @@ export function setClipKeyframe(p: ProjectState, clipId: string, prop: "posX" | 
   return setClipProps(p, clipId, { keyframes: { ...(c.keyframes ?? {}), [prop]: next } });
 }
 
-export function removeClipKeyframe(p: ProjectState, clipId: string, prop: "posX" | "posY" | "rotation" | "opacity", t: number): ProjectState {
+export function removeClipKeyframe(p: ProjectState, clipId: string, prop: KfProp, t: number): ProjectState {
   const c = findClip(p, clipId);
   const list = c.keyframes?.[prop] ?? [];
   const eps = 0.5 / (p.fps || 30);
