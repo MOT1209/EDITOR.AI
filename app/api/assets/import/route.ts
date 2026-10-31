@@ -1,4 +1,6 @@
 import path from "path";
+import { parseJsonBody } from "@/lib/server/request";
+import { importImageBody } from "@/lib/server/schemas";
 import { assetRef } from "@/lib/server/media-ref";
 import { NextRequest, NextResponse } from "next/server";
 import { importRemoteImage } from "@/lib/server/assets";
@@ -21,9 +23,10 @@ function isAllowedHost(urlStr: string): boolean {
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.json().catch(() => null);
-  const imageUrl = body?.imageUrl;
-  if (typeof imageUrl !== "string" || !isAllowedHost(imageUrl)) {
+  const parsedBody = await parseJsonBody(req, importImageBody);
+  if (!parsedBody.ok) return parsedBody.response;
+  const imageUrl = parsedBody.data.imageUrl;
+  if (!isAllowedHost(imageUrl)) {
     return NextResponse.json({ error: "رابط صورة غير صالح" }, { status: 400 });
   }
 

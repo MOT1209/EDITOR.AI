@@ -34,3 +34,13 @@ export const scriptBody = z.object({
   durationSec: z.number().finite().min(5).max(3600).default(60),
   tone: z.string().max(64).default("حماسي"),
 });
+
+export const silenceBody = z.object({ duration: durationSchema.optional(), sourceRef: z.string().max(200).optional() });
+export const skillsBody = z.object({
+  mode: z.enum(["skill", "workflow"]).optional(),
+  skill: z.string().max(120).optional(),
+  workflow: z.string().max(120).optional(),
+  document: z.looseObject({ duration: durationSchema.optional() }).optional(),
+  config: z.record(z.string().max(80), z.unknown()).optional(),
+});
+export const importImageBody = z.object({ imageUrl: z.string().max(2048) });

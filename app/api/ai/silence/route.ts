@@ -1,3 +1,5 @@
+import { parseJsonBody } from "@/lib/server/request";
+import { silenceBody } from "@/lib/server/schemas";
 import { resolveVideoRef } from "@/lib/server/media-ref";
 import { NextRequest, NextResponse } from "next/server";
 import { detectSilence } from "@/lib/engine/media";
@@ -13,9 +15,11 @@ export const maxDuration = 120;
  * لا بيانات عشوائية: بلا ملف/ffmpeg ⇒ نتيجة فارغة + تحذير صريح (تدهور أنيق).
  */
 export async function POST(req: NextRequest) {
-  const body = await req.json().catch(() => ({}));
-  const duration = typeof body?.duration === "number" && body.duration > 0 ? body.duration : undefined;
-  const filePath = await resolveVideoRef(body?.sourceRef);
+  const parsedBody = await parseJsonBody(req, silenceBody);
+  if (!parsedBody.ok) return parsedBody.response;
+  const body = parsedBody.data;
+  const duration = typeof body.duration === "number" && body.duration > 0 ? body.duration : undefined;
+  const filePath = await resolveVideoRef(body.sourceRef);
   if (!filePath) {
     return NextResponse.json({ error: "sourceRef يجب أن يشير إلى فيديو مرفوع (ارفع الفيديو أولاً)" }, { status: 400 });
   }

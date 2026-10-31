@@ -67,3 +67,16 @@ describe("upload hardening", () => {
     expect(safeUploadExt("..\\..\\x")).toBe(".mp4");
   });
 });
+
+describe("T-07: remaining JSON routes validated", () => {
+  it("silence / skills / assets-import reject malformed bodies with 400 (not 500)", async () => {
+    const { POST: sil } = await import("@/app/api/ai/silence/route");
+    const { POST: sk } = await import("@/app/api/skills/route");
+    const { POST: imp } = await import("@/app/api/assets/import/route");
+    expect((await sil(post("/x", { duration: "abc" }))).status).toBe(400);
+    expect((await sk(post("/x", { mode: "rm -rf", skill: 5 }))).status).toBe(400);
+    expect((await sk(post("/x", { mode: "skill", skill: "X", document: { duration: 1e12 } }))).status).toBe(400);
+    expect((await imp(post("/x", { imageUrl: 42 }))).status).toBe(400);
+    expect((await imp(post("/x", "{bad"))).status).toBe(400);
+  });
+});
