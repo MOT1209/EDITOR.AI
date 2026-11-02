@@ -2,6 +2,8 @@ import { projectRef } from "@/lib/server/media-ref";
 import { NextRequest, NextResponse } from "next/server";
 import { isEngineError } from "@/lib/engine/errors";
 import { parseProject } from "@/lib/engine/project-schema";
+import { parseJsonBody } from "@/lib/server/request";
+import { projectPutBody, EXPORT_MAX_JSON_BYTES } from "@/lib/server/schemas";
 import { assetPath, getProject, mutateProject, primaryVideoAsset } from "@/lib/engine/store";
 
 export const runtime = "nodejs";
@@ -40,8 +42,9 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const params = await ctx.params;
   try {
-    const body = await req.json().catch(() => null);
-    const parsed = parseProject(body?.project);
+    const parsedBody = await parseJsonBody(req, projectPutBody, { maxBytes: EXPORT_MAX_JSON_BYTES });
+    if (!parsedBody.ok) return parsedBody.response;
+    const parsed = parseProject(parsedBody.data.project);
     if (!parsed.ok) return NextResponse.json({ error: "مشروع غير صالح", details: parsed.errors }, { status: 400 });
     if (parsed.project.id !== params.id) return NextResponse.json({ error: "معرّف المشروع لا يطابق المسار" }, { status: 400 });
     const { project, historyId } = await mutateProject(params.id, "ui_save", "حفظ من المحرّر", (server) => ({

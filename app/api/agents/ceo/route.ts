@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { spawnSync } from "child_process";
-import { childEnv, hardenedSpawn } from "@/lib/engine/hardening";
+import { runProcess } from "@/lib/engine/process";
+import { probeMedia } from "@/lib/engine/media";
 import { promises as fsp, existsSync } from "fs";
 import os from "os";
 import path from "path";
@@ -13,7 +13,7 @@ import {
   getWhisperModel,
 } from "@/lib/server/api-keys";
 import { hasFfmpeg, resolveFfmpegPath } from "@/lib/server/ffmpeg-export";
-import { guardCost, recordSpend } from "@/lib/server/cost-guard";
+import { guardCost, recordSpend, releaseReservation } from "@/lib/server/cost-guard";
 import { uploadRef } from "@/lib/server/media-ref";
 import { saveUpload, rejectOversizedRequest, QuotaError } from "@/lib/server/uploads";
 import { validateVideoUpload } from "@/lib/server/validate";
@@ -45,10 +45,16 @@ const MAX_SEGMENTS = 60;
 /* أدوات التحليل (Data Analyst)                                        */
 /* ------------------------------------------------------------------ */
 
-/** تشغيل ffmpeg متزامن بوسائط مصفوفة + بيئة مصفّاة + منع بروتوكولات الشبكة + حدود الموارد. */
-function runFfmpegSync(args: string[], opts: Parameters<typeof spawnSync>[2] = {}) {
-  const h = hardenedSpawn(resolveFfmpegPath(), args);
-  return spawnSync(h.cmd, h.args, { ...opts, env: childEnv(), shell: false });
+/**
+ * تشغيل ffmpeg غير متزامن (لا يجمّد حلقة أحداث الخادم) عبر runProcess المصلَّب:
+ * وسائط مصفوفة + بيئة مصفّاة + منع بروتوكولات الشبكة + حدود الموارد + مهلة. لا يرمي — يعيد null عند الفشل.
+ */
+async function runFfmpeg(args: string[], timeoutMs: number) {
+  try {
+    return await runProcess(resolveFfmpegPath(), args, { timeoutMs, maxStdoutBytes: 1024 * 1024 });
+  } catch {
+    return null;
+  }
 }
 
 async function ensureDir(p: string) {
@@ -57,10 +63,9 @@ async function ensureDir(p: string) {
   } catch {}
 }
 
-function detectSilencesFfmpeg(filePath: string): { start: number; end: number }[] {
+async function detectSilencesFfmpeg(filePath: string): Promise<{ start: number; end: number }[]> {
   if (!hasFfmpeg()) return [];
-  const r = runFfmpegSync(
-    
+  const r = await runFfmpeg(
     [
       "-i", filePath,
       "-map", "0:a",
@@ -68,8 +73,9 @@ function detectSilencesFfmpeg(filePath: string): { start: number; end: number }[
       "-f", "null",
       NULL_DEVICE,
     ],
-    { encoding: "utf-8", timeout: 60000 }
+    60_000
   );
+  if (!r) return [];
   const out = `${r.stderr || ""}${r.stdout || ""}`;
   const starts: number[] = [];
   const ends: number[] = [];
@@ -94,8 +100,7 @@ function detectSilencesFfmpeg(filePath: string): { start: number; end: number }[
 async function extractAudioMp3(filePath: string): Promise<string | null> {
   if (!hasFfmpeg()) return null;
   const out = path.join(os.tmpdir(), `montage_ceo_${uuid()}.mp3`);
-  const r = runFfmpegSync(
-    
+  const r = await runFfmpeg(
     [
       "-i", filePath,
       "-vn",
@@ -105,9 +110,12 @@ async function extractAudioMp3(filePath: string): Promise<string | null> {
       "-b:a", "32k",
       "-y", out,
     ],
-    { encoding: "utf-8", timeout: 180000 }
+    180_000
   );
-  if (r.status !== 0 || !existsSync(out)) return null;
+  if (!r || r.code !== 0 || !existsSync(out)) {
+    await fsp.unlink(out).catch(() => {});
+    return null;
+  }
   return out;
 }
 
@@ -183,12 +191,8 @@ async function captureFrames(filePath: string, duration: number): Promise<string
   for (let i = 0; i < count; i++) {
     const t = Math.min((i / count) * duration + duration / count / 2, safeDur);
     const tmp = path.join(os.tmpdir(), `montage_frame_${uuid()}.jpg`);
-    const r = spawnSync(
-      resolveFfmpegPath(),
-      ["-ss", String(t), "-i", filePath, "-frames:v", "1", "-vf", "scale=640:-1", "-q:v", "5", "-y", tmp],
-      { encoding: "utf-8", timeout: 60000 }
-    );
-    if (r.status === 0 && existsSync(tmp)) {
+    const r = await runFfmpeg(["-ss", String(t), "-i", filePath, "-frames:v", "1", "-vf", "scale=640:-1", "-q:v", "5", "-y", tmp], 60_000);
+    if (r && r.code === 0 && existsSync(tmp)) {
       try {
         const buf = await fsp.readFile(tmp);
         frames.push(buf.toString("base64"));
@@ -547,34 +551,36 @@ export async function POST(req: NextRequest) {
     // 2) المدة الفعلية
     let duration = durationInput;
     if (!duration || duration <= 0) {
-      const pr = runFfmpegSync(["-i", filePath], { encoding: "utf-8", timeout: 30000 });
-      const m = /Duration:\s*(\d+):(\d+):(\d+\.\d+)/.exec(`${pr.stderr || ""}`);
-      if (m) duration = Number(m[1]) * 3600 + Number(m[2]) * 60 + parseFloat(m[3]);
+      duration = await probeMedia(filePath).then((i) => i.durationSeconds).catch(() => 0);
     }
     if (!duration || duration <= 0) duration = 30;
     duration = Math.min(duration, 3600); // سقف ساعة حمايةً للموارد
 
     // 3) تحليل الصمت
-    const silences = detectSilencesFfmpeg(filePath);
+    const silences = await detectSilencesFfmpeg(filePath);
 
     // 4) التفريغ الصوتي (Word-level) عبر Whisper
     let transcript = "";
     let segments: TranscriptSegment[] = [];
-    const whisperGuard = guardCost("whisper", { durationSec: duration });
-    if (apiKey && !whisperGuard.allowed) warnings.push(whisperGuard.reason ?? "تجاوز سقف التكلفة");
-    if (apiKey && whisperGuard.allowed) {
+    // الضابط يحجز التقدير عند السماح ⇒ لا يُستدعى بلا مفتاح، ويُحرَّر الحجز إن لم يكتمل الاستدعاء.
+    const whisperGuard = apiKey ? guardCost("whisper", { durationSec: duration }) : null;
+    if (whisperGuard && !whisperGuard.allowed) warnings.push(whisperGuard.reason ?? "تجاوز سقف التكلفة");
+    if (apiKey && whisperGuard?.allowed) {
+      let spent = false;
       let audioPath: string | null = null;
       try {
         audioPath = await extractAudioMp3(filePath);
         if (audioPath) {
           const w = await transcribeWhisper(apiKey, baseUrl, audioPath, language);
           recordSpend(whisperGuard.estimateUsd);
+          spent = true;
           transcript = w.text;
           segments = w.segments;
         }
       } catch {
         warnings.push("فشل التفريغ الصوتي عبر المزوّد");
       }
+      if (!spent) releaseReservation();
       if (audioPath) await fsp.unlink(audioPath).catch(() => {});
     }
     let transcriptSimulated = false;
@@ -588,11 +594,13 @@ export async function POST(req: NextRequest) {
 
     // 5) التحليل البصري
     const frames = await captureFrames(filePath, duration);
-    const visionGuard = guardCost("vision", { images: frames.length, chars: 3000 });
-    if (apiKey && frames.length && !visionGuard.allowed) warnings.push(visionGuard.reason ?? "تجاوز سقف التكلفة");
-    const vision =
-      apiKey && frames.length && visionGuard.allowed ? await analyzeVision(apiKey, baseUrl, frames, duration) : null;
-    if (vision) recordSpend(visionGuard.estimateUsd);
+    const visionGuard = apiKey && frames.length ? guardCost("vision", { images: frames.length, chars: 3000 }) : null;
+    if (visionGuard && !visionGuard.allowed) warnings.push(visionGuard.reason ?? "تجاوز سقف التكلفة");
+    const vision = apiKey && visionGuard?.allowed ? await analyzeVision(apiKey, baseUrl, frames, duration) : null;
+    if (visionGuard?.allowed) {
+      if (vision) recordSpend(visionGuard.estimateUsd);
+      else releaseReservation();
+    }
     const scenes: SceneInfo[] = vision?.scenes || [];
     const highlights: HighlightInfo[] = vision?.highlights || [];
     const quality: QualityInfo =
@@ -602,9 +610,9 @@ export async function POST(req: NextRequest) {
     // 6) قرار المديرة التنفيذية
     let plan: DirectorPlan | null = null;
     let mock = false;
-    const chatGuard = guardCost("chat", { chars: transcript.length + 6000 });
-    if (apiKey && !chatGuard.allowed) warnings.push(chatGuard.reason ?? "تجاوز سقف التكلفة");
-    if (apiKey && chatGuard.allowed) {
+    const chatGuard = apiKey ? guardCost("chat", { chars: transcript.length + 6000 }) : null;
+    if (chatGuard && !chatGuard.allowed) warnings.push(chatGuard.reason ?? "تجاوز سقف التكلفة");
+    if (apiKey && chatGuard?.allowed) {
       try {
         plan = await directorPlan(apiKey, baseUrl, {
           request,
@@ -622,6 +630,7 @@ export async function POST(req: NextRequest) {
         recordSpend(chatGuard.estimateUsd);
       } catch {
         plan = null;
+        releaseReservation();
       }
     }
     if (!plan) {

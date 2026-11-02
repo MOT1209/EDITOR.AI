@@ -1,12 +1,18 @@
 // ====================================================================
 // ضابط التكلفة (Cost Guard)
 // يقدّر تكلفة كل استدعاء لمزوّد مدفوع (chat / vision / whisper / tts)،
-// يتتبّع الإنفاق التراكمي على مستوى العملية، ويفرض سقفاً قبل أي استدعاء.
+// يتتبّع الإنفاق اليومي (UTC)، ويفرض سقفاً قبل أي استدعاء.
 //
-// ⚠️ ملاحظة نطاق: العدّاد هنا على مستوى عملية الخادم (single-process)،
-// وهو كافٍ للنموذج المحلي (مستخدم واحد). طبقة SaaS مستقبلاً تستبدل
-// المخزن العملي بحصص لكل مستخدم في قاعدة بيانات — بنفس واجهة الدوال.
+// - guardCost يحجز التقدير فوراً عند السماح، فلا تتجاوز طلبات متزامنة السقف معاً
+//   (سباق «تحقق ثم سجّل»). recordSpend يستهلك أقدم حجز ويسجّل الإنفاق الفعلي؛
+//   الحجز الذي لم يُسجَّل (فشل الاستدعاء) ينتهي بعد RESERVATION_TTL_MS.
+// - الإنفاق يُحفظ ذرياً في .montage_ai/budget.json (أو MONTAGE_BUDGET_FILE) فلا تصفّره
+//   إعادة تشغيل الخادم. داخل Vitest الحفظ معطّل ما لم يُضبط MONTAGE_BUDGET_FILE صراحةً.
+// ⚠️ النطاق: عملية خادم واحدة (النموذج المحلي). طبقة متعددة المستخدمين تستبدل المخزن بقاعدة بيانات.
 // ====================================================================
+
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
+import path from "path";
 
 export type CostKind = "chat" | "vision" | "whisper" | "tts";
 
@@ -38,7 +44,7 @@ export function priceTable(): PriceTable {
   };
 }
 
-/** السقف الكلي للإنفاق بالدولار (افتراضي 5$). 0 أو أقل = بلا سقف. */
+/** سقف الإنفاق اليومي (UTC) بالدولار (افتراضي 5$). 0 أو أقل = بلا سقف. */
 export function budgetCapUsd(): number {
   return envNum("MONTAGE_BUDGET_CAP", 5);
 }
@@ -82,8 +88,69 @@ export function estimateCostUsd(kind: CostKind, opts: EstimateOpts = {}): number
   }
 }
 
-// عدّاد الإنفاق على مستوى العملية.
+// ---------- الحالة: إنفاق اليوم + حجوزات معلّقة ----------
+
+// يطابق تقريباً أقصى مدة لمسارات API (maxDuration=120s) — حجز استدعاء فشل دون تسجيل لا يعلق طويلاً.
+const RESERVATION_TTL_MS = 3 * 60_000;
 let spentUsd = 0;
+let spentDay = "";
+let loaded = false;
+let reservations: { usd: number; at: number }[] = [];
+
+function today(now = Date.now()): string {
+  return new Date(now).toISOString().slice(0, 10);
+}
+
+function budgetFile(): string | null {
+  if (process.env.MONTAGE_BUDGET_FILE) return path.resolve(process.env.MONTAGE_BUDGET_FILE);
+  if (process.env.VITEST) return null;
+  return path.join(process.cwd(), ".montage_ai", "budget.json");
+}
+
+function load(): void {
+  if (loaded) return;
+  loaded = true;
+  const file = budgetFile();
+  if (!file) return;
+  try {
+    const raw = JSON.parse(readFileSync(file, "utf-8")) as { day?: unknown; spentUsd?: unknown };
+    if (typeof raw.day === "string" && typeof raw.spentUsd === "number" && Number.isFinite(raw.spentUsd) && raw.spentUsd >= 0) {
+      spentDay = raw.day;
+      spentUsd = raw.spentUsd;
+    }
+  } catch {
+    /* لا ملف بعد أو تالف ⇒ نبدأ من صفر */
+  }
+}
+
+function persist(): void {
+  const file = budgetFile();
+  if (!file) return;
+  try {
+    mkdirSync(path.dirname(file), { recursive: true });
+    const tmp = `${file}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify({ day: spentDay, spentUsd }));
+    renameSync(tmp, file);
+  } catch {
+    /* التدهور الأنيق: يبقى العدّاد في الذاكرة */
+  }
+}
+
+/** يحمّل الحالة، يصفّر عند تغيّر اليوم، ويحذف الحجوزات المنتهية. */
+function sync(now = Date.now()): void {
+  load();
+  const d = today(now);
+  if (spentDay !== d) {
+    spentDay = d;
+    spentUsd = 0;
+    persist();
+  }
+  reservations = reservations.filter((r) => now - r.at < RESERVATION_TTL_MS);
+}
+
+function reservedUsd(): number {
+  return reservations.reduce((a, r) => a + r.usd, 0);
+}
 
 export interface BudgetState {
   spentUsd: number;
@@ -92,6 +159,7 @@ export interface BudgetState {
 }
 
 export function getBudgetState(): BudgetState {
+  sync();
   const cap = budgetCapUsd();
   return {
     spentUsd,
@@ -100,14 +168,36 @@ export function getBudgetState(): BudgetState {
   };
 }
 
-/** يسجّل إنفاقاً فعلياً (يُستدعى بعد نجاح الاستدعاء). */
+/** يسجّل إنفاقاً فعلياً (يُستدعى بعد نجاح الاستدعاء) ويحرّر أقدم حجز معلّق. */
 export function recordSpend(usd: number): void {
-  if (Number.isFinite(usd) && usd > 0) spentUsd += usd;
+  sync();
+  reservations.shift();
+  if (Number.isFinite(usd) && usd > 0) {
+    spentUsd += usd;
+    persist();
+  }
 }
 
-/** يصفّر العدّاد — للاختبارات أو بدء جلسة جديدة. */
+/** يحرّر أقدم حجز دون تسجيل إنفاق (استدعاء فشل قبل الوصول للمزوّد). */
+export function releaseReservation(): void {
+  reservations.shift();
+}
+
+/** يصفّر العدّاد والحجوزات — للاختبارات أو بدء جلسة جديدة. */
 export function resetBudget(): void {
+  loaded = true;
+  spentDay = today();
   spentUsd = 0;
+  reservations = [];
+  persist();
+}
+
+/** يعيد قراءة الحالة من الملف عند الطلب التالي (لاختبار الاستمرار بعد إعادة التشغيل). */
+export function reloadBudgetForTests(): void {
+  loaded = false;
+  spentDay = "";
+  spentUsd = 0;
+  reservations = [];
 }
 
 export interface GuardResult {
@@ -120,24 +210,27 @@ export interface GuardResult {
 }
 
 /**
- * يفحص ما إذا كان استدعاء مقدَّر سيتجاوز السقف. لا يسجّل إنفاقاً —
- * استدعِ recordSpend بعد نجاح الاستدعاء الفعلي.
+ * يفحص ما إذا كان استدعاء مقدَّر سيتجاوز السقف (محتسباً الحجوزات المعلّقة)، ويحجز
+ * التقدير عند السماح. استدعِ recordSpend بعد نجاح الاستدعاء الفعلي.
  */
 export function guardCost(kind: CostKind, opts: EstimateOpts = {}): GuardResult {
+  sync();
   const estimateUsd = estimateCostUsd(kind, opts);
   const cap = budgetCapUsd();
   const base: GuardResult = { allowed: true, estimateUsd, spentUsd, capUsd: cap };
 
   if (cap <= 0) return base; // بلا سقف
-  if (spentUsd + estimateUsd > cap) {
+  const committed = spentUsd + reservedUsd();
+  if (committed + estimateUsd > cap) {
     return {
       ...base,
       allowed: false,
       reason:
-        `تجاوز سقف التكلفة: الإنفاق الحالي ${spentUsd.toFixed(4)}$ + ` +
+        `تجاوز سقف التكلفة: الإنفاق الحالي ${committed.toFixed(4)}$ + ` +
         `تقدير هذا الطلب ${estimateUsd.toFixed(4)}$ يتخطى السقف ${cap.toFixed(2)}$. ` +
-        `ارفع MONTAGE_BUDGET_CAP أو صفّر الجلسة.`,
+        `ارفع MONTAGE_BUDGET_CAP أو انتظر اليوم التالي (UTC).`,
     };
   }
+  reservations.push({ usd: estimateUsd, at: Date.now() });
   return base;
 }

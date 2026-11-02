@@ -75,3 +75,26 @@ export function rateLimit(key: string, limitPerMin: number, now = Date.now()): b
 export function _resetRateLimit(): void {
   buckets.clear();
 }
+
+/** بصمة غير قابلة للعكس للرمز (FNV-1a 64-bit، متزامنة لتعمل في Edge) — مفتاح للمعدل والسجلات بدل أي جزء من الرمز نفسه. */
+export function tokenFingerprint(token: string): string {
+  const PRIME = BigInt("0x100000001b3");
+  const MASK = BigInt("0xffffffffffffffff");
+  let h = BigInt("0xcbf29ce484222325");
+  for (let i = 0; i < token.length; i++) {
+    h ^= BigInt(token.charCodeAt(i));
+    h = (h * PRIME) & MASK;
+  }
+  return `tok_${h.toString(16).padStart(16, "0")}`;
+}
+
+/** حد الطلبات الافتراضي/دقيقة: MONTAGE_RATE_LIMIT_PER_MIN إن ضُبط، وإلا 120 عند النشر عن بُعد و0 (معطّل) محلياً. */
+export function rateLimitPerMin(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.MONTAGE_RATE_LIMIT_PER_MIN;
+  if (raw !== undefined && raw !== "") {
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  }
+  const remote = (env.MONTAGE_ALLOWED_HOSTS || "").split(",").some((h) => h.trim() !== "");
+  return remote ? 120 : 0;
+}

@@ -3,13 +3,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { checkRequest } from "@/lib/server/host-guard";
 import { checkAuth } from "@/lib/server/auth";
-import { isAllowed, rateLimit } from "@/lib/server/auth-roles";
+import { isAllowed, rateLimit, rateLimitPerMin } from "@/lib/server/auth-roles";
 
 export function middleware(req: NextRequest) {
   const verdict = checkRequest(req.headers.get("host"), req.headers.get("origin"));
   if (!verdict.ok) {
     return NextResponse.json({ error: `مرفوض: ${verdict.reason}` }, { status: 403 });
   }
+  // /api/session يتحقق من الرمز بنفسه (تسجيل الدخول يسبق امتلاك كوكي الجلسة).
+  if (req.nextUrl.pathname === "/api/session") return NextResponse.next();
   const auth = checkAuth({
     authorization: req.headers.get("authorization"),
     xToken: req.headers.get("x-montage-token"),
@@ -24,7 +26,7 @@ export function middleware(req: NextRequest) {
   if (!isAllowed(auth.role, req.method, req.nextUrl.pathname)) {
     return NextResponse.json({ error: `مرفوض: دور «${auth.role}» لا يملك صلاحية هذه العملية` }, { status: 403 });
   }
-  const limit = Number(process.env.MONTAGE_RATE_LIMIT_PER_MIN || 0);
+  const limit = rateLimitPerMin();
   if (!rateLimit(auth.tokenId, limit)) {
     return NextResponse.json({ error: "تجاوزت حد الطلبات في الدقيقة" }, { status: 429, headers: { "Retry-After": "60" } });
   }

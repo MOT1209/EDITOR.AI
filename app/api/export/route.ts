@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { existsSync } from "fs";
 import path from "path";
 import { aiJobs } from "@/lib/mockAi";
+import { parseJsonBody } from "@/lib/server/request";
+import { exportBody, EXPORT_MAX_JSON_BYTES } from "@/lib/server/schemas";
 import { parseProject } from "@/lib/engine/project-schema";
 import { workspaceRoot } from "@/lib/engine/store";
 import {
@@ -42,11 +44,12 @@ export async function DELETE(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.json().catch(() => null);
-    const parsed = body?.project ? parseProject(body.project) : null;
-  const videoStabilize = Boolean(body?.videoStabilize);
-  const colorGrading =
-    typeof body?.colorGrading === "number" ? body.colorGrading : 0.5;
+  const parsedBody = await parseJsonBody(req, exportBody, { maxBytes: EXPORT_MAX_JSON_BYTES });
+  if (!parsedBody.ok) return parsedBody.response;
+  const body = parsedBody.data;
+  const parsed = body.project ? parseProject(body.project) : null;
+  const videoStabilize = body.videoStabilize === true;
+  const colorGrading = body.colorGrading ?? 0.5;
 
   // المصدر: مرجع معتمد (upload:/project:) لا مسار — يُحلّ على الخادم حصراً (T-03).
   // `sources` ([{assetId, ref}]) يتيح تصدير عدة ملفات؛ `sourceRef` هو المصدر الأساسي، وبغيابه يُستعمل أول مصدر صالح.

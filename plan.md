@@ -38,7 +38,7 @@
 - **الخيار A (الأسرع):** Groq API — `whisper-large-v3-turbo` بالمفتاح الموجود (OPENCODE_*). `httpx` جاهز.
 - **الخيار B (الأوفلاين):** `faster-whisper` (pip، يعمل على CPU بدون GPU).
 - **التسليم:** `AnalystReport.transcription.words[]` مملوء بتوقيتات كلمة-بكلمة؛ إزالة `_demo_words`.
-- **معيار النجاح:** `python -m src.main test_video.mp4` ينتج ترجمات من الصوت الفعلي (لا ديمو).
+- **معيار النجاح:** `python -m src.main test_assets/test_video.mp4` ينتج ترجمات من الصوت الفعلي (لا ديمو).
 
 ### 1.2 الرندر الفعلي في `render_agent.py`
 - **الهدف:** تنفيذ `build_command()` عبر `subprocess` بدل رفعه فقط.

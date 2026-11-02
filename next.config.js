@@ -25,6 +25,9 @@ const securityHeaders = [
   { key: "Permissions-Policy", value: "camera=(), microphone=(self), geolocation=(), payment=()" },
   { key: "Content-Security-Policy", value: csp },
 ];
+// HSTS عند النشر عن بُعد فقط (المتصفحات تتجاهلها على http، فلا أثر لها محلياً).
+const isRemote = (process.env.MONTAGE_ALLOWED_HOSTS || "").split(",").some((h) => h.trim() !== "");
+if (isRemote) securityHeaders.push({ key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" });
 
 const nextConfig = {
   reactStrictMode: true,

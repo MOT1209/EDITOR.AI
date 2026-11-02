@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOpencodeKey, getOpencodeBaseUrl, getWhisperModel } from "@/lib/server/api-keys";
-import { guardCost, recordSpend, estimateCostUsd } from "@/lib/server/cost-guard";
+import { guardCost, recordSpend, estimateCostUsd, releaseReservation } from "@/lib/server/cost-guard";
+import { estimateAudioSeconds } from "@/lib/server/audio-duration";
 import { validateAudioUpload } from "@/lib/server/validate";
+import { rejectOversizedRequest } from "@/lib/server/uploads";
 
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
+  const tooBig = rejectOversizedRequest(req);
+  if (tooBig) return tooBig;
   try {
     const OPENCODE_BASE_URL = getOpencodeBaseUrl();
     const OPENCODE_API_KEY = getOpencodeKey(req);
@@ -30,7 +34,9 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const guard = guardCost("whisper", { durationSec: audio.size / 4000 });
+    // المدة الحقيقية بـ ffprobe (أو تقدير محافظ) للفحص الوقائي؛ بعد النجاح نسجّل التكلفة الفعلية من data.duration.
+    const { seconds: estDurationSec } = await estimateAudioSeconds(audio);
+    const guard = guardCost("whisper", { durationSec: estDurationSec });
     if (!guard.allowed) return NextResponse.json({ error: guard.reason, budget: guard }, { status: 402 });
 
     const whisperForm = new FormData();
@@ -45,6 +51,7 @@ export async function POST(req: NextRequest) {
     });
 
     if (!res.ok) {
+      releaseReservation();
       const errText = await res.text();
       return NextResponse.json({ error: `Whisper API error: ${errText}` }, { status: res.status });
     }
