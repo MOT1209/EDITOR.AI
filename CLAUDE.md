@@ -23,7 +23,7 @@ npx tsc --noEmit                  # فحص أنواع TypeScript
 npm test                          # اختبارات الواجهة (Vitest)
 node scripts/check-contract.ts    # تطابق عقد EDL (Python ↔ TS) — 60 فحصاً
 python -m pytest                  # اختبارات مسار الوكلاء (36 حالة)
-python -m src.main test_video.mp4 --demo   # تشغيل المسار كاملاً بلا مفاتيح
+python -m src.main test_assets/test_video.mp4 --demo   # تشغيل المسار كاملاً بلا مفاتيح
 pnpm lint                         # ESLint
 pnpm mcp                          # خادم MCP (stdio)
 pnpm mcp:e2e                      # E2E حقيقي لخادم MCP على test_assets/test_video.mp4 (يشمل أداة مخصّصة ديناميكية)
