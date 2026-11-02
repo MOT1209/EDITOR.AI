@@ -15,7 +15,7 @@ import {
 import { hasFfmpeg, resolveFfmpegPath } from "@/lib/server/ffmpeg-export";
 import { guardCost, recordSpend, releaseReservation } from "@/lib/server/cost-guard";
 import { uploadRef } from "@/lib/server/media-ref";
-import { saveUpload, rejectOversizedRequest, QuotaError } from "@/lib/server/uploads";
+import { saveUpload, rejectOversizedRequest, QuotaError, readFormDataCapped } from "@/lib/server/uploads";
 import { validateVideoUpload } from "@/lib/server/validate";
 import type {
   CeoResponse,
@@ -520,7 +520,9 @@ export async function POST(req: NextRequest) {
   try {
     const tooBig = rejectOversizedRequest(req);
     if (tooBig) return tooBig;
-    const form = await req.formData();
+    const parsed = await readFormDataCapped(req);
+    if (parsed.response) return parsed.response;
+    const form = parsed.form;
     const file = form.get("file");
     const request = String(form.get("request") || "").slice(0, 800);
     const language = String(form.get("language") || "ar").slice(0, 10);

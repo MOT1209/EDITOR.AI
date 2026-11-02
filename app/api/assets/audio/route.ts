@@ -7,7 +7,7 @@ import { v4 as uuid } from "uuid";
 import { validateAudioUpload } from "@/lib/server/validate";
 import { AUDIO_DIR, audioRef } from "@/lib/server/media-ref";
 import { ensureStorageQuota } from "@/lib/server/storage";
-import { rejectOversizedRequest } from "@/lib/server/uploads";
+import { rejectOversizedRequest, readFormDataCapped } from "@/lib/server/uploads";
 import { probeMedia } from "@/lib/engine/media";
 import { isEngineError } from "@/lib/engine/errors";
 import { logger } from "@/lib/server/logger";
@@ -24,8 +24,10 @@ const AUDIO_EXTS = [".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".opus", ".
 export async function POST(req: NextRequest) {
   const tooBig = rejectOversizedRequest(req);
   if (tooBig) return tooBig;
-  const form = await req.formData().catch(() => null);
-  const file = form?.get("file");
+  const parsed = await readFormDataCapped(req);
+  if (parsed.response) return parsed.response;
+  const form = parsed.form;
+  const file = form.get("file");
   if (!form || !file || !(file instanceof File)) {
     return NextResponse.json({ error: "ملف الصوت مطلوب" }, { status: 400 });
   }

@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawn } from "child_process";
 import { logger } from "@/lib/server/logger";
-import { saveUpload, rejectOversizedRequest, QuotaError } from "@/lib/server/uploads";
+import { saveUpload, rejectOversizedRequest, QuotaError, readFormDataCapped } from "@/lib/server/uploads";
 import { limitCommand } from "@/lib/engine/hardening";
 import { promises as fsp, existsSync, createReadStream } from "fs";
 import { Readable } from "stream";
@@ -59,7 +59,9 @@ export async function POST(req: NextRequest) {
   try {
     const tooBig = rejectOversizedRequest(req);
     if (tooBig) return tooBig;
-    const form = await req.formData();
+    const parsed = await readFormDataCapped(req);
+    if (parsed.response) return parsed.response;
+    const form = parsed.form;
     const phase = String(form.get("phase") || "plan"); // plan | render
     const jobId = String(form.get("jobId") || "");
 

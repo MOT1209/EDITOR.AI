@@ -5,7 +5,17 @@ import { probeMedia } from "@/lib/engine/media";
 import { isEngineError } from "@/lib/engine/errors";
 import { maxUploadBytes } from "@/lib/server/validate";
 import { kindOfExt, uploadRef } from "@/lib/server/media-ref";
-import { QuotaError, allowedMediaExt, rejectOversizedRequest, saveUpload } from "@/lib/server/uploads";
+import {
+  BodyTooLargeError,
+  QuotaError,
+  allowedMediaExt,
+  isRawUpload,
+  rawUploadName,
+  readFormDataCapped,
+  rejectOversizedRequest,
+  saveUpload,
+  saveUploadStream,
+} from "@/lib/server/uploads";
 import { logger } from "@/lib/server/logger";
 
 export const runtime = "nodejs";
@@ -19,22 +29,45 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   const tooBig = rejectOversizedRequest(req);
   if (tooBig) return tooBig;
-  const form = await req.formData().catch(() => null);
-  const file = form?.get("file");
-  if (!file || !(file instanceof File)) return NextResponse.json({ error: "الملف مطلوب" }, { status: 400 });
-  if (file.size <= 0) return NextResponse.json({ error: "الملف فارغ" }, { status: 400 });
-  if (file.size > maxUploadBytes()) return NextResponse.json({ error: "حجم الملف يتجاوز الحد المسموح", code: "LIMIT_EXCEEDED" }, { status: 413 });
-  const ext = allowedMediaExt(file.name);
-  if (!ext) return NextResponse.json({ error: "نوع ملف غير مدعوم (فيديو/صوت/صورة فقط)" }, { status: 400 });
-  const kind = kindOfExt(ext);
 
-  let saved;
+  // صيغتان: رفع خام متدفق إلى القرص (application/octet-stream + x-upload-name) — تستخدمه الواجهة،
+  // أو multipart (حقل file) بسقف بايتات حقيقي.
+  let saved: { id: string; filepath: string };
+  let name: string;
+  let size: number;
+  let ext: string | null;
   try {
-    saved = await saveUpload(file, ext);
+    if (isRawUpload(req)) {
+      name = rawUploadName(req);
+      ext = allowedMediaExt(name);
+      if (!ext) return NextResponse.json({ error: "نوع ملف غير مدعوم (فيديو/صوت/صورة فقط)" }, { status: 400 });
+      if (!req.body) return NextResponse.json({ error: "الملف مطلوب" }, { status: 400 });
+      const r = await saveUploadStream(req.body, ext, { declaredSize: Number(req.headers.get("content-length") || 0) });
+      if (r.size <= 0) {
+        await fs.rm(r.filepath, { force: true }).catch(() => {});
+        return NextResponse.json({ error: "الملف فارغ" }, { status: 400 });
+      }
+      saved = r;
+      size = r.size;
+    } else {
+      const parsed = await readFormDataCapped(req);
+      if (parsed.response) return parsed.response;
+      const file = parsed.form.get("file");
+      if (!file || !(file instanceof File)) return NextResponse.json({ error: "الملف مطلوب" }, { status: 400 });
+      if (file.size <= 0) return NextResponse.json({ error: "الملف فارغ" }, { status: 400 });
+      if (file.size > maxUploadBytes()) return NextResponse.json({ error: "حجم الملف يتجاوز الحد المسموح", code: "LIMIT_EXCEEDED" }, { status: 413 });
+      ext = allowedMediaExt(file.name);
+      if (!ext) return NextResponse.json({ error: "نوع ملف غير مدعوم (فيديو/صوت/صورة فقط)" }, { status: 400 });
+      saved = await saveUpload(file, ext);
+      name = file.name;
+      size = file.size;
+    }
   } catch (e) {
     if (e instanceof QuotaError) return NextResponse.json({ error: e.message, code: "LIMIT_EXCEEDED" }, { status: 507 });
+    if (e instanceof BodyTooLargeError) return NextResponse.json({ error: e.message, code: "LIMIT_EXCEEDED" }, { status: 413 });
     throw e;
   }
+  const kind = kindOfExt(ext);
   try {
     const info = await probeMedia(saved.filepath);
     if (kind === "audio" && !info.audio) throw new Error("الملف لا يحتوي مسار صوت");
@@ -43,15 +76,15 @@ export async function POST(req: NextRequest) {
       id: saved.id,
       ref: uploadRef(saved.id),
       kind,
-      name: file.name,
-      size: file.size,
+      name,
+      size,
       durationSeconds: kind === "image" ? 0 : info.durationSeconds,
       hasAudio: !!info.audio,
       video: info.video ? { width: info.video.width, height: info.video.height, fps: info.video.fps } : null,
     });
   } catch (e) {
     await fs.rm(saved.filepath, { force: true }).catch(() => {});
-    logger.warn("upload.rejected", { name: path.basename(file.name), size: file.size });
+    logger.warn("upload.rejected", { name: path.basename(name), size });
     const msg = isEngineError(e) || e instanceof Error ? e.message : "ملف غير صالح";
     return NextResponse.json({ error: `تعذّر قراءة الملف: ${msg}` }, { status: isEngineError(e) && e.code === "DEPENDENCY_MISSING" ? 503 : 400 });
   }

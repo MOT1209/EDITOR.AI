@@ -90,6 +90,7 @@ import { activeVideoClip, clipFraming, framingCss } from "@/lib/engine/framing";
 import { ensureAudioRefs } from "@/lib/client/audio-upload";
 import { EFFECTS_LIBRARY, MUSIC_LIBRARY, aiJobs, generateToneTrack } from "@/lib/mockAi";
 import { apiConfig, apiFetch, SIMULATED_EVENT } from "@/lib/api-config";
+import { uploadFileRaw } from "@/lib/client/upload";
 import { parseProject } from "@/lib/engine/project-schema";
 import { EXPORT_PRESETS, applyExportPreset } from "@/lib/engine/export-presets";
 import {
@@ -631,11 +632,7 @@ export default function Editor() {
       update(10, "رفع الفيديو للتحليل...");
       let sourcePath = serverSourceRef;
       if (!sourcePath) {
-        const form = new FormData();
-        form.append("file", videoFile);
-        const uploadRes = await apiFetch("/api/ffmpeg/probe", { method: "POST", body: form }).then((r) =>
-          r.json()
-        );
+        const uploadRes = await uploadFileRaw("/api/ffmpeg/probe", videoFile).then((r) => r.json());
         if (!uploadRes?.ref) throw new Error(uploadRes?.error || "فشل رفع الفيديو للتحليل");
         sourcePath = uploadRes.ref as string;
         setServerSourceRef(sourcePath);
@@ -1342,9 +1339,7 @@ export default function Editor() {
     try {
       let sourcePath = serverSourceRef;
       if (!sourcePath && state.videoFile) {
-        const form = new FormData();
-        form.append("file", state.videoFile);
-        const uploadRes = await apiFetch("/api/ffmpeg/probe", { method: "POST", body: form }).then((r) => r.json());
+        const uploadRes = await uploadFileRaw("/api/ffmpeg/probe", state.videoFile).then((r) => r.json());
         if (!uploadRes?.ref) throw new Error(uploadRes?.error || "فشل رفع الفيديو للمعالجة");
         sourcePath = uploadRes.ref as string;
         setServerSourceRef(sourcePath);
