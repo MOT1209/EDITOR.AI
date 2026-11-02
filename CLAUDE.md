@@ -51,7 +51,7 @@ CI (`.github/workflows/ci.yml`) يشغّل: py_compile + pytest + tsc + lint + V
 
 - كل جسم JSON خارجي يمر عبر `parseJsonBody` + مخطط في `lib/server/schemas.ts` (حدود حجم/أطوال)؛ لا `req.json()` خام.
 - الوسائط تُمرَّر كمراجع معتمة (`upload:`/`audio:`/`asset:`/`project:`) وتُحلّ على الخادم (`lib/server/media-ref.ts`)؛ لا مسار قرص في أي استجابة أو طلب.
-- تشغيل ffmpeg/ffprobe/python عبر `lib/engine/hardening.ts` (بيئة مصفّاة، `-protocol_whitelist`، حدود `prlimit`)؛ لا `shell:true`.
+- تشغيل ffmpeg/ffprobe/python عبر `lib/engine/hardening.ts` (بيئة مصفّاة، `-protocol_whitelist`، حدود `prlimit`، وعزل ffmpeg بـ `unshare`: بلا شبكة + إخفاء الأسرار — `MONTAGE_FFMPEG_SANDBOX`)؛ لا `shell:true`.
 - العمليات الحساسة (منح صلاحيات/حذف/تشغيل إجراء مكلف) تتطلب مصافحة موافقة من الخادم (`lib/server/approvals.ts`) لا `confirmed:true` وحده.
 - المصادقة/الأدوار: `MONTAGE_API_TOKEN(S)` (`lib/server/auth*.ts`)؛ النشر عن بُعد بلا رمز ⇒ 503. التفاصيل: `docs/security/SECURITY_REMEDIATION_REPORT.md`.
 
