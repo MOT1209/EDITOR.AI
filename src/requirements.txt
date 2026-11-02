@@ -17,4 +17,4 @@ python-dotenv>=1.0        # قراءة .env.local (عرف المشروع)
 # moviepy>=1.0.3          # رندر بديل قابل للبرمجة
 
 # إلزامي لـ CrewAI مع مزوّدات OpenAI-compatible (Groq/OpenRouter...)
-litellm>=1.40
+litellm>=1.83.7
