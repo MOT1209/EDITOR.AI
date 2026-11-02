@@ -13,6 +13,7 @@ import { EFFECTS_LIBRARY } from "@/lib/mockAi";
 import { EFFECT_IDS, TRANSITION_TYPES } from "@/lib/engine/project-schema";
 import { removeClipKeyframe, setAudioClipProps, setClipKeyframe, setClipProps, type ClipPatch } from "@/lib/engine/timeline";
 import { apiFetch } from "@/lib/api-config";
+import { uploadFileRaw } from "@/lib/client/upload";
 
 type Notify = (type: "info" | "success" | "warning" | "error", title: string, message?: string) => void;
 
@@ -332,9 +333,7 @@ function AudioInspector({ clip, project, dispatch, notify }: { clip: AudioClip; 
     try {
       const blob = await fetch(clip.url).then((r) => r.blob());
       const ext = blob.type.includes("wav") ? ".wav" : blob.type.includes("ogg") ? ".ogg" : blob.type.includes("mp4") || blob.type.includes("m4a") ? ".m4a" : ".mp3";
-      const form = new FormData();
-      form.append("file", new File([blob], `${clip.name || "audio"}${ext}`, { type: blob.type }));
-      const res = await apiFetch("/api/assets/upload", { method: "POST", body: form });
+      const res = await uploadFileRaw("/api/assets/upload", new File([blob], `${clip.name || "audio"}${ext}`, { type: blob.type }));
       const data = await res.json();
       if (!res.ok || !data.ref) throw new Error(data.error || "فشل الرفع");
       apply({ ref: data.ref });

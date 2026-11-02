@@ -8,6 +8,7 @@ import type { Action, State } from "./state";
 import type { AudioClip, MediaAsset, ProjectState, VideoClip } from "@/lib/types";
 import { SectionTitle, EmptyState } from "./ui";
 import { apiFetch } from "@/lib/api-config";
+import { uploadFileRaw } from "@/lib/client/upload";
 import { clipDuration, moveClipToTrack, newId } from "@/lib/engine/timeline";
 
 type Notify = (type: "info" | "success" | "warning" | "error", title: string, message?: string) => void;
@@ -79,9 +80,7 @@ export function MediaLibrary({
     for (const file of Array.from(files)) {
       setUploading((u) => [...u, file.name]);
       try {
-        const form = new FormData();
-        form.append("file", file);
-        const res = await apiFetch("/api/assets/upload", { method: "POST", body: form });
+        const res = await uploadFileRaw("/api/assets/upload", file);
         const d = await res.json().catch(() => ({}));
         if (!res.ok || !d.ref) throw new Error(d.error || `فشل الرفع (${res.status})`);
         const asset: MediaAsset = {

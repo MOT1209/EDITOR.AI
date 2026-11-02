@@ -3,7 +3,7 @@ import { getOpencodeKey, getOpencodeBaseUrl, getWhisperModel } from "@/lib/serve
 import { guardCost, recordSpend, estimateCostUsd, releaseReservation } from "@/lib/server/cost-guard";
 import { estimateAudioSeconds } from "@/lib/server/audio-duration";
 import { validateAudioUpload } from "@/lib/server/validate";
-import { rejectOversizedRequest } from "@/lib/server/uploads";
+import { rejectOversizedRequest, readFormDataCapped } from "@/lib/server/uploads";
 
 
 export const runtime = "nodejs";
@@ -23,7 +23,9 @@ export async function POST(req: NextRequest) {
   try {
     const OPENCODE_BASE_URL = getOpencodeBaseUrl();
     const OPENCODE_API_KEY = getOpencodeKey(req);
-    const form = await req.formData();
+    const parsed = await readFormDataCapped(req);
+    if (parsed.response) return parsed.response;
+    const form = parsed.form;
     const audio = form.get("audio") as File | null;
     const language = (form.get("language") as string) || "";
     if (!audio) {
