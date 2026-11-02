@@ -10,6 +10,7 @@
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign, verify } from "crypto";
 import { promises as fsp } from "fs";
 import path from "path";
+import "@/lib/zod-browser";
 import { z } from "zod";
 import { EngineError } from "@/lib/engine/errors";
 import { workspaceRoot } from "@/lib/engine/store";

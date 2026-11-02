@@ -12,12 +12,8 @@ describe("security headers (next.config.js)", () => {
     expect(h["X-Content-Type-Options"]).toBe("nosniff");
     expect(h["X-Frame-Options"]).toBe("DENY");
     expect(h["Referrer-Policy"]).toBe("no-referrer");
-    expect(h["Content-Security-Policy"]).toContain("frame-ancestors 'none'");
-    expect(h["Content-Security-Policy"]).toContain("object-src 'none'");
-    const csp = h["Content-Security-Policy"] as string;
-    expect(csp).toContain("default-src 'self'");
-    expect(csp).toContain("connect-src 'self' blob: https://huggingface.co");
-    expect(csp).not.toMatch(/script-src[^;]*https?:/); // لا سكربتات خارجية
+    // CSP لم تعد ثابتة هنا: middleware يضعها لكل طلب بـ nonce (tests/security/csp.test.ts).
+    expect(h["Content-Security-Policy"]).toBeUndefined();
     // الإنتاج بلا eval (يُتحقق منه حياً عبر curl على next start في تقرير المعالجة)
     expect(cfg.poweredByHeader).toBe(false);
   });
