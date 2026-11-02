@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { guardApiRequest } from "@/lib/server/api-guard";
 import { createWriteStream, promises as fsp } from "fs";
 import path from "path";
 import { Readable } from "stream";
@@ -22,6 +23,9 @@ const AUDIO_EXTS = [".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".opus", ".
  * ffprobe يتحقق فعلياً من وجود مسار صوت (الملف المزيّف يُحذف). قيد الحجم والامتداد وسقف التخزين كالفيديو.
  */
 export async function POST(req: NextRequest) {
+  // مستثنى من middleware (جسم كبير يُبث للقرص) ⇒ الحارس هنا — lib/server/api-guard.ts.
+  const denied = guardApiRequest(req);
+  if (denied) return denied;
   const tooBig = rejectOversizedRequest(req);
   if (tooBig) return tooBig;
   const parsed = await readFormDataCapped(req);

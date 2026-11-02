@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { guardApiRequest } from "@/lib/server/api-guard";
 import { promises as fs } from "fs";
 import path from "path";
 import { probeMedia } from "@/lib/engine/media";
@@ -27,6 +28,9 @@ export const dynamic = "force-dynamic";
  * النوع يُشتق من الامتداد المسموح ثم يُتحقق بمحتوى الملف؛ غير المتطابق يُحذف ويُرفض.
  */
 export async function POST(req: NextRequest) {
+  // مستثنى من middleware (جسم كبير يُبث للقرص) ⇒ الحارس هنا — lib/server/api-guard.ts.
+  const denied = guardApiRequest(req);
+  if (denied) return denied;
   const tooBig = rejectOversizedRequest(req);
   if (tooBig) return tooBig;
 
