@@ -86,24 +86,56 @@ function open(file: string): Database | null {
   }
   try {
     mkdirSync(path.dirname(file), { recursive: true });
-    const db = new mod.DatabaseSync(file);
-    db.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA synchronous=NORMAL;");
-    const v = Number(db.prepare("PRAGMA user_version").get()?.user_version ?? 0);
-    for (let i = v; i < Math.min(SCHEMA_VERSION, MIGRATIONS.length); i++) {
-      db.exec("BEGIN IMMEDIATE");
-      try {
-        db.exec(MIGRATIONS[i]);
-        db.exec(`PRAGMA user_version=${i + 1}`);
-        db.exec("COMMIT");
-      } catch (e) {
-        db.exec("ROLLBACK");
-        throw e;
-      }
-    }
-    return db;
   } catch (e) {
-    warnOnce(`تعذّر فتح قاعدة SQLite (${(e as Error).message}) — العودة للسلوك السابق`);
+    warnOnce(`تعذّر إنشاء مجلد قاعدة SQLite (${(e as Error).message}) — العودة للسلوك السابق`);
     return null;
+  }
+  // عمليات تفتح القاعدة لأول مرة بالتزامن (Next + MCP) قد تصطدم بـ «database is locked»: تحويل الوضع إلى WAL
+  // يتطلب قفلاً حصرياً لا يحترم busy_timeout دائماً. نعيد المحاولة بدل التدهور الصامت إلى «بلا قفل».
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < OPEN_RETRIES; attempt++) {
+    let d: Database | null = null;
+    try {
+      d = new mod.DatabaseSync(file);
+      d.exec("PRAGMA busy_timeout=5000;"); // أولاً: قبل أي عملية تحتاج قفلاً
+      d.exec("PRAGMA journal_mode=WAL;");
+      d.exec("PRAGMA synchronous=NORMAL;");
+      migrate(d);
+      return d;
+    } catch (e) {
+      lastErr = e;
+      try { d?.close(); } catch { /* لا شيء */ }
+      if (!/locked|busy/i.test((e as Error).message)) break;
+      sleepSync(10 + Math.random() * 40);
+    }
+  }
+  warnOnce(`تعذّر فتح قاعدة SQLite (${(lastErr as Error)?.message}) — العودة للسلوك السابق`);
+  return null;
+}
+
+const OPEN_RETRIES = 100;
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/** يطبّق الترحيلات الناقصة. user_version يُقرأ داخل المعاملة الحصرية فلا تطبّق عمليتان الترحيل نفسه مرتين. */
+function migrate(d: Database): void {
+  for (;;) {
+    d.exec("BEGIN IMMEDIATE");
+    try {
+      const v = Number(d.prepare("PRAGMA user_version").get()?.user_version ?? 0);
+      if (v >= Math.min(SCHEMA_VERSION, MIGRATIONS.length)) {
+        d.exec("COMMIT");
+        return;
+      }
+      d.exec(MIGRATIONS[v]);
+      d.exec(`PRAGMA user_version=${v + 1}`);
+      d.exec("COMMIT");
+    } catch (e) {
+      try { d.exec("ROLLBACK"); } catch { /* لا شيء */ }
+      throw e;
+    }
   }
 }
 
