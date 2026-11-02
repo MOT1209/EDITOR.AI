@@ -21,10 +21,12 @@ jobs:
         with:
           python-version: "3.10"
           cache: pip
-      - name: تثبيت الاعتماديات
+          cache-dependency-path: src/requirements.lock
+      - name: تثبيت الاعتماديات (قفل بـ hashes)
         run: |
           python -m pip install --upgrade pip
-          pip install -r src/requirements.txt pytest
+          pip install --require-hashes -r src/requirements.lock
+          pip install pytest
       - name: فحص الصياغة (py_compile)
         run: python -m compileall -q src/
       - name: تشغيل الاختبارات (pytest)
