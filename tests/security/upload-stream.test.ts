@@ -24,7 +24,7 @@ function chunked(total: number, chunk = 64 * 1024): ReadableStream<Uint8Array> {
 }
 
 const req = (url: string, body: BodyInit | ReadableStream<Uint8Array>, headers: Record<string, string>) =>
-  new NextRequest(`http://localhost${url}`, { method: "POST", headers: { host: "localhost", ...headers }, body, duplex: "half" } as RequestInit & { duplex: "half" });
+  new NextRequest(`http://localhost${url}`, { method: "POST", headers: { host: "localhost", ...headers }, body, duplex: "half" } as ConstructorParameters<typeof NextRequest>[1]);
 
 const uploadsNow = () => new Set((() => { try { return readdirSync(UPLOAD_DIR); } catch { return []; } })());
 
