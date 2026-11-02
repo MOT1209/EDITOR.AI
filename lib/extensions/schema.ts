@@ -3,6 +3,7 @@
 // لا $ref ولا pattern (تفادي ReDoS) ولا مخططات عودية؛ العمق والحجم محدودان.
 // المخطط نفسه بيانات خالصة — لا يحمل تنفيذاً. يُحوَّل إلى Zod لـ MCP ويُتحقق به عند كل استدعاء.
 // ====================================================================
+import "@/lib/zod-browser";
 import { z } from "zod";
 
 export const SCHEMA_LIMITS = { maxProps: 30, maxEnum: 50, maxDepth: 3, maxString: 20_000, maxArray: 200 } as const;

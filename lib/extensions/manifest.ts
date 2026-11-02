@@ -9,6 +9,7 @@
 // إجراءات داخلية معتمد، أو نصوص تعليمات لنموذج، أو مدخل مسمّى في قوائم يتحكم بها المالك.
 // ====================================================================
 import { createHash } from "crypto";
+import "@/lib/zod-browser";
 import { z } from "zod";
 import { isSemver, isValidRange } from "./semver";
 import { lintSchema, EMPTY_OBJECT_SCHEMA, type ObjectSchema } from "./schema";
