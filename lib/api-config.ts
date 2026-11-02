@@ -20,17 +20,6 @@ export const apiConfig = {
   get hfToken(): string | undefined { return getKey("HF_TOKEN"); },
   set hfToken(v: string) { setKey("HF_TOKEN", v); },
 
-  // رمز الوصول لخادم مفروض عليه MONTAGE_API_TOKEN (يُحفظ محلياً في المتصفح ويُرسل كترويسة فقط).
-  get montageToken(): string | undefined { return getKey("MONTAGE_API_TOKEN"); },
-  set montageToken(v: string) {
-    setKey("MONTAGE_API_TOKEN", v);
-    // كوكي Strict كي تعمل روابط <video src>/<a href> التي لا تستطيع إرسال ترويسات.
-    if (typeof document !== "undefined") {
-      document.cookie = v
-        ? `montage_token=${encodeURIComponent(v)}; Path=/; SameSite=Strict${location.protocol === "https:" ? "; Secure" : ""}`
-        : "montage_token=; Path=/; Max-Age=0; SameSite=Strict";
-    }
-  },
 
   get hfMcpUrl() { return "https://huggingface.co/mcp"; },
 
@@ -47,8 +36,51 @@ export function authHeaders(): Record<string, string> {
   const headers: Record<string, string> = {};
   if (apiConfig.opencodeKey) headers["x-opencode-key"] = apiConfig.opencodeKey;
   if (apiConfig.hfToken) headers["x-hf-token"] = apiConfig.hfToken;
-  if (apiConfig.montageToken) headers["x-montage-token"] = apiConfig.montageToken;
   return headers;
+}
+
+// ---------- جلسة الخادم (رمز MONTAGE_API_TOKEN) ----------
+// الرمز لا يُحفظ في المتصفح إطلاقاً: يُرسل مرة إلى /api/session فيضع الخادم كوكي HttpOnly
+// (SameSite=Strict) يرافق كل الطلبات وروابط <video src> تلقائياً ولا يقرؤه أي سكربت.
+
+export interface SessionState {
+  required: boolean;
+  authenticated: boolean;
+  role: string | null;
+}
+
+/** ترحيل: يحذف رمزاً قديماً حُفظ في localStorage قبل الانتقال لكوكي HttpOnly. */
+export function purgeLegacyToken(): void {
+  if (typeof window === "undefined") return;
+  try { localStorage.removeItem("MONTAGE_API_TOKEN"); } catch {}
+}
+
+export async function getServerSession(): Promise<SessionState | null> {
+  try {
+    const r = await fetch("/api/session", { credentials: "same-origin" });
+    return r.ok ? ((await r.json()) as SessionState) : null;
+  } catch { return null; }
+}
+
+/** تسجيل الدخول برمز الوصول — يعيد رسالة خطأ عربية أو null عند النجاح. */
+export async function loginServerSession(token: string): Promise<string | null> {
+  purgeLegacyToken();
+  try {
+    const r = await fetch("/api/session", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    });
+    if (r.ok) return null;
+    const data = (await r.json().catch(() => ({}))) as { error?: string };
+    return data.error || "تعذّر تسجيل الدخول";
+  } catch { return "تعذّر الاتصال بالخادم"; }
+}
+
+export async function logoutServerSession(): Promise<void> {
+  purgeLegacyToken();
+  await fetch("/api/session", { method: "DELETE", credentials: "same-origin" }).catch(() => {});
 }
 
 /** حدث يُطلق عندما يعيد مسار API نتيجة محاكاة (simulated:true) — المحرّر يعرضه كتحذير. */
@@ -75,3 +107,6 @@ export async function apiFetch(url: string, options: RequestInit = {}): Promise<
 
 // ملاحظة: استدعاء المزوّدين مباشرة من المتصفح أُزيل عمداً — كل استدعاء مدفوع يمر عبر
 // مسارات /api/ai/* على الخادم حتى يطبّق ضابط التكلفة (lib/server/cost-guard.ts).
+
+// ترحيل لمرة واحدة عند تحميل الواجهة: لا رمز وصول في localStorage بعد الآن.
+purgeLegacyToken();

@@ -73,3 +73,6 @@ export const exportBody = z.object({
 
 // PUT /api/projects/[id] — حفظ المحرّر (المشروع يُتحقق منه بـ parseProject).
 export const projectPutBody = z.object({ project: z.unknown() });
+
+// POST /api/session — تسجيل الدخول برمز الوصول (يُحوَّل إلى كوكي HttpOnly).
+export const sessionBody = z.object({ token: z.string().min(1).max(512) });

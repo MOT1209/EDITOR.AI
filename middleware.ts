@@ -10,6 +10,8 @@ export function middleware(req: NextRequest) {
   if (!verdict.ok) {
     return NextResponse.json({ error: `مرفوض: ${verdict.reason}` }, { status: 403 });
   }
+  // /api/session يتحقق من الرمز بنفسه (تسجيل الدخول يسبق امتلاك كوكي الجلسة).
+  if (req.nextUrl.pathname === "/api/session") return NextResponse.next();
   const auth = checkAuth({
     authorization: req.headers.get("authorization"),
     xToken: req.headers.get("x-montage-token"),
