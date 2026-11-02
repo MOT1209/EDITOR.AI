@@ -6,7 +6,7 @@
 // - رمز أقصر من 16 حرفاً يُعدّ خطأ تهيئة ⇒ رفض الكل (لا رمز ضعيف يُقبل بصمت).
 
 
-import { MIN_TOKEN_LENGTH, parseTokens, roleForToken, safeEqual, type Role } from "./auth-roles";
+import { MIN_TOKEN_LENGTH, parseTokens, roleForToken, safeEqual, tokenFingerprint, type Role } from "./auth-roles";
 export { MIN_TOKEN_LENGTH, safeEqual };
 
 export interface AuthEnv {
@@ -30,7 +30,12 @@ function extractToken(headers: { authorization: string | null; xToken: string | 
   if (m) return m[1].trim();
   if (headers.xToken) return headers.xToken.trim();
   const c = /(?:^|;\s*)montage_token=([^;]+)/.exec(headers.cookie || "");
-  return c ? decodeURIComponent(c[1]) : "";
+  if (!c) return "";
+  try {
+    return decodeURIComponent(c[1]);
+  } catch {
+    return ""; // كوكي مشوّه ⇒ لا رمز (401) بدل استثناء داخل middleware (500)
+  }
 }
 
 export function checkAuth(
@@ -46,5 +51,5 @@ export function checkAuth(
   const given = extractToken(headers);
   const role = given ? roleForToken(entries, given) : null;
   if (!role) return { ok: false, status: 401, reason: "رمز الوصول مفقود أو غير صحيح" };
-  return { ok: true, role, tokenId: given.slice(0, 12) };
+  return { ok: true, role, tokenId: tokenFingerprint(given) };
 }

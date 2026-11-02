@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getOpencodeKey, getOpencodeBaseUrl, getWhisperModel } from "@/lib/server/api-keys";
 import { guardCost, recordSpend, estimateCostUsd } from "@/lib/server/cost-guard";
 import { validateAudioUpload } from "@/lib/server/validate";
+import { rejectOversizedRequest } from "@/lib/server/uploads";
 
 
 export const runtime = "nodejs";
@@ -16,6 +17,8 @@ interface Word {
 // نسخ بتوقيتات على مستوى الكلمة (Whisper word-level timestamps)
 // مطلوب لِترجمة الكاريوكي المتحركة كلمة-بكلمة.
 export async function POST(req: NextRequest) {
+  const tooBig = rejectOversizedRequest(req);
+  if (tooBig) return tooBig;
   try {
     const OPENCODE_BASE_URL = getOpencodeBaseUrl();
     const OPENCODE_API_KEY = getOpencodeKey(req);

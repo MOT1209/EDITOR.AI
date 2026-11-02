@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { parseJsonBody } from "@/lib/server/request";
 import { framesBody } from "@/lib/server/schemas";
 import { getHfToken } from "@/lib/server/api-keys";
+import { estimateCostUsd, guardCost, recordSpend } from "@/lib/server/cost-guard";
+
+const estimateVision = (images: number) => estimateCostUsd("vision", { images });
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -41,6 +44,9 @@ export async function POST(req: NextRequest) {
 
     if (frames.length > 0 && HF_TOKEN) {
       const sampleFrames = frames.slice(0, Math.min(3, frames.length));
+      // ضابط التكلفة: كشف الكائنات عبر HF Inference يُحتسب كاستدعاء رؤية.
+      const guard = guardCost("vision", { images: sampleFrames.length });
+      if (!guard.allowed) return NextResponse.json({ error: guard.reason, budget: guard }, { status: 402 });
       for (let fi = 0; fi < sampleFrames.length; fi++) {
         const result = await detectObjectsHF(sampleFrames[fi], HF_TOKEN);
         if (result && Array.isArray(result)) {
@@ -60,6 +66,8 @@ export async function POST(req: NextRequest) {
         }
       }
     }
+
+    if (frames.length > 0 && HF_TOKEN) recordSpend(estimateVision(Math.min(3, frames.length)));
 
     if (objects.length === 0) {
       // لا نختلق كائنات: نتيجة فارغة + تحذير.

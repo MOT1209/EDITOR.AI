@@ -2,6 +2,7 @@ import { describe, expect, it, afterEach } from "vitest";
 import { NextRequest } from "next/server";
 import { checkAuth, safeEqual } from "@/lib/server/auth";
 import { middleware } from "@/middleware";
+import { rateLimitPerMin, tokenFingerprint } from "@/lib/server/auth-roles";
 
 const H = (authorization: string | null = null, xToken: string | null = null, cookie: string | null = null) => ({ authorization, xToken, cookie });
 const TOKEN = "t".repeat(24);
@@ -53,5 +54,22 @@ describe("middleware enforces auth + host guard", () => {
     delete process.env.MONTAGE_API_TOKEN;
     process.env.MONTAGE_ALLOWED_HOSTS = "studio.example.com";
     expect(middleware(req()).status).toBe(503);
+  });
+});
+
+describe("تصليبات المصادقة الإضافية", () => {
+  it("كوكي مشوّه يعطي 401 لا استثناء", () => {
+    expect(checkAuth(H(null, null, "montage_token=%E0%A4%A"), { token: TOKEN })).toMatchObject({ ok: false, status: 401 });
+  });
+  it("معرّف الرمز بصمة لا تكشف أي جزء منه", () => {
+    const r = checkAuth(H(`Bearer ${TOKEN}`), { token: TOKEN });
+    expect(r.ok && r.tokenId.startsWith("tok_")).toBe(true);
+    expect(r.ok && r.tokenId.includes("tttt")).toBe(false);
+    expect(tokenFingerprint("a".repeat(20))).not.toBe(tokenFingerprint("a".repeat(19) + "b"));
+  });
+  it("حد معدل افتراضي عند النشر عن بُعد فقط", () => {
+    expect(rateLimitPerMin({} as NodeJS.ProcessEnv)).toBe(0);
+    expect(rateLimitPerMin({ MONTAGE_ALLOWED_HOSTS: "studio.example.com" } as unknown as NodeJS.ProcessEnv)).toBe(120);
+    expect(rateLimitPerMin({ MONTAGE_ALLOWED_HOSTS: "x.io", MONTAGE_RATE_LIMIT_PER_MIN: "0" } as unknown as NodeJS.ProcessEnv)).toBe(0);
   });
 });

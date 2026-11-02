@@ -55,3 +55,21 @@ export const agentsExportBody = z.object({
   format: z.string().max(32),
   plan: z.record(z.string(), z.unknown()).optional(),
 });
+
+// POST /api/export — المشروع نفسه يُتحقق منه لاحقاً بـ parseProject؛ هنا الشكل والحدود فقط.
+export const EXPORT_MAX_JSON_BYTES = 5_000_000;
+export const exportBody = z.object({
+  project: z.unknown().optional(),
+  sourceRef: z.string().max(256).optional(),
+  sources: z
+    .array(z.object({ assetId: z.string().max(80), ref: z.string().max(256) }))
+    .max(64)
+    .optional(),
+  videoStabilize: z.boolean().optional(),
+  colorGrading: z.number().finite().min(0).max(1).optional(),
+  acknowledgeAudioLoss: z.boolean().optional(),
+  preview: z.object({ start: z.number().finite(), end: z.number().finite() }).optional(),
+});
+
+// PUT /api/projects/[id] — حفظ المحرّر (المشروع يُتحقق منه بـ parseProject).
+export const projectPutBody = z.object({ project: z.unknown() });
