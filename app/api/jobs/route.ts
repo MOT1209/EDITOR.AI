@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { aiJobs } from "@/lib/mockAi";
+import { jobsStore, toAIJob } from "@/lib/server/jobs-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   // نزع أي مسار قرص من نتائج المهام قبل إرسالها للعميل.
-  const jobs = aiJobs.list().map((j) => {
+  const jobs = jobsStore.list().map(toAIJob).map((j) => {
     const r = j.result as Record<string, unknown> | undefined;
     if (!r || typeof r !== "object" || !("path" in r)) return j;
     const { path: _omit, ...safe } = r;

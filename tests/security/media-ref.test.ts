@@ -50,7 +50,7 @@ describe("T-03: no server path is exposed or accepted", () => {
     const { readFileSync } = await import("fs");
     form.append("file", new File([readFileSync(tmp)], "clip.mp4", { type: "video/mp4" }));
     rmSync(tmp, { force: true });
-    const res = await probe(new NextRequest("http://localhost/api/ffmpeg/probe", { method: "POST", body: form }));
+    const res = await probe(new NextRequest("http://localhost/api/ffmpeg/probe", { method: "POST", headers: { host: "localhost" }, body: form }));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ref).toBe(`upload:${body.id}`);

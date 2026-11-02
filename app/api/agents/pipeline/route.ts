@@ -7,6 +7,7 @@
  * GET  /api/agents/pipeline?job=<jobId> → يقدّم الفيديو النهائي final.mp4
  */
 import { NextRequest, NextResponse } from "next/server";
+import { guardApiRequest } from "@/lib/server/api-guard";
 import { spawn } from "child_process";
 import { logger } from "@/lib/server/logger";
 import { saveUpload, rejectOversizedRequest, QuotaError, readFormDataCapped } from "@/lib/server/uploads";
@@ -56,6 +57,9 @@ async function runPython(args: string[]): Promise<number> {
 }
 
 export async function POST(req: NextRequest) {
+  // مستثنى من middleware (جسم كبير يُبث للقرص) ⇒ الحارس هنا — lib/server/api-guard.ts.
+  const denied = guardApiRequest(req);
+  if (denied) return denied;
   try {
     const tooBig = rejectOversizedRequest(req);
     if (tooBig) return tooBig;
@@ -157,6 +161,9 @@ export async function POST(req: NextRequest) {
 
 /** يقدّم الفيديو النهائي (final.mp4) للمعرّف الوظيفي job=... */
 export async function GET(req: NextRequest) {
+  // مستثنى من middleware (جسم كبير يُبث للقرص) ⇒ الحارس هنا — lib/server/api-guard.ts.
+  const denied = guardApiRequest(req);
+  if (denied) return denied;
   const job = new URL(req.url).searchParams.get("job");
   if (!job || !/^job_\d+$/.test(job)) {
     return NextResponse.json({ error: "معرّف وظيفة غير صالح" }, { status: 400 });

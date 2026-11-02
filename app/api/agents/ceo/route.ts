@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { guardApiRequest } from "@/lib/server/api-guard";
 import { runProcess } from "@/lib/engine/process";
 import { probeMedia } from "@/lib/engine/media";
 import { promises as fsp, existsSync } from "fs";
@@ -517,6 +518,9 @@ function normalizePlan(plan: DirectorPlan, duration: number): DirectorPlan {
 /* ------------------------------------------------------------------ */
 
 export async function POST(req: NextRequest) {
+  // مستثنى من middleware (جسم كبير يُبث للقرص) ⇒ الحارس هنا — lib/server/api-guard.ts.
+  const denied = guardApiRequest(req);
+  if (denied) return denied;
   try {
     const tooBig = rejectOversizedRequest(req);
     if (tooBig) return tooBig;

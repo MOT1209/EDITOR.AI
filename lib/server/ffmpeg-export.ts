@@ -5,6 +5,8 @@ import path from "path";
 import type { ProjectAspect, ProjectState, SubtitleCue, TextOverlay, VideoClip } from "@/lib/types";
 import { clipFraming, type Framing } from "@/lib/engine/framing";
 import { ASSETS_DIR } from "@/lib/server/assets";
+import { db } from "@/lib/server/db";
+import { jobsStore } from "@/lib/server/jobs-store";
 import { resolveImageRef } from "@/lib/server/media-ref";
 import { childEnv, hardenedSpawn } from "@/lib/engine/hardening";
 
@@ -29,20 +31,15 @@ export interface ExportJobStatus {
   result?: { path: string; size: number; format: string };
 }
 
-// Export progress is tracked via a JSON file next to the output, not just the
-// in-memory aiJobs map: Next.js dev-mode recompiles route modules independently,
-// which can reset module-level state between the POST that starts a job and a
-// later GET/download request. A file survives across that, and would also
-// survive across separate serverless invocations in production.
+// حالة التصدير تُحفظ في SQLite (lib/server/jobs-store.ts) — مصدر واحد مع /api/jobs، تبقى بعد إعادة
+// التشغيل وتشاركها العمليات (وحدات Next المعاد تحميلها في التطوير أيضاً). بلا SQLite (تدهور) نعود لملف
+// JSON بجانب المخرَج كما كان. readJobStatus يقرأ ملف JSON القديم إن لم يجد السجل (ترحيل بلا فقد).
 function jobStatusPath(id: string): string {
   return path.join(EXPORT_DIR, `${id}.json`);
 }
 
-// Progress updates fire frequently and asynchronously (ffmpeg's -progress
-// stream), and a later "completed"/"failed" write can race with an in-flight
-// progress write to the same file — two concurrent writeFile calls to one path
-// can interleave and corrupt the JSON. Serialize per-job writes and write via
-// a temp file + rename so a reader never observes a half-written file either.
+// تحديثات التقدّم متكررة وغير متزامنة؛ كتابة «completed/failed» لاحقة قد تتسابق معها. نسلسل الكتابات لكل
+// مهمة (ونكتب JSON بملف مؤقت ثم rename في وضع التدهور) فلا يرى القارئ حالة نصف مكتوبة أو أقدم.
 const writeChains = new Map<string, Promise<void>>();
 
 export async function writeJobStatus(status: ExportJobStatus): Promise<void> {
@@ -50,6 +47,15 @@ export async function writeJobStatus(status: ExportJobStatus): Promise<void> {
   const next = previous
     .catch(() => {})
     .then(async () => {
+      jobsStore.update(status.id, {
+        status: status.status,
+        progress: status.progress,
+        message: status.message,
+        result: status.result,
+        issues: status.issues,
+        ...(status.status === "running" ? {} : { finishedAt: Date.now() }),
+      });
+      if (db()) return;
       await ensureExportDir();
       const finalPath = jobStatusPath(status.id);
       const tmpPath = `${finalPath}.${process.pid}.tmp`;
@@ -57,10 +63,26 @@ export async function writeJobStatus(status: ExportJobStatus): Promise<void> {
       await fsp.rename(tmpPath, finalPath);
     });
   writeChains.set(status.id, next);
+  next.finally(() => {
+    if (writeChains.get(status.id) === next) writeChains.delete(status.id);
+  }).catch(() => {});
   return next;
 }
 
 export async function readJobStatus(id: string): Promise<ExportJobStatus | null> {
+  if (db()) {
+    const j = jobsStore.get(id);
+    if (j) {
+      return {
+        id: j.id,
+        status: j.status,
+        progress: j.progress,
+        ...(j.message ? { message: j.message } : {}),
+        ...(j.issues ? { issues: j.issues as RenderIssue[] } : {}),
+        ...(j.result ? { result: j.result as ExportJobStatus["result"] } : {}),
+      };
+    }
+  }
   try {
     const raw = await fsp.readFile(jobStatusPath(id), "utf-8");
     return JSON.parse(raw) as ExportJobStatus;
@@ -185,6 +207,8 @@ export interface ExportRequest {
   outputPath: string;
   project: ProjectState;
   onProgress?: (fraction: number) => void;
+  /** يُستدعى بـ pid عملية ffmpeg فور إطلاقها (لتسجيلها في المهمة كي تُقتل إن ماتت عملية الخادم). */
+  onSpawn?: (pid: number) => void;
   /** تثبيت الفيديو (يُطبَّق فلتر deshake في التصدير). */
   videoStabilize?: boolean;
   /** قوة التصحيح اللوني 0..1 (يُطبق كفلتر eq). */
@@ -628,7 +652,7 @@ export class ExportCancelledError extends Error {
 }
 
 export async function runExport(req: ExportRequest): Promise<{ size: number; durationSeconds: number; width: number; height: number }> {
-  const { outputPath, onProgress, signal } = req;
+  const { outputPath, onProgress, onSpawn, signal } = req;
   await fsp.mkdir(path.dirname(outputPath), { recursive: true });
   if (signal?.aborted) throw new ExportCancelledError();
 
@@ -654,6 +678,7 @@ export async function runExport(req: ExportRequest): Promise<{ size: number; dur
         env: childEnv(),
         shell: false,
       });
+      if (proc.pid) onSpawn?.(proc.pid);
       let stderrTail = "";
       let killedFor: "timeout" | "cancel" | null = null;
       const kill = (why: "timeout" | "cancel") => {

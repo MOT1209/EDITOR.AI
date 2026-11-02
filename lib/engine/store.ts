@@ -10,7 +10,8 @@
 //   <root>/audit.log                           ← JSONL بلا أسرار ولا محتوى وسائط
 //   <root>/inbox/                              ← جذر الاستيراد الافتراضي
 //
-// الكتابة ذرية (tmp + rename) ومُسلسلة لكل مشروع (قفل داخل العملية).
+// الكتابة ذرية (tmp + rename) ومُسلسلة لكل مشروع: قفل داخل العملية + قفل بين العمليات عبر SQLite
+// (Next وخادم MCP يكتبان المشروع نفسه — lib/server/db.ts).
 // ====================================================================
 import { promises as fsp, constants as fsc } from "fs";
 import path from "path";
@@ -19,6 +20,7 @@ import type { MediaAsset, ProjectAspect, ProjectState } from "@/lib/types";
 import { defaultProject } from "@/lib/project";
 import { isPathInside } from "@/lib/server/ffmpeg-export";
 import { maxUploadBytes } from "@/lib/server/validate";
+import { withProcessLock } from "@/lib/server/db";
 import { EngineError } from "./errors";
 import { parseProject, PROJECT_SCHEMA_VERSION } from "./project-schema";
 import { probeMedia, type MediaInfo } from "./media";
@@ -78,11 +80,12 @@ export async function readJson<T>(file: string): Promise<T | null> {
   }
 }
 
-// قفل بسيط لكل مشروع: يسلسل عمليات القراءة-التعديل-الكتابة داخل العملية.
+// قفل لكل مشروع: يسلسل القراءة-التعديل-الكتابة داخل العملية، ثم بين العمليات (Next ↔ MCP) عبر SQLite.
+// بلا SQLite (تدهور) يبقى القفل داخل العملية فقط كما كان.
 const locks = new Map<string, Promise<unknown>>();
 export async function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const prev = locks.get(key) ?? Promise.resolve();
-  const run = prev.catch(() => {}).then(fn);
+  const run = prev.catch(() => {}).then(() => withProcessLock(`project:${key}`, fn));
   locks.set(key, run);
   try {
     return await run;

@@ -20,7 +20,7 @@ const created: string[] = [];
 const upload = (bytes: Buffer, name: string, type: string) => {
   const form = new FormData();
   form.append("file", new File([new Uint8Array(bytes)], name, { type }));
-  return audioUpload(new NextRequest("http://localhost/api/assets/audio", { method: "POST", body: form }));
+  return audioUpload(new NextRequest("http://localhost/api/assets/audio", { method: "POST", headers: { host: "localhost" }, body: form }));
 };
 const meanVolume = (file: string): number => {
   const r = spawnSync("ffmpeg", ["-hide_banner", "-i", file, "-af", "volumedetect", "-vn", "-f", "null", "-"], { encoding: "utf-8" });
@@ -77,7 +77,7 @@ describe.runIf(FF)("T-13: server audio assets enter the exported file", () => {
     expect(fake.status).toBe(400);
     const bad = await upload(tone, "x.exe", "application/octet-stream");
     expect(bad.status).toBe(400);
-    const big = await audioUpload(new NextRequest("http://localhost/api/assets/audio", { method: "POST", headers: { "content-length": String(50 * 1024 ** 3), "content-type": "multipart/form-data; boundary=x" }, body: "x" }));
+    const big = await audioUpload(new NextRequest("http://localhost/api/assets/audio", { method: "POST", headers: { host: "localhost", "content-length": String(50 * 1024 ** 3), "content-type": "multipart/form-data; boundary=x" }, body: "x" }));
     expect(big.status).toBe(413);
   });
 

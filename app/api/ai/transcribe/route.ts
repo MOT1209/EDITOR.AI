@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { guardApiRequest } from "@/lib/server/api-guard";
 import { getOpencodeKey, getOpencodeBaseUrl, getWhisperModel } from "@/lib/server/api-keys";
 import { guardCost, recordSpend, estimateCostUsd, releaseReservation } from "@/lib/server/cost-guard";
 import { estimateAudioSeconds } from "@/lib/server/audio-duration";
@@ -10,6 +11,9 @@ export const runtime = "nodejs";
 export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
+  // مستثنى من middleware (جسم كبير يُبث للقرص) ⇒ الحارس هنا — lib/server/api-guard.ts.
+  const denied = guardApiRequest(req);
+  if (denied) return denied;
   const tooBig = rejectOversizedRequest(req);
   if (tooBig) return tooBig;
   try {

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { guardApiRequest } from "@/lib/server/api-guard";
 import { promises as fs } from "fs";
 import path from "path";
 import { validateVideoUpload } from "@/lib/server/validate";
@@ -29,6 +30,9 @@ export const dynamic = "force-dynamic";
  * الملف الذي لا يتعرّف عليه ffprobe كفيديو يُحذف ويُرفض (لا يبقى على القرص).
  */
 export async function POST(req: NextRequest) {
+  // مستثنى من middleware (جسم كبير يُبث للقرص) ⇒ الحارس هنا — lib/server/api-guard.ts.
+  const denied = guardApiRequest(req);
+  if (denied) return denied;
   const tooBig = rejectOversizedRequest(req);
   if (tooBig) return tooBig;
 
@@ -85,7 +89,10 @@ export async function POST(req: NextRequest) {
 }
 
 /** GET: إحصاء بسيط لمجلد الرفع (بلا مسارات مطلقة). */
-export async function GET() {
+export async function GET(req: NextRequest) {
+  // مستثنى من middleware (جسم كبير يُبث للقرص) ⇒ الحارس هنا — lib/server/api-guard.ts.
+  const denied = guardApiRequest(req);
+  if (denied) return denied;
   const files = await fs.readdir(UPLOAD_DIR).catch(() => []);
   return NextResponse.json({ files: files.length });
 }

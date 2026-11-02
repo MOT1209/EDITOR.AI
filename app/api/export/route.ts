@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { existsSync } from "fs";
 import path from "path";
-import { aiJobs } from "@/lib/mockAi";
+import { jobsStore } from "@/lib/server/jobs-store";
 import { parseJsonBody } from "@/lib/server/request";
 import { exportBody, EXPORT_MAX_JSON_BYTES } from "@/lib/server/schemas";
 import { parseProject } from "@/lib/engine/project-schema";
@@ -138,7 +138,7 @@ export async function POST(req: NextRequest) {
   }
 
   await ensureExportDir();
-  const job = aiJobs.create("export", "تصدير الفيديو");
+  const job = jobsStore.create("export", "تصدير الفيديو");
   const outputPath = path.join(EXPORT_DIR, `${job.id}.${project.format}`);
   await writeJobStatus({ id: job.id, status: "running", progress: 0 });
   const controller = registerExportController(job.id);
@@ -157,14 +157,13 @@ export async function POST(req: NextRequest) {
     allowMissingAudio: body?.acknowledgeAudioLoss === true,
     videoStabilize,
     colorGrading,
+    onSpawn: (pid) => jobsStore.attachWorker(job.id, pid, outputPath),
     onProgress: (fraction) => {
       const progress = Math.round(fraction * 100);
-      aiJobs.update(job.id, { progress });
       void writeJobStatus({ id: job.id, status: "running", progress });
     },
   })
     .then(async ({ size }) => {
-      aiJobs.complete(job.id, { path: outputPath, size, format: project.format });
       await writeJobStatus({
         id: job.id,
         status: "completed",
@@ -175,7 +174,6 @@ export async function POST(req: NextRequest) {
     .catch(async (err: unknown) => {
       const cancelled = err instanceof ExportCancelledError;
       const message = err instanceof Error ? err.message : "فشل التصدير";
-      aiJobs.fail(job.id, message);
       await writeJobStatus({
         id: job.id,
         status: cancelled ? "cancelled" : "failed",
