@@ -90,7 +90,8 @@ export function estimateCostUsd(kind: CostKind, opts: EstimateOpts = {}): number
 
 // ---------- الحالة: إنفاق اليوم + حجوزات معلّقة ----------
 
-const RESERVATION_TTL_MS = 10 * 60_000;
+// يطابق تقريباً أقصى مدة لمسارات API (maxDuration=120s) — حجز استدعاء فشل دون تسجيل لا يعلق طويلاً.
+const RESERVATION_TTL_MS = 3 * 60_000;
 let spentUsd = 0;
 let spentDay = "";
 let loaded = false;
