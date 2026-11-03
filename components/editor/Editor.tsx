@@ -5,19 +5,10 @@ import { v4 as uuid } from "uuid";
 import { ApiSettingsModal, ShortcutsModal } from "./modals";
 import { ProjectsModal, ExportModal, ExportResultModal, type ServerProjectSummary } from "./project-modals";
 import { Upload, X, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
-import {
-  defaultProject,
-  loadProjects,
-  loadProjectsReport,
-  upsertProject,
-  deleteProject,
-  formatTime,
-  formatBytes,
-} from "@/lib/project";
+import { defaultProject, loadProjects, loadProjectsReport, formatTime, formatBytes } from "@/lib/project";
 import { activeVideoClip, clipFraming, framingCss } from "@/lib/engine/framing";
 import { aiJobs } from "@/lib/mockAi";
-import { apiFetch, SIMULATED_EVENT } from "@/lib/api-config";
-import { parseProject } from "@/lib/engine/project-schema";
+import { SIMULATED_EVENT } from "@/lib/api-config";
 import {
   clipSourceEnd,
   previewClips,
@@ -27,7 +18,7 @@ import {
   timelineToSource,
 } from "@/lib/engine/timeline";
 import type { AppNotification, ProjectState } from "@/lib/types";
-import { COLOR_FILTERS, FONT_OPTIONS, fmtSrtTime, fmtVttTime, reducer, initialState } from "./state";
+import { COLOR_FILTERS, FONT_OPTIONS, reducer, initialState } from "./state";
 import { SubtitleOverlay, EffectOverlay, Notifications, PipelineModal } from "./overlays";
 import { Timeline, Transport } from "./timeline";
 import { LeftPanel } from "./panels/left-panel";
@@ -36,6 +27,7 @@ import { Header } from "./panels/header";
 import { createAiActions } from "./ai-actions";
 import { createExportActions } from "./export-actions";
 import { createTimelineActions } from "./timeline-actions";
+import { createProjectActions } from "./project-actions";
 
 export default function Editor() {
   const [state, dispatch] = useReducer(reducer, initialState);
@@ -452,161 +444,30 @@ export default function Editor() {
     return () => window.removeEventListener(SIMULATED_EVENT, onSim);
   }, [notify]);
 
-  const downloadJSON = (data: unknown, name: string) => {
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = name;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const downloadFile = (content: string, name: string, type: string) => {
-    const blob = new Blob([content], { type });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = name;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const exportSRT = () => {
-    const cues = state.project.subtitles;
-    const srt = cues
-      .map((c, i) => `${i + 1}\n${fmtSrtTime(c.start)} --> ${fmtSrtTime(c.end)}\n${c.text}\n`)
-      .join("\n");
-    downloadFile(srt, `${state.project.name}.srt`, "text/plain");
-  };
-
-  const exportVTT = () => {
-    const cues = state.project.subtitles;
-    const vtt = "WEBVTT\n\n" + cues
-      .map((c) => `${fmtVttTime(c.start)} --> ${fmtVttTime(c.end)}\n${c.text}\n`)
-      .join("\n");
-    downloadFile(vtt, `${state.project.name}.vtt`, "text/vtt");
-  };
-
-  const exportProject = () => {
-    const project = {
-      ...state.project,
-      videoMeta: state.videoMeta,
-      audio,
-      timestamp: Date.now(),
-    };
-    downloadJSON(project, `${state.project.name}.montageai.json`);
-    notify("success", "تم حفظ ملف المشروع محلياً");
-  };
-
-  const importProject = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const raw = JSON.parse(String(reader.result));
-        // تحقق المخطط + ترقية النسخ القديمة؛ الحقول الزائدة (videoMeta/audio) تُتجاهل.
-        const r = parseProject({ ...defaultProject(), ...raw });
-        if (!r.ok) {
-          notify("error", "ملف مشروع غير صالح", r.errors.slice(0, 2).join("؛ "));
-          return;
-        }
-        dispatch({ type: "REPLACE_PROJECT", project: r.project });
-        notify("success", "تم استيراد المشروع", "أعد رفع الفيديو المصدر لربطه (الملف لا يُحفظ داخل JSON).");
-      } catch {
-        notify("error", "ملف غير صالح", "تعذّرت قراءة JSON");
-      }
-    };
-    reader.readAsText(f);
-  };
-
-  const refreshServerProjects = async () => {
-    setServerProjects(null);
-    const r = await apiFetch("/api/projects").then((x) => x.json()).catch(() => null);
-    setServerProjects(Array.isArray(r?.projects) ? r.projects : []);
-  };
-
-  const openServerProject = async (id: string) => {
-    setShowProjects(false);
-    try {
-      const r = await apiFetch(`/api/projects/${encodeURIComponent(id)}`).then((x) => x.json());
-      if (!r?.project) throw new Error(r?.error || "تعذّر تحميل المشروع");
-      const parsed = parseProject(r.project);
-      if (!parsed.ok) throw new Error(parsed.errors.join("؛ "));
-      dispatch({ type: "REPLACE_PROJECT", project: parsed.project });
-      dispatch({ type: "CLEAR_VIDEO" });
-      playClipRef.current = -1;
-      setServerProjectId(parsed.project.id);
-      setServerSourceRef(r.media?.sourceRef ?? null);
-      if (!r.media) {
-        notify("info", "فُتح المشروع", "لا فيديو في هذا المشروع بعد");
-        return;
-      }
-      notify("info", "جارِ تحميل الفيديو من مساحة العمل…", r.media.name);
-      const blob = await fetch(r.media.url).then((x) => {
-        if (!x.ok) throw new Error("تعذّر تحميل الوسيط");
-        return x.blob();
-      });
-      const file = new File([blob], r.media.name, { type: blob.type || "video/mp4" });
-      const url = URL.createObjectURL(file);
-      const v = document.createElement("video");
-      v.preload = "metadata";
-      v.onloadedmetadata = () => {
-        dispatch({
-          type: "SET_VIDEO",
-          file,
-          url,
-          meta: { width: v.videoWidth, height: v.videoHeight, duration: v.duration, size: file.size, name: file.name },
-        });
-        seekTimeline(0);
-        notify("success", "فُتح مشروع مساحة العمل", parsed.project.name);
-      };
-      v.onerror = () => notify("error", "تعذّر تشغيل الوسيط في المتصفح");
-      v.src = url;
-    } catch (e) {
-      notify("error", "تعذّر فتح المشروع", e instanceof Error ? e.message : undefined);
-    }
-  };
-
-  const saveProjectToList = () => {
-    if (serverProjectId && serverProjectId === state.project.id) {
-      void apiFetch(`/api/projects/${encodeURIComponent(serverProjectId)}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project: state.project }),
-      })
-        .then((x) => x.json().then((d) => ({ ok: x.ok, d })))
-        .then(({ ok, d }) =>
-          ok
-            ? notify("success", "حُفظ في مساحة العمل", "قابل للتراجع عبر MCP (undo_edit)")
-            : notify("error", "فشل الحفظ في مساحة العمل", d?.error)
-        )
-        .catch(() => notify("error", "فشل الحفظ في مساحة العمل"));
-    }
-    const { project: updated, result } = upsertProject({ ...state.project, thumbnail: state.project.thumbnail });
-    setSavedProjects(loadProjects());
-    if (!result.ok) {
-      notify("error", "فشل الحفظ", result.error);
-      return;
-    }
-    notify("success", "تم الحفظ في المتصفح", `${updated.name} — بيانات المشروع فقط؛ الفيديو يبقى ملفاً على جهازك ويُعاد ربطه عند الفتح.`);
-  };
-
-  const loadProject = (p: ProjectState) => {
-    dispatch({ type: "REPLACE_PROJECT", project: p });
-    dispatch({ type: "CLEAR_VIDEO" });
-    setServerSourceRef(null);
-    playClipRef.current = -1;
-    setShowProjects(false);
-    notify("info", "تم تحميل المشروع", `${p.name} — ارفع الفيديو المصدر (نفس الملف) لإعادة ربطه.`);
-  };
-
-  const removeProject = (id: string) => {
-    const r = deleteProject(id);
-    if (!r.ok) notify("error", "تعذّر الحذف", r.error);
-    setSavedProjects(loadProjects());
-  };
+  const {
+    exportSRT,
+    exportVTT,
+    exportProject,
+    importProject,
+    refreshServerProjects,
+    openServerProject,
+    saveProjectToList,
+    loadProject,
+    removeProject,
+  } = createProjectActions({
+    state,
+    dispatch,
+    notify,
+    audio,
+    playClipRef,
+    seekTimeline,
+    serverProjectId,
+    setSavedProjects,
+    setServerProjectId,
+    setServerProjects,
+    setServerSourceRef,
+    setShowProjects,
+  });
 
   useEffect(() => {
     const { projects, invalid } = loadProjectsReport();
