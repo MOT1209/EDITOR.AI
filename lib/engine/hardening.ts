@@ -82,18 +82,20 @@ export function limitCommand(
 // ---------------------------------------------------------------- عزل ffmpeg (T-09)
 //
 // MONTAGE_FFMPEG_SANDBOX=auto|unshare|off (الافتراضي auto):
-//   auto    → unshare إن كانت user+net+mount namespaces تعمل، وإلا بلا عزل + تحذير واحد (التدهور الأنيق).
-//   unshare → يفرضه؛ غير متاح ⇒ خطأ صريح بدل التشغيل بلا عزل.
+//   auto    → bwrap إن توفّر وعمل، ثم unshare، وإلا بلا عزل + تحذير واحد (التدهور الأنيق).
+//   bwrap   → يفرضه؛ غير متاح ⇒ خطأ صريح بدل التشغيل بلا عزل.
+//   unshare → يفرضه (أضعف: لا يقيّد الكتابة ولا قراءة بقية النظام).
 //   off     → بلا عزل.
-// ما يوفّره unshare بصدق: لا شبكة (net namespace فارغ) + إخفاء ملفات الأسرار (.env*، قاعدة SQLite) بـ
-// /dev/null ومجلد المنزل بـ tmpfs. لا يمنع قراءة بقية نظام الملفات (bwrap لعزل كامل — غير مُنفَّذ بعد).
+// bwrap: لا شبكة + جذر النظام للقراءة فقط + الكتابة حصراً في مجلد ملف المخرَج + إخفاء .env* والقاعدة والمنزل +
+//        pid namespace معزول ويموت مع الخادم (--die-with-parent).
+// unshare: لا شبكة + إخفاء الأسرار والمنزل فقط؛ لا يمنع الكتابة ولا قراءة بقية نظام الملفات.
 // كل الطبقات تستعمل exec ⇒ الـ pid النهائي هو ffmpeg نفسه وسطر أوامره يبقى كما هو (يتضمن مسار المخرَج).
 
-export type FfSandboxPolicy = "auto" | "unshare" | "off";
+export type FfSandboxPolicy = "auto" | "bwrap" | "unshare" | "off";
 
 export function ffSandboxPolicy(env: NodeJS.ProcessEnv = process.env): FfSandboxPolicy {
   const v = (env.MONTAGE_FFMPEG_SANDBOX || "auto").toLowerCase();
-  return v === "unshare" || v === "off" ? v : "auto";
+  return v === "bwrap" || v === "unshare" || v === "off" ? v : "auto";
 }
 
 let unshareOk: boolean | undefined;
@@ -158,6 +160,65 @@ export function ffHiddenPaths(cmd: string, args: string[], env: NodeJS.ProcessEn
   return out.filter((p) => existsSync(p));
 }
 
+let bwrapOk: boolean | undefined;
+/** هل bwrap مثبّت ويعمل فعلاً هنا (user/pid/net namespaces + ro-bind)؟ (يُفحص مرة ويُخزَّن). */
+export function bwrapAvailable(refresh = false): boolean {
+  if (bwrapOk !== undefined && !refresh) return bwrapOk;
+  bwrapOk = false;
+  if (process.platform !== "linux") return bwrapOk;
+  try {
+    const r = spawnSync("bwrap", ["--unshare-all", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "true"], { timeout: 5000, stdio: "ignore" });
+    bwrapOk = r.status === 0;
+  } catch {
+    bwrapOk = false;
+  }
+  return bwrapOk;
+}
+
+/**
+ * مجلدات الكتابة المسموحة داخل bwrap: مجلد كل مسار مطلق في وسائط ffmpeg ليس مدخلاً (-i) ولا جهازاً (/dev,/proc).
+ * وسائط prlimit السابقة لاسم الأداة تُتجاوز. مجلد غير موجود ⇒ يُهمل (فشل مغلق: الكتابة ستفشل).
+ */
+export function ffWritableDirs(args: string[]): string[] {
+  const toolIdx = args.findIndex((a) => /^(ffmpeg|ffprobe)(\.exe)?$/i.test(a.split(/[\\/]/).pop() ?? ""));
+  const ff = toolIdx >= 0 ? args.slice(toolIdx + 1) : args;
+  const dirs = new Set<string>();
+  for (let i = 0; i < ff.length; i++) {
+    if (ff[i] === "-i") { i++; continue; } // المدخل (قراءة فقط)
+    const a = ff[i];
+    if (!a.startsWith("/") || a.startsWith("/dev/") || a.startsWith("/proc/")) continue;
+    const dir = path.dirname(path.resolve(a));
+    if (dir !== path.parse(dir).root && existsSync(dir)) dirs.add(dir);
+  }
+  return [...dirs];
+}
+
+/** عقد GPU (NVENC/VAAPI) تُربط إن وُجدت كي لا يكسر العزل الترميز بالعتاد؛ بقية /dev يوفّرها bwrap بحدّه الأدنى. */
+function gpuDevices(): string[] {
+  try {
+    return readdirSync("/dev")
+      .filter((n) => /^nvidia/.test(n) || n === "dri")
+      .map((n) => `/dev/${n}`);
+  } catch {
+    return [];
+  }
+}
+
+export function bwrapArgs(cmd: string, args: string[], hide: string[], writable: string[]): string[] {
+  const a = ["--unshare-all", "--die-with-parent", "--new-session", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc"];
+  for (const d of gpuDevices()) a.push("--dev-bind-try", d, d);
+  for (const h of hide) {
+    try {
+      if (statSync(h).isDirectory()) a.push("--tmpfs", h);
+      else a.push("--dev-bind", "/dev/null", h); // ro-bind يضيف nodev فلا يُفتح /dev/null؛ dev-bind يسمح (الكتابة فيه تُهمل)
+    } catch {
+      /* اختفى بين الفحص والتشغيل */
+    }
+  }
+  for (const w of writable) a.push("--bind", w, w); // بعد الإخفاء كي تتقدّم على أي tmpfs يحويها
+  return [...a, "--", cmd, ...args];
+}
+
 let warned = false;
 
 /** يلفّ أمر ffmpeg/ffprobe بالعزل حسب السياسة. أي أمر آخر يمرّ كما هو. */
@@ -165,22 +226,27 @@ export function sandboxCommand(
   cmd: string,
   args: string[],
   opts: { tool?: string; env?: NodeJS.ProcessEnv; cwd?: string } = {}
-): { cmd: string; args: string[]; sandbox: "unshare" | "none" } {
+): { cmd: string; args: string[]; sandbox: "bwrap" | "unshare" | "none" } {
   const env = opts.env ?? process.env;
   const tool = opts.tool ?? cmd;
   const policy = ffSandboxPolicy(env);
   if (!isFfTool(tool) || policy === "off") return { cmd, args, sandbox: "none" };
-  if (!unshareAvailable()) {
-    if (policy === "unshare") {
-      throw new Error("عزل ffmpeg المطلوب (MONTAGE_FFMPEG_SANDBOX=unshare) غير متاح: user/net namespaces معطّلة على هذا الخادم");
+  const useBwrap = (policy === "auto" || policy === "bwrap") && bwrapAvailable();
+  const useUnshare = !useBwrap && (policy === "auto" || policy === "unshare") && unshareAvailable();
+  if (!useBwrap && !useUnshare) {
+    if (policy === "bwrap" || policy === "unshare") {
+      throw new Error(`عزل ffmpeg المطلوب (MONTAGE_FFMPEG_SANDBOX=${policy}) غير متاح: ${policy === "bwrap" ? "bubblewrap غير مثبّت أو user namespaces معطّلة" : "user/net namespaces معطّلة"} على هذا الخادم`);
     }
     if (!warned) {
       warned = true;
-      process.emitWarning("عزل ffmpeg غير متاح (user namespaces معطّلة) — يعمل بلا عزل شبكة", { code: "MONTAGE_FFMPEG_NO_SANDBOX" });
+      process.emitWarning("عزل ffmpeg غير متاح (لا bwrap ولا user namespaces) — يعمل بلا عزل", { code: "MONTAGE_FFMPEG_NO_SANDBOX" });
     }
     return { cmd, args, sandbox: "none" };
   }
   const hide = ffHiddenPaths(tool, args, env, opts.cwd);
+  if (useBwrap) {
+    return { cmd: "bwrap", args: bwrapArgs(cmd, args, hide, ffWritableDirs(args)), sandbox: "bwrap" };
+  }
   return {
     cmd: "unshare",
     args: ["-r", "-n", "-m", "--propagation", "private", "--", "sh", "-c", HIDE_SCRIPT, "sh", ...hide, "--", cmd, ...args],
