@@ -54,7 +54,9 @@ describe("G-2 FIXED: multiple video tracks are composited", () => {
 
 describe("G-3 FIXED: audio clips with server files enter the export", () => {
   it("export route resolves sources/audio refs and passes them to the renderer", () => {
-    const route = readFileSync(path.join(process.cwd(), "app/api/export/route.ts"), "utf-8");
+    // منطق بدء التصدير صار في lib/server/export-start.ts (يشاركه POST /api/export وإعادة المحاولة)، والمسار يستدعيه.
+    const route = readFileSync(path.join(process.cwd(), "lib/server/export-start.ts"), "utf-8");
+    expect(readFileSync(path.join(process.cwd(), "app/api/export/route.ts"), "utf-8")).toMatch(/startExport/);
     expect(route).toMatch(/buildSourceMap/);
     expect(route).toMatch(/sources,/);
     expect(route).toMatch(/checkExportable/); // الحجب يبقى لصوت بلا ملف
