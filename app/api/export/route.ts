@@ -25,13 +25,14 @@ import { buildSourceMap } from "@/lib/server/render-sources";
 import { previewSize } from "@/lib/engine/jobs";
 import { timelineDuration } from "@/lib/engine/timeline";
 import { cancelExport, registerExportController, releaseExportController } from "@/lib/server/export-jobs";
+import { withRoute } from "@/lib/server/with-route";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 export const dynamic = "force-dynamic";
 
 /** DELETE /api/export?id=<jobId> → إلغاء تصدير جارٍ (يقتل ffmpeg ويحذف المخرَج الجزئي). */
-export async function DELETE(req: NextRequest) {
+async function handleDELETE(req: NextRequest) {
   const id = req.nextUrl.searchParams.get("id") || "";
   if (!/^job_\d+_\d+$/.test(id)) {
     return NextResponse.json({ error: "معرّف مهمة غير صالح" }, { status: 400 });
@@ -43,7 +44,7 @@ export async function DELETE(req: NextRequest) {
   return NextResponse.json({ ok: true, id });
 }
 
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   const parsedBody = await parseJsonBody(req, exportBody, { maxBytes: EXPORT_MAX_JSON_BYTES });
   if (!parsedBody.ok) return parsedBody.response;
   const body = parsedBody.data;
@@ -186,3 +187,6 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ ok: true, job, ...(unresolved.length ? { warnings: [`مصادر لم تُحلّ: ${unresolved.join(", ")}`] } : {}) });
 }
+
+export const POST = withRoute("export", handlePOST);
+export const DELETE = withRoute("export", handleDELETE);

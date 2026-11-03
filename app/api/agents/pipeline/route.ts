@@ -17,6 +17,7 @@ import { Readable } from "stream";
 import path from "path";
 import { v4 as uuid } from "uuid";
 import { validateVideoUpload, clampString, pickEnum } from "@/lib/server/validate";
+import { routeError } from "@/lib/server/with-route";
 
 export const runtime = "nodejs";
 export const maxDuration = 300; // 5 دقائق — الرندر الفعلي يأخذ وقتاً
@@ -154,8 +155,7 @@ export async function POST(req: NextRequest) {
       previewStats: result?.preview_stats || null,
     });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "خطأ غير متوقع";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return routeError("agents.pipeline", err);
   }
 }
 

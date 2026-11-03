@@ -5,6 +5,7 @@ import { guardCost, recordSpend, estimateCostUsd, releaseReservation } from "@/l
 import { estimateAudioSeconds } from "@/lib/server/audio-duration";
 import { validateAudioUpload } from "@/lib/server/validate";
 import { rejectOversizedRequest, readFormDataCapped } from "@/lib/server/uploads";
+import { routeError } from "@/lib/server/with-route";
 
 
 export const runtime = "nodejs";
@@ -112,7 +113,6 @@ export async function POST(req: NextRequest) {
       segments,
     });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "خطأ غير متوقع";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return routeError("ai.transcribe-words", err);
   }
 }

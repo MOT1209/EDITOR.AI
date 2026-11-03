@@ -7,6 +7,7 @@ import { getVisionModel,
 import { resolveVideoRef } from "@/lib/server/media-ref";
 import { hasFfmpeg } from "@/lib/server/ffmpeg-export";
 import { analyzeScenes, probeMedia } from "@/lib/engine/media";
+import { routeError } from "@/lib/server/with-route";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -112,7 +113,6 @@ export async function POST(req: NextRequest) {
       warning: warnings[0] ?? "تقسيم زمني متساوٍ (ليس كشف مشاهد حقيقي) — اضبط مفتاح رؤية أو استخدم MCP analyze_scenes",
     });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "خطأ";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return routeError("ai.scenes", err);
   }
 }

@@ -3,6 +3,7 @@ import { parseJsonBody } from "@/lib/server/request";
 import { framesBody } from "@/lib/server/schemas";
 import { getVisionModel, getOpencodeKey, getHfToken, getOpencodeBaseUrl } from "@/lib/server/api-keys";
 import { guardCost, recordSpend } from "@/lib/server/cost-guard";
+import { routeError } from "@/lib/server/with-route";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -136,7 +137,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ faces, duration });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "خطأ";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return routeError("ai.faces", err);
   }
 }

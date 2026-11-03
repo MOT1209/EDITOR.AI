@@ -5,17 +5,12 @@ import { parseProject } from "@/lib/engine/project-schema";
 import { parseJsonBody } from "@/lib/server/request";
 import { projectPutBody, EXPORT_MAX_JSON_BYTES } from "@/lib/server/schemas";
 import { assetPath, getProject, mutateProject, primaryVideoAsset } from "@/lib/engine/store";
+import { routeError } from "@/lib/server/with-route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function errorResponse(e: unknown) {
-  if (isEngineError(e)) {
-    const status = e.code === "NOT_FOUND" ? 404 : e.code === "INVALID_INPUT" ? 400 : e.code === "CONFLICT" ? 409 : 500;
-    return NextResponse.json({ error: e.message, code: e.code, hint: e.hint }, { status });
-  }
-  return NextResponse.json({ error: (e as Error).message }, { status: 500 });
-}
+const errorResponse = (e: unknown) => routeError("projects", e);
 
 /** GET → المشروع + الوسيط الأساسي (رابط بث + مسار المصدر على الخادم لاستخدامه في التصدير). */
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
