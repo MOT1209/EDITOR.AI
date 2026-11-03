@@ -15,7 +15,8 @@ vi.mock("@/lib/engine/store", async (orig) => {
   };
 });
 
-const req = (url: string, init: RequestInit = {}) => new NextRequest(`http://localhost${url}`, { ...init, headers: { host: "localhost", ...(init.headers as Record<string, string>) } });
+const req = (url: string, init: Record<string, unknown> = {}) =>
+  new NextRequest(`http://localhost${url}`, { ...init, headers: { host: "localhost", ...((init.headers as Record<string, string>) ?? {}) } } as ConstructorParameters<typeof NextRequest>[1]);
 
 describe("أخطاء المسارات موحّدة وبلا مسارات قرص", () => {
   it("GET /api/projects عند فشل داخلي: 500 JSON + projects:[] بلا مسار، ولا حقل workspace", async () => {
