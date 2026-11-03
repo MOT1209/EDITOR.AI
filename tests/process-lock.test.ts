@@ -14,7 +14,9 @@ function runWorker(env: NodeJS.ProcessEnv, args: string[]): Promise<number> {
 }
 
 describe("قفل بين العمليات لتعديل المشاريع", () => {
-  it("عمليتان متزامنتان لا تفقدان أي تعديل", async () => {
+  // 4 عمليات تفتح قاعدة جديدة بالتزامن: يغطي أيضاً سباق الفتح الأول (WAL/الترحيل) الذي كان يُسقط
+  // إحداها صامتةً إلى «بلا قفل».
+  it("أربع عمليات متزامنة على قاعدة جديدة لا تفقد أي تعديل", async () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), "montage-lock-"));
     const env = { ...process.env, MONTAGE_WORKSPACE: path.join(dir, "ws"), MONTAGE_DB_FILE: path.join(dir, "montage.db") };
     const saved = { ws: process.env.MONTAGE_WORKSPACE, db: process.env.MONTAGE_DB_FILE };
@@ -23,14 +25,18 @@ describe("قفل بين العمليات لتعديل المشاريع", () => {
     try {
       const store = await import("@/lib/engine/store");
       const p = await store.createProject({ name: "base" });
-      const N = 15;
-      const codes = await Promise.all([runWorker(env, [p.id, String(N), "A"]), runWorker(env, [p.id, String(N), "B"])]);
-      expect(codes).toEqual([0, 0]);
+      // القاعدة يجب ألا توجد قبل العمّال كي يتسابقوا على الفتح الأول فعلاً.
+      (await import("@/lib/server/db")).closeDbForTests();
+      for (const f of ["", "-wal", "-shm"]) rmSync(env.MONTAGE_DB_FILE + f, { force: true });
+      const N = 10;
+      const W = ["A", "B", "C", "D"];
+      const codes = await Promise.all(W.map((t) => runWorker(env, [p.id, String(N), t])));
+      expect(codes).toEqual(W.map(() => 0));
       const final = await store.getProject(p.id);
-      const parts = final.name.split("|").slice(1);
-      expect(parts.length).toBe(2 * N);
+      const parts = final.name.split("|").slice(1); // حرف واحد لكل تعديل (حد الاسم 120)
+      expect(parts.length).toBe(W.length * N);
       const h = await store.listHistory(p.id);
-      expect(h.undo.length).toBe(Math.min(2 * N, store.HISTORY_LIMIT));
+      expect(h.undo.length).toBe(Math.min(W.length * N, store.HISTORY_LIMIT));
     } finally {
       process.env.MONTAGE_WORKSPACE = saved.ws;
       if (saved.db === undefined) delete process.env.MONTAGE_DB_FILE; else process.env.MONTAGE_DB_FILE = saved.db;

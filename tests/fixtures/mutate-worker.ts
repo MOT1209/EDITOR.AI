@@ -7,7 +7,7 @@ async function main() {
   const n = Number(nRaw);
   await Promise.all(
     Array.from({ length: n }, (_, i) =>
-      mutateProject(projectId, "test_rename", `${tag}-${i}`, (p) => ({ project: { ...p, name: `${p.name}|${tag}${i}` }, result: null }))
+      mutateProject(projectId, "test_rename", `${tag}-${i}`, (p) => ({ project: { ...p, name: `${p.name}|` }, result: null }))
     )
   );
 }
