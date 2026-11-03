@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { formatTime, formatBytes } from "@/lib/project";
 import type { SubtitleCue, AppNotification } from "@/lib/types";
+import { downloadBlob } from "@/lib/client/download";
 
 export function SubtitleOverlay({
   cue,
@@ -156,13 +157,7 @@ export function PipelineModal({
         setExportMsg(String(err?.error || `فشل التصدير (${res.status})`));
         return;
       }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${jobId}.${exportFormat}.xml`;
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(await res.blob(), `${jobId}.${exportFormat}.xml`);
       setExportMsg("تم تصدير الجدول الزمني لبرنامج المونتاج.");
     } catch {
       setExportMsg("تعذّر التصدير — تأكد أن auto-editor مثبت.");

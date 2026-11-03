@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import http from "http";
-import { mkdtempSync, writeFileSync, rmSync, existsSync, statSync } from "fs";
+import { mkdtempSync, rmSync, existsSync, statSync } from "fs";
 import os from "os";
 import path from "path";
 import type { AddressInfo } from "net";

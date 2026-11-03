@@ -1,10 +1,9 @@
 import { projectRef } from "@/lib/server/media-ref";
 import { NextRequest, NextResponse } from "next/server";
-import { isEngineError } from "@/lib/engine/errors";
 import { parseProject } from "@/lib/engine/project-schema";
 import { parseJsonBody } from "@/lib/server/request";
 import { projectPutBody, EXPORT_MAX_JSON_BYTES } from "@/lib/server/schemas";
-import { assetPath, getProject, mutateProject, primaryVideoAsset } from "@/lib/engine/store";
+import { getProject, mutateProject, primaryVideoAsset } from "@/lib/engine/store";
 import { routeError } from "@/lib/server/with-route";
 
 export const runtime = "nodejs";

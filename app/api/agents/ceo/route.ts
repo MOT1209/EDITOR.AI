@@ -34,7 +34,6 @@ import { routeError } from "@/lib/server/with-route";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-const UPLOAD_DIR = path.join(process.cwd(), ".montage_ai", "uploads");
 const NULL_DEVICE = os.platform() === "win32" ? "NUL" : "/dev/null";
 
 const COLOR_FILTERS = ["none", "cinematic", "warm", "cool", "vhs", "bw", "vivid", "dreamy"];
@@ -57,12 +56,6 @@ async function runFfmpeg(args: string[], timeoutMs: number) {
   } catch {
     return null;
   }
-}
-
-async function ensureDir(p: string) {
-  try {
-    await fsp.mkdir(p, { recursive: true });
-  } catch {}
 }
 
 async function detectSilencesFfmpeg(filePath: string): Promise<{ start: number; end: number }[]> {

@@ -15,7 +15,6 @@ import { limitCommand } from "@/lib/engine/hardening";
 import { promises as fsp, existsSync, createReadStream } from "fs";
 import { Readable } from "stream";
 import path from "path";
-import { v4 as uuid } from "uuid";
 import { validateVideoUpload, clampString, pickEnum } from "@/lib/server/validate";
 import { routeError } from "@/lib/server/with-route";
 
@@ -23,7 +22,6 @@ export const runtime = "nodejs";
 export const maxDuration = 300; // 5 دقائق — الرندر الفعلي يأخذ وقتاً
 
 const PIPELINE_DIR = path.join(process.cwd(), ".montage_ai", "pipeline");
-const UPLOAD_DIR = path.join(process.cwd(), ".montage_ai", "uploads");
 const TIMEOUT_MS = 280_000; // أقل بقليل من maxDuration لقتل العملية بأمان
 
 function resolvePython(): string {

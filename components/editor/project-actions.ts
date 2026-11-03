@@ -8,6 +8,7 @@ import type { ProjectState } from "@/lib/types";
 import { fmtSrtTime, fmtVttTime } from "./state";
 import type { NotifyFn, Setter } from "./ctx-types";
 import type { State, Action } from "./state";
+import { downloadBlob } from "@/lib/client/download";
 
 export interface ProjectActionsContext {
   state: State;
@@ -41,23 +42,11 @@ export function createProjectActions(ctx: ProjectActionsContext) {
   } = ctx;
 
   const downloadJSON = (data: unknown, name: string) => {
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = name;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }), name);
   };
 
   const downloadFile = (content: string, name: string, type: string) => {
-    const blob = new Blob([content], { type });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = name;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(new Blob([content], { type }), name);
   };
 
   const exportSRT = () => {

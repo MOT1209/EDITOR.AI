@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { jobsStore, toAIJob } from "@/lib/server/jobs-store";
 import { withRoute } from "@/lib/server/with-route";
 
