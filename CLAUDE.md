@@ -54,7 +54,7 @@ CI (`.github/workflows/ci.yml`) يشغّل: py_compile + pytest + tsc + lint + V
 - كل جسم JSON خارجي يمر عبر `parseJsonBody` + مخطط في `lib/server/schemas.ts` (حدود حجم/أطوال)؛ لا `req.json()` خام.
 - أخطاء المسارات عبر `lib/server/with-route.ts`: `catch (e) { return routeError("<اسم>", e); }` أو `export const POST = withRoute("<اسم>", handler)` — `EngineError` برمزه، وغيره 500 `INTERNAL` برسالة منقّحة (بلا مسارات قرص) مع الرسالة الكاملة في السجل؛ لا `err.message` خام في استجابة.
 - الوسائط تُمرَّر كمراجع معتمة (`upload:`/`audio:`/`asset:`/`project:`) وتُحلّ على الخادم (`lib/server/media-ref.ts`)؛ لا مسار قرص في أي استجابة أو طلب.
-- تشغيل ffmpeg/ffprobe/python عبر `lib/engine/hardening.ts` (بيئة مصفّاة، `-protocol_whitelist`، حدود `prlimit`، وعزل ffmpeg بـ `unshare`: بلا شبكة + إخفاء الأسرار — `MONTAGE_FFMPEG_SANDBOX`)؛ لا `shell:true`.
+- تشغيل ffmpeg/ffprobe/python عبر `lib/engine/hardening.ts` (بيئة مصفّاة، `-protocol_whitelist`، حدود `prlimit`، وعزل ffmpeg — `MONTAGE_FFMPEG_SANDBOX=auto|bwrap|unshare|off`: bwrap (جذر للقراءة فقط، كتابة في مجلد المخرَج فقط، بلا شبكة، أسرار مخفية، يموت مع الخادم) ثم unshare (بلا شبكة + أسرار مخفية))؛ لا `shell:true`.
 - العمليات الحساسة (منح صلاحيات/حذف/تشغيل إجراء مكلف) تتطلب مصافحة موافقة من الخادم (`lib/server/approvals.ts`) لا `confirmed:true` وحده.
 - المصادقة/الأدوار: `MONTAGE_API_TOKEN(S)` (`lib/server/auth*.ts`)؛ النشر عن بُعد بلا رمز ⇒ 503. التفاصيل: `docs/security/SECURITY_REMEDIATION_REPORT.md`.
 
