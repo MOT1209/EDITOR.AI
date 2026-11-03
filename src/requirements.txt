@@ -5,7 +5,7 @@
 crewai>=0.89.0            # التنسيق الهرمي (Process.hierarchical) + LLM
 pydantic>=2.7             # مخطط EDL الموحّد (العقد المشترك)
 httpx>=0.27               # جلب B-Roll من Pexels (async)
-python-dotenv>=1.0        # قراءة .env.local (عرف المشروع)
+python-dotenv>=1.2.4        # قراءة .env.local (عرف المشروع)
 
 # ---------- مطلوبة لاحقاً (إكمال Analyst) ----------
 # faster-whisper>=1.0     # تفريغ صوتي مع توقيتات كلمات
