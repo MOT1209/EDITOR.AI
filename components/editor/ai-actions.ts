@@ -13,12 +13,11 @@ import {
   mockProgress,
 } from "@/lib/ai/client";
 import type { CeoResponse } from "@/lib/agents/types";
-import type { AppNotification } from "@/lib/types";
 import type { State, Action } from "./state";
 
-type NotifyFn = (type: AppNotification["type"], title: string, message?: string) => void;
+import type { NotifyFn, Setter } from "./ctx-types";
+
 type RunAIJob = (kind: string, label: string, run: (update: (p: number, msg?: string) => void) => Promise<unknown>) => Promise<unknown>;
-type Setter<T> = React.Dispatch<React.SetStateAction<T>>;
 
 export interface AiActionsContext {
   state: State;
