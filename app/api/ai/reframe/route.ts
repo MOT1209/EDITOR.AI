@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { parseJsonBody } from "@/lib/server/request";
 import { reframeBody } from "@/lib/server/schemas";
 import { guardCost, recordSpend } from "@/lib/server/cost-guard";
+import { routeError } from "@/lib/server/with-route";
 import { getVisionModel,
   getOpencodeKey, getOpencodeBaseUrl } from "@/lib/server/api-keys";
 
@@ -76,7 +77,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ reframePoints, duration, targetAspect });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "خطأ";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return routeError("ai.reframe", err);
   }
 }

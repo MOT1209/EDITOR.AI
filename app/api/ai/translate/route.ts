@@ -3,6 +3,7 @@ import { parseJsonBody } from "@/lib/server/request";
 import { translateBody } from "@/lib/server/schemas";
 import { getOpencodeKey, getHfToken, getOpencodeBaseUrl, getChatModel } from "@/lib/server/api-keys";
 import { guardCost, recordSpend } from "@/lib/server/cost-guard";
+import { routeError } from "@/lib/server/with-route";
 
 
 export const runtime = "nodejs";
@@ -106,7 +107,6 @@ export async function POST(req: NextRequest) {
       translated: texts.map((_: string, i: number) => list[i % list.length]),
     });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "خطأ غير متوقع";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return routeError("ai.translate", err);
   }
 }

@@ -16,6 +16,7 @@ import { limitCommand } from "@/lib/engine/hardening";
 import { spawn } from "child_process";
 import { promises as fsp, existsSync } from "fs";
 import path from "path";
+import { routeError } from "@/lib/server/with-route";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -136,7 +137,6 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "خطأ غير متوقع";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return routeError("agents.export", err);
   }
 }

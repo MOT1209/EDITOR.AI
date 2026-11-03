@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseJsonBody } from "@/lib/server/request";
 import { subtitlesBody } from "@/lib/server/schemas";
+import { withRoute } from "@/lib/server/with-route";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -13,7 +14,7 @@ const PHRASES = [
   "سأشرح لكم الطريقة خطوة بخطوة",
 ];
 
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   const reqBody = await parseJsonBody(req, subtitlesBody);
   if (!reqBody.ok) return reqBody.response;
   const { duration = 30, lang = "ar" } = reqBody.data;
@@ -38,3 +39,5 @@ export async function POST(req: NextRequest) {
     warning: "ترجمة تجريبية (عبارات نموذجية) — اضبط مفتاح المزوّد لتفريغ الصوت الحقيقي",
   });
 }
+
+export const POST = withRoute("ai.subtitles", handlePOST);

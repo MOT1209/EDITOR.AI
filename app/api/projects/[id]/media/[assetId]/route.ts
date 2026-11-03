@@ -3,6 +3,7 @@ import { createReadStream, promises as fsp } from "fs";
 import path from "path";
 import { Readable } from "stream";
 import { assetPath, findAsset, getProject } from "@/lib/engine/store";
+import { routeError } from "@/lib/server/with-route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +30,6 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       },
     });
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 404 });
+    return routeError("projects.media", e);
   }
 }

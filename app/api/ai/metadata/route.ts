@@ -3,6 +3,7 @@ import { parseJsonBody } from "@/lib/server/request";
 import { metadataBody } from "@/lib/server/schemas";
 import { getChatModel, getOpencodeKey, getOpencodeBaseUrl } from "@/lib/server/api-keys";
 import { guardCost, recordSpend } from "@/lib/server/cost-guard";
+import { routeError } from "@/lib/server/with-route";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -68,7 +69,6 @@ export async function POST(req: NextRequest) {
       tags: Array.isArray(result.tags) ? result.tags : [],
     });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "خطأ غير متوقع";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return routeError("ai.metadata", err);
   }
 }

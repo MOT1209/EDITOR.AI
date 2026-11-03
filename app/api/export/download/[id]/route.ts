@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createReadStream, existsSync, statSync } from "fs";
 import { Readable } from "stream";
 import { EXPORT_DIR, isPathInside, readJobStatus } from "@/lib/server/ffmpeg-export";
+import { withRoute } from "@/lib/server/with-route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,7 +14,7 @@ const MIME: Record<string, string> = {
   webm: "video/webm",
 };
 
-export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+async function handleGET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const params = await ctx.params;
   if (!/^job_\d+_\d+$/.test(params.id)) {
     return NextResponse.json({ error: "معرّف مهمة غير صالح" }, { status: 400 });
@@ -45,3 +46,5 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     },
   });
 }
+
+export const GET = withRoute("export.download", handleGET);

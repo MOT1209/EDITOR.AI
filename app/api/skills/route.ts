@@ -8,6 +8,7 @@ import { resolveVideoRef } from "@/lib/server/media-ref";
 import { hasFfmpeg } from "@/lib/server/ffmpeg-export";
 import { probeMedia } from "@/lib/engine/media";
 import { realAnalysisFields } from "@/lib/engine/skill-doc";
+import { routeError } from "@/lib/server/with-route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -112,7 +113,6 @@ export async function POST(req: NextRequest) {
     const simulatedSteps = result.steps.filter((s) => skillProvenance(s.skill, s.logs) === "simulated").map((s) => s.skill);
     return NextResponse.json({ result, simulatedSteps, notes, metrics: m.allMetrics() });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "خطأ غير متوقع";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return routeError("skills", err);
   }
 }

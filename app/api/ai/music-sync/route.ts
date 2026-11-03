@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseJsonBody } from "@/lib/server/request";
 import { musicSyncBody } from "@/lib/server/schemas";
+import { routeError } from "@/lib/server/with-route";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -49,7 +50,6 @@ export async function POST(req: NextRequest) {
       ...(userBpm ? {} : { simulated: true, warning: "BPM افتراضي (120) — للكشف الحقيقي استخدم MCP detect_beats" }),
     });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "خطأ";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return routeError("ai.music-sync", err);
   }
 }

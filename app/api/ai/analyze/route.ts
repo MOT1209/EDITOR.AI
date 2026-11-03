@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { parseJsonBody } from "@/lib/server/request";
 import { analyzeBody } from "@/lib/server/schemas";
 import { guardCost, recordSpend } from "@/lib/server/cost-guard";
+import { routeError } from "@/lib/server/with-route";
 import { getVisionModel,
   getOpencodeKey, getOpencodeBaseUrl } from "@/lib/server/api-keys";
 
@@ -70,7 +71,6 @@ export async function POST(req: NextRequest) {
       quality: result.quality || { brightness: 0.5, contrast: 0.5, saturation: 0.5, sharpness: 0.5 },
     });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "خطأ غير متوقع";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return routeError("ai.analyze", err);
   }
 }

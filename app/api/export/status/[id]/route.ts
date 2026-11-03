@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readJobStatus } from "@/lib/server/ffmpeg-export";
 import { isExportActive } from "@/lib/server/export-jobs";
+import { withRoute } from "@/lib/server/with-route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+async function handleGET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const params = await ctx.params;
   if (!/^job_\d+_\d+$/.test(params.id)) {
     return NextResponse.json({ error: "معرّف مهمة غير صالح" }, { status: 400 });
@@ -22,3 +23,5 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   const { result, ...rest } = status;
   return NextResponse.json(result ? { ...rest, result: { size: result.size, format: result.format } } : rest);
 }
+
+export const GET = withRoute("export.status", handleGET);

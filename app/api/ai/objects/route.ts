@@ -3,6 +3,7 @@ import { parseJsonBody } from "@/lib/server/request";
 import { framesBody } from "@/lib/server/schemas";
 import { getHfToken } from "@/lib/server/api-keys";
 import { estimateCostUsd, guardCost, recordSpend } from "@/lib/server/cost-guard";
+import { routeError } from "@/lib/server/with-route";
 
 const estimateVision = (images: number) => estimateCostUsd("vision", { images });
 
@@ -81,7 +82,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ objects, duration });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "خطأ";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return routeError("ai.objects", err);
   }
 }

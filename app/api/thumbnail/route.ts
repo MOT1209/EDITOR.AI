@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseJsonBody } from "@/lib/server/request";
 import { thumbnailBody } from "@/lib/server/schemas";
+import { withRoute } from "@/lib/server/with-route";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -69,7 +70,7 @@ function escape(s: string) {
     .replace(/'/g, "&apos;");
 }
 
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   const parsedBody = await parseJsonBody(req, thumbnailBody);
   if (!parsedBody.ok) return parsedBody.response;
   const { title, aspect } = parsedBody.data;
@@ -80,3 +81,5 @@ export async function POST(req: NextRequest) {
     aspect,
   });
 }
+
+export const POST = withRoute("thumbnail", handlePOST);

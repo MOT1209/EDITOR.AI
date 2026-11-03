@@ -29,6 +29,7 @@ import type {
   SceneInfo,
   TranscriptSegment,
 } from "@/lib/agents/types";
+import { routeError } from "@/lib/server/with-route";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -660,7 +661,6 @@ export async function POST(req: NextRequest) {
     };
     return NextResponse.json(response);
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "خطأ غير متوقع";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return routeError("agents.ceo", err);
   }
 }
