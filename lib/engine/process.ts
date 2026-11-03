@@ -27,6 +27,7 @@ export interface RunResult {
 }
 
 const STDERR_TAIL = 64 * 1024;
+const KILL_SETTLE_MS = 2000; // مهلة انتظار close بعد SIGKILL قبل حسم الرفض
 
 export function runProcess(cmd: string, args: string[], opts: RunOptions): Promise<RunResult> {
   return new Promise((resolve, reject) => {
@@ -48,6 +49,19 @@ export function runProcess(cmd: string, args: string[], opts: RunOptions): Promi
       if (reason) return;
       reason = why;
       proc.kill("SIGKILL");
+      // حدث close ينتظر إغلاق كل أنابيب العملية: حفيد بقي حياً (مثلاً ffmpeg داخل عزل) يعلّق المستدعي. بعد مهلة قصيرة نحسم
+      // الرفض ونقطع الأنابيب بدل الانتظار — الإلغاء/المهلة لا يجوز أن يعتمدان على إنهاء الأحفاد.
+      setTimeout(() => {
+        finish(() => {
+          proc.stdout?.destroy();
+          proc.stderr?.destroy();
+          rejectKilled();
+        });
+      }, KILL_SETTLE_MS).unref();
+    };
+    const rejectKilled = () => {
+      if (reason === "timeout") reject(new EngineError("TIMEOUT", `تجاوزت ${path.basename(cmd)} المهلة (${Math.round(opts.timeoutMs / 1000)}s)`));
+      else reject(new EngineError("CANCELLED", "أُلغيت العملية"));
     };
     const timer = setTimeout(() => kill("timeout"), opts.timeoutMs);
     const onAbort = () => kill("cancel");
@@ -81,8 +95,7 @@ export function runProcess(cmd: string, args: string[], opts: RunOptions): Promi
     );
     proc.on("close", (code) =>
       finish(() => {
-        if (reason === "timeout") reject(new EngineError("TIMEOUT", `تجاوزت ${path.basename(cmd)} المهلة (${Math.round(opts.timeoutMs / 1000)}s)`));
-        else if (reason === "cancel") reject(new EngineError("CANCELLED", "أُلغيت العملية"));
+        if (reason) rejectKilled();
         else {
           const buf = Buffer.concat(chunks);
           resolve({ code, stdout: opts.binaryStdout ? "" : buf.toString("utf-8"), stdoutBuffer: buf, stderr, truncated });
