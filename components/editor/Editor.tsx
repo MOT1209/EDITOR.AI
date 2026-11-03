@@ -5,43 +5,29 @@ import { v4 as uuid } from "uuid";
 import { ApiSettingsModal, ShortcutsModal } from "./modals";
 import { ProjectsModal, ExportModal, ExportResultModal, type ServerProjectSummary } from "./project-modals";
 import { Upload, X, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
-import {
-  defaultProject,
-  loadProjects,
-  loadProjectsReport,
-  upsertProject,
-  deleteProject,
-  formatTime,
-  formatBytes,
-} from "@/lib/project";
-import { findLostAudio } from "@/lib/engine/export-guard";
+import { defaultProject, loadProjects, loadProjectsReport, formatTime, formatBytes } from "@/lib/project";
 import { activeVideoClip, clipFraming, framingCss } from "@/lib/engine/framing";
-import { ensureAudioRefs } from "@/lib/client/audio-upload";
 import { aiJobs } from "@/lib/mockAi";
-import { apiFetch, SIMULATED_EVENT } from "@/lib/api-config";
-import { uploadFileRaw } from "@/lib/client/upload";
-import { parseProject } from "@/lib/engine/project-schema";
+import { SIMULATED_EVENT } from "@/lib/api-config";
 import {
   clipSourceEnd,
-  deleteClip as deleteClipOp,
-  exportClips,
-  duplicateClip,
-  newId,
   previewClips,
   snapPoints,
   sourceToTimelineAt,
-  splitClip,
   timelineDuration,
   timelineToSource,
 } from "@/lib/engine/timeline";
 import type { AppNotification, ProjectState } from "@/lib/types";
-import { COLOR_FILTERS, FONT_OPTIONS, fmtSrtTime, fmtVttTime, reducer, initialState } from "./state";
+import { COLOR_FILTERS, FONT_OPTIONS, reducer, initialState } from "./state";
 import { SubtitleOverlay, EffectOverlay, Notifications, PipelineModal } from "./overlays";
 import { Timeline, Transport } from "./timeline";
 import { LeftPanel } from "./panels/left-panel";
 import { RightPanel } from "./panels/right-panel";
 import { Header } from "./panels/header";
 import { createAiActions } from "./ai-actions";
+import { createExportActions } from "./export-actions";
+import { createTimelineActions } from "./timeline-actions";
+import { createProjectActions } from "./project-actions";
 
 export default function Editor() {
   const [state, dispatch] = useReducer(reducer, initialState);
@@ -345,195 +331,36 @@ export default function Editor() {
     return () => window.removeEventListener("ai-trigger", handler);
   }, []);
 
-  /** يبني مراجع المصادر المتعددة (assetId → مرجع معتم) من مكتبة الوسائط. */
-  const buildSourceRefs = (): Record<string, string> => {
-    const refs: Record<string, string> = {};
-    for (const a of state.project.assets ?? []) if (typeof a.meta?.ref === "string") refs[a.id] = a.meta.ref;
-    return refs;
-  };
+  const {
+    startExport,
+    startRenderedPreview,
+    cancelExport,
+  } = createExportActions({
+    state,
+    notify,
+    colorGrading,
+    videoStabilize,
+    serverSourceRef,
+    exportJobRef,
+    exportCancelledRef,
+    setExportProgress,
+    setExportResult,
+    setIsExporting,
+    setRenderedPreview,
+    setServerSourceRef,
+  });
 
-  /** تصدير كامل، أو معاينة مرندرة لنافذة قصيرة (نفس الخطة والمركِّب — المرجع الحاكم لمطابقة المعاينة). */
-  const runServerRender = async (previewWindow?: { start: number; end: number }) => {
-    const refs = buildSourceRefs();
-    const hasLibrary = Object.keys(refs).length > 0;
-    if ((!state.videoMeta || !state.videoFile) && !hasLibrary) return notify("warning", "ارفع فيديو أولاً");
-    // لا انحراف صامت (T-01): ما تسمعه في المعاينة من موسيقى/تعليق المتصفح لا يصل للمخرَج إلا إن رُفع للخادم.
-    // T-13: نرفع صوت التايملاين (blob/data) كأصول خادم أولاً ليُمزج فعلاً؛ ما يفشل رفعه يبقى «مفقوداً» ويتطلب إقراراً.
-    const { project: exportProject } = await ensureAudioRefs(state.project);
-    const withRef = new Set(exportProject.audioClips.filter((a) => a.ref).map((a) => a.id));
-    const lostAudio = findLostAudio(exportProject, withRef);
-    if (lostAudio.length > 0) {
-      const ok = window.confirm(
-        `بعض الصوت المضاف تعذّر رفعه ولن يدخل الملف المصدَّر (${lostAudio.slice(0, 3).join("، ")}${lostAudio.length > 3 ? "…" : ""}).\nالمخرَج سيحوي صوت الفيديو الأصلي فقط. هل تريد المتابعة؟`
-      );
-      if (!ok) return;
-    }
-    exportCancelledRef.current = false;
-    exportJobRef.current = null;
-    setIsExporting(true);
-    setExportProgress(0);
-    try {
-      let sourcePath = serverSourceRef;
-      if (!sourcePath && state.videoFile) {
-        const uploadRes = await uploadFileRaw("/api/ffmpeg/probe", state.videoFile).then((r) => r.json());
-        if (!uploadRes?.ref) throw new Error(uploadRes?.error || "فشل رفع الفيديو للمعالجة");
-        sourcePath = uploadRes.ref as string;
-        setServerSourceRef(sourcePath);
-      }
-
-      const startRes = await apiFetch("/api/export", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...(sourcePath ? { sourceRef: sourcePath } : {}),
-          sources: Object.entries(refs).map(([assetId, ref]) => ({ assetId, ref })),
-          project: exportProject,
-          videoStabilize,
-          colorGrading,
-          acknowledgeAudioLoss: lostAudio.length > 0,
-          ...(previewWindow ? { preview: previewWindow } : {}),
-        }),
-      }).then((r) => r.json());
-      if (!startRes?.job?.id) {
-        const details = Array.isArray(startRes?.details) ? ` (${startRes.details.slice(0, 2).join("؛ ")})` : "";
-        throw new Error((startRes?.error || "تعذّر بدء التصدير") + details);
-      }
-      const jobId = startRes.job.id as string;
-      exportJobRef.current = jobId;
-
-      // Poll the file-backed export status (not the in-memory /api/jobs list,
-      // which Next.js dev mode can reset between route module reloads).
-      let misses = 0;
-      for (;;) {
-        await new Promise((r) => setTimeout(r, 700));
-        if (exportCancelledRef.current) return;
-        const job = await fetch(`/api/export/status/${jobId}`)
-          .then((r) => (r.ok ? r.json() : null))
-          .catch(() => null);
-        if (!job) {
-          // حد أقصى للمحاولات بدل حلقة لا تنتهي إن اختفت حالة المهمة.
-          if (++misses > 20) throw new Error("تعذّر متابعة حالة التصدير (الخادم لا يعرف المهمة)");
-          continue;
-        }
-        misses = 0;
-        if (job.status === "cancelled") {
-          setIsExporting(false);
-          notify("info", "أُلغي التصدير");
-          return;
-        }
-        setExportProgress(job.progress || 0);
-        if (job.status === "completed") {
-          setIsExporting(false);
-          if (previewWindow) {
-            setRenderedPreview({ url: `/api/export/download/${jobId}?inline=1`, start: previewWindow.start, end: previewWindow.end });
-            notify("success", "المعاينة المرندرة جاهزة", "هذا ما سيظهر في الملف المصدَّر (بدقة منخفضة)");
-            return;
-          }
-          setExportResult({
-            name: `${state.project.name || "video"}.${state.project.format}`,
-            size: job.result?.size || 0,
-            jobId,
-          });
-          notify("success", "تم التصدير بنجاح", "الفيديو جاهز للتنزيل.");
-          return;
-        }
-        if (job.status === "failed") {
-          setIsExporting(false);
-          // مشاكل الخطة المهيكلة (مصدر مفقود/تداخل/صوت بلا ملف) تُعرض بدقة وقابلة للإصلاح.
-          const issues = Array.isArray(job.issues) ? (job.issues as { severity: string; message: string }[]).filter((i) => i.severity === "error") : [];
-          notify("error", "فشل التصدير", issues.length ? issues.slice(0, 3).map((i) => i.message).join(" • ") : job.message || "حدث خطأ أثناء المعالجة.");
-          return;
-        }
-      }
-    } catch (err: unknown) {
-      setIsExporting(false);
-      const msg = err instanceof Error ? err.message : "فشل التصدير";
-      notify("error", "فشل التصدير", msg);
-    }
-  };
-
-  const startExport = () => void runServerRender();
-  const startRenderedPreview = () => {
-    const total = timelineDuration(state.project) || state.project.duration || 10;
-    const start = Math.min(Math.max(0, state.playhead), Math.max(0, total - 0.5));
-    void runServerRender({ start, end: Math.min(total, start + 10) });
-  };
-
-  const cancelExport = async () => {
-    exportCancelledRef.current = true;
-    setIsExporting(false);
-    const id = exportJobRef.current;
-    if (!id) return;
-    const res = await apiFetch(`/api/export?id=${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => null);
-    notify(res?.ok ? "info" : "warning", res?.ok ? "أُلغي التصدير" : "تعذّر إلغاء التصدير على الخادم");
-  };
-
-  // ---- تعديلات التايملاين عبر عمليات المحرّك المشتركة (نفسها المستخدمة في MCP)
-  const ensureBaseClip = (p: ProjectState): ProjectState => {
-    if (exportClips(p).length > 0) return p;
-    const d = p.duration || totalDuration;
-    return {
-      ...p,
-      clips: [
-        ...p.clips,
-        {
-          id: newId("clip"), assetId: "main", trackId: "t_video", start: 0, duration: d, inPoint: 0, outPoint: d,
-          effects: [], volume: 1, speed: 1, zoom: 1, panX: 0, panY: 0, smartZoom: false, colorFilter: "none",
-        },
-      ],
-    };
-  };
-
-  const splitAtPlayhead = () => {
-    if (!state.videoMeta) return notify("warning", "ارفع فيديو أولاً");
-    try {
-      const p = ensureBaseClip(state.project);
-      const t = state.playhead;
-      const clips = exportClips(p);
-      const selected = clips.find((c) => c.id === state.selectedClipId && t > c.start && t < c.start + c.duration);
-      const target = selected ?? clips.find((c) => t > c.start && t < c.start + c.duration);
-      if (!target) return notify("warning", "ضع المؤشر داخل مقطع للتقسيم");
-      const r = splitClip(p, target.id, t);
-      dispatch({ type: "COMMIT_PROJECT", project: r.project });
-      dispatch({ type: "SELECT_CLIP", id: r.newClipId });
-    } catch (e) {
-      notify("error", "تعذّر التقسيم", e instanceof Error ? e.message : undefined);
-    }
-  };
-
-  const deleteSelectedClip = () => {
-    if (state.selectedAudioId) {
-      dispatch({ type: "REMOVE_AUDIO", id: state.selectedAudioId });
-      dispatch({ type: "SELECT_AUDIO", id: null });
-      return notify("info", "حُذف المقطع الصوتي", "Ctrl+Z للتراجع");
-    }
-    const ids = state.selectedClipIds.length > 0 ? state.selectedClipIds : state.selectedClipId ? [state.selectedClipId] : [];
-    if (ids.length === 0) return notify("warning", "حدّد مقطعاً أولاً");
-    try {
-      let p = state.project;
-      for (const id of ids) p = deleteClipOp(p, id);
-      if (exportClips(p).length === 0 && exportClips(state.project).length > 0) {
-        return notify("warning", "لا يمكن حذف آخر مقطع", "التايملاين الفارغ يصدّر الفيديو كاملاً");
-      }
-      dispatch({ type: "COMMIT_PROJECT", project: p });
-      dispatch({ type: "SELECT_CLIP", id: null });
-      notify("info", ids.length > 1 ? `حُذفت ${ids.length} مقاطع` : "حُذف المقطع", "Ctrl+Z للتراجع");
-    } catch (e) {
-      notify("error", "تعذّر الحذف", e instanceof Error ? e.message : undefined);
-    }
-  };
-
-  const duplicateSelected = () => {
-    const id = state.selectedClipId;
-    if (!id) return notify("warning", "حدّد مقطعاً أولاً");
-    try {
-      const r = duplicateClip(state.project, id);
-      dispatch({ type: "COMMIT_PROJECT", project: r.project });
-      dispatch({ type: "SELECT_CLIP", id: r.newClipId });
-    } catch (e) {
-      notify("error", "تعذّر النسخ", e instanceof Error ? e.message : undefined);
-    }
-  };
+  const {
+    ensureBaseClip,
+    splitAtPlayhead,
+    deleteSelectedClip,
+    duplicateSelected,
+  } = createTimelineActions({
+    state,
+    dispatch,
+    notify,
+    totalDuration,
+  });
 
   const editorActionsRef = useRef({ splitAtPlayhead, deleteSelectedClip, duplicateSelected });
   editorActionsRef.current = { splitAtPlayhead, deleteSelectedClip, duplicateSelected };
@@ -617,161 +444,30 @@ export default function Editor() {
     return () => window.removeEventListener(SIMULATED_EVENT, onSim);
   }, [notify]);
 
-  const downloadJSON = (data: unknown, name: string) => {
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = name;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const downloadFile = (content: string, name: string, type: string) => {
-    const blob = new Blob([content], { type });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = name;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const exportSRT = () => {
-    const cues = state.project.subtitles;
-    const srt = cues
-      .map((c, i) => `${i + 1}\n${fmtSrtTime(c.start)} --> ${fmtSrtTime(c.end)}\n${c.text}\n`)
-      .join("\n");
-    downloadFile(srt, `${state.project.name}.srt`, "text/plain");
-  };
-
-  const exportVTT = () => {
-    const cues = state.project.subtitles;
-    const vtt = "WEBVTT\n\n" + cues
-      .map((c) => `${fmtVttTime(c.start)} --> ${fmtVttTime(c.end)}\n${c.text}\n`)
-      .join("\n");
-    downloadFile(vtt, `${state.project.name}.vtt`, "text/vtt");
-  };
-
-  const exportProject = () => {
-    const project = {
-      ...state.project,
-      videoMeta: state.videoMeta,
-      audio,
-      timestamp: Date.now(),
-    };
-    downloadJSON(project, `${state.project.name}.montageai.json`);
-    notify("success", "تم حفظ ملف المشروع محلياً");
-  };
-
-  const importProject = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const raw = JSON.parse(String(reader.result));
-        // تحقق المخطط + ترقية النسخ القديمة؛ الحقول الزائدة (videoMeta/audio) تُتجاهل.
-        const r = parseProject({ ...defaultProject(), ...raw });
-        if (!r.ok) {
-          notify("error", "ملف مشروع غير صالح", r.errors.slice(0, 2).join("؛ "));
-          return;
-        }
-        dispatch({ type: "REPLACE_PROJECT", project: r.project });
-        notify("success", "تم استيراد المشروع", "أعد رفع الفيديو المصدر لربطه (الملف لا يُحفظ داخل JSON).");
-      } catch {
-        notify("error", "ملف غير صالح", "تعذّرت قراءة JSON");
-      }
-    };
-    reader.readAsText(f);
-  };
-
-  const refreshServerProjects = async () => {
-    setServerProjects(null);
-    const r = await apiFetch("/api/projects").then((x) => x.json()).catch(() => null);
-    setServerProjects(Array.isArray(r?.projects) ? r.projects : []);
-  };
-
-  const openServerProject = async (id: string) => {
-    setShowProjects(false);
-    try {
-      const r = await apiFetch(`/api/projects/${encodeURIComponent(id)}`).then((x) => x.json());
-      if (!r?.project) throw new Error(r?.error || "تعذّر تحميل المشروع");
-      const parsed = parseProject(r.project);
-      if (!parsed.ok) throw new Error(parsed.errors.join("؛ "));
-      dispatch({ type: "REPLACE_PROJECT", project: parsed.project });
-      dispatch({ type: "CLEAR_VIDEO" });
-      playClipRef.current = -1;
-      setServerProjectId(parsed.project.id);
-      setServerSourceRef(r.media?.sourceRef ?? null);
-      if (!r.media) {
-        notify("info", "فُتح المشروع", "لا فيديو في هذا المشروع بعد");
-        return;
-      }
-      notify("info", "جارِ تحميل الفيديو من مساحة العمل…", r.media.name);
-      const blob = await fetch(r.media.url).then((x) => {
-        if (!x.ok) throw new Error("تعذّر تحميل الوسيط");
-        return x.blob();
-      });
-      const file = new File([blob], r.media.name, { type: blob.type || "video/mp4" });
-      const url = URL.createObjectURL(file);
-      const v = document.createElement("video");
-      v.preload = "metadata";
-      v.onloadedmetadata = () => {
-        dispatch({
-          type: "SET_VIDEO",
-          file,
-          url,
-          meta: { width: v.videoWidth, height: v.videoHeight, duration: v.duration, size: file.size, name: file.name },
-        });
-        seekTimeline(0);
-        notify("success", "فُتح مشروع مساحة العمل", parsed.project.name);
-      };
-      v.onerror = () => notify("error", "تعذّر تشغيل الوسيط في المتصفح");
-      v.src = url;
-    } catch (e) {
-      notify("error", "تعذّر فتح المشروع", e instanceof Error ? e.message : undefined);
-    }
-  };
-
-  const saveProjectToList = () => {
-    if (serverProjectId && serverProjectId === state.project.id) {
-      void apiFetch(`/api/projects/${encodeURIComponent(serverProjectId)}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project: state.project }),
-      })
-        .then((x) => x.json().then((d) => ({ ok: x.ok, d })))
-        .then(({ ok, d }) =>
-          ok
-            ? notify("success", "حُفظ في مساحة العمل", "قابل للتراجع عبر MCP (undo_edit)")
-            : notify("error", "فشل الحفظ في مساحة العمل", d?.error)
-        )
-        .catch(() => notify("error", "فشل الحفظ في مساحة العمل"));
-    }
-    const { project: updated, result } = upsertProject({ ...state.project, thumbnail: state.project.thumbnail });
-    setSavedProjects(loadProjects());
-    if (!result.ok) {
-      notify("error", "فشل الحفظ", result.error);
-      return;
-    }
-    notify("success", "تم الحفظ في المتصفح", `${updated.name} — بيانات المشروع فقط؛ الفيديو يبقى ملفاً على جهازك ويُعاد ربطه عند الفتح.`);
-  };
-
-  const loadProject = (p: ProjectState) => {
-    dispatch({ type: "REPLACE_PROJECT", project: p });
-    dispatch({ type: "CLEAR_VIDEO" });
-    setServerSourceRef(null);
-    playClipRef.current = -1;
-    setShowProjects(false);
-    notify("info", "تم تحميل المشروع", `${p.name} — ارفع الفيديو المصدر (نفس الملف) لإعادة ربطه.`);
-  };
-
-  const removeProject = (id: string) => {
-    const r = deleteProject(id);
-    if (!r.ok) notify("error", "تعذّر الحذف", r.error);
-    setSavedProjects(loadProjects());
-  };
+  const {
+    exportSRT,
+    exportVTT,
+    exportProject,
+    importProject,
+    refreshServerProjects,
+    openServerProject,
+    saveProjectToList,
+    loadProject,
+    removeProject,
+  } = createProjectActions({
+    state,
+    dispatch,
+    notify,
+    audio,
+    playClipRef,
+    seekTimeline,
+    serverProjectId,
+    setSavedProjects,
+    setServerProjectId,
+    setServerProjects,
+    setServerSourceRef,
+    setShowProjects,
+  });
 
   useEffect(() => {
     const { projects, invalid } = loadProjectsReport();
