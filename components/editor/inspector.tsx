@@ -12,7 +12,6 @@ import { SectionTitle, EmptyState } from "./ui";
 import { EFFECTS_LIBRARY } from "@/lib/mockAi";
 import { EFFECT_IDS, TRANSITION_TYPES } from "@/lib/engine/project-schema";
 import { removeClipKeyframe, setAudioClipProps, setClipKeyframe, setClipProps, type ClipPatch } from "@/lib/engine/timeline";
-import { apiFetch } from "@/lib/api-config";
 import { uploadFileRaw } from "@/lib/client/upload";
 
 type Notify = (type: "info" | "success" | "warning" | "error", title: string, message?: string) => void;

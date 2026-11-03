@@ -50,7 +50,6 @@ describe("skills system", () => {
 });
 
 import { SKILL_DOMAINS, domainOf } from "./domains";
-import { QualityControlSkill } from "./catalog/QualityControlSkill";
 
 describe("skill domains (Phase 5 taxonomy)", () => {
   const names = buildSkillManager().list().map((s) => s.name);

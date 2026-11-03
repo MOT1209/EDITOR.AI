@@ -33,7 +33,6 @@ export class TextOverlaySkill extends BaseSkill {
   };
 
   protected async execute(input: MediaDocument, _ctx: SkillContext) {
-    const duration = input.duration ?? 30;
     const highlights =
       (input.highlights as Array<{ time: number; score: number }> | undefined) ?? [];
     const title = (input.title as string | undefined)?.trim();

@@ -5,15 +5,12 @@ import { jobsStore } from "@/lib/server/jobs-store";
 import { parseJsonBody } from "@/lib/server/request";
 import { exportBody, EXPORT_MAX_JSON_BYTES } from "@/lib/server/schemas";
 import { parseProject } from "@/lib/engine/project-schema";
-import { workspaceRoot } from "@/lib/engine/store";
 import {
   ExportCancelledError,
   RenderPlanError,
   EXPORT_DIR,
-  UPLOAD_DIR,
   ensureExportDir,
   hasFfmpeg,
-  isPathInside,
   runExport,
   type ExportSource,
   writeJobStatus,

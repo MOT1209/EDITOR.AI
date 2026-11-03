@@ -2,9 +2,8 @@ import { spawn, spawnSync } from "child_process";
 import { promises as fsp, existsSync, readdirSync } from "fs";
 import os from "os";
 import path from "path";
-import type { ProjectAspect, ProjectState, SubtitleCue, TextOverlay, VideoClip } from "@/lib/types";
+import type { ProjectState, VideoClip } from "@/lib/types";
 import { clipFraming, type Framing } from "@/lib/engine/framing";
-import { ASSETS_DIR } from "@/lib/server/assets";
 import { db } from "@/lib/server/db";
 import { jobsStore } from "@/lib/server/jobs-store";
 import { resolveImageRef } from "@/lib/server/media-ref";
@@ -189,7 +188,14 @@ export function hasNvenc(): boolean {
 
 export { buildAss } from "@/lib/engine/ass";
 export { resolveOutputSize } from "@/lib/engine/render-presets";
-import { COLOR_FILTER_FFMPEG, EFFECT_FFMPEG, QUALITY_CRF, FORMAT_CODEC, buildEffectChain, clampSpeed, resolveOutputSize } from "@/lib/engine/render-presets";
+import {
+  COLOR_FILTER_FFMPEG,
+  QUALITY_CRF,
+  FORMAT_CODEC,
+  buildEffectChain,
+  clampSpeed,
+  resolveOutputSize,
+} from "@/lib/engine/render-presets";
 import { buildAss } from "@/lib/engine/ass";
 import { buildRenderPlan, needsCompositor, type RenderIssue, type SourceMap } from "@/lib/engine/render-plan";
 import { compileRenderPlan } from "@/lib/engine/render-compile";
