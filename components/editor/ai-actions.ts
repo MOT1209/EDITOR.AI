@@ -73,6 +73,25 @@ export function createAiActions(ctx: AiActionsContext) {
   } = ctx;
 
   /**
+   * يرفع الفيديو للخادم مرة واحدة (إن لم يُرفع) ويعيد المرجع المعتم لتحليل حقيقي (ffmpeg).
+   * فشل الرفع ⇒ null: الأداة تتابع بسلوكها السابق (بديل تقديري موسوم) بدل أن تنهار.
+   */
+  const ensureSourceRef = async (): Promise<string | null> => {
+    if (serverSourceRef) return serverSourceRef;
+    if (!state.videoFile) return null;
+    try {
+      const up = await uploadFileRaw("/api/ffmpeg/probe", state.videoFile).then((r) => r.json());
+      if (typeof up?.ref === "string") {
+        setServerSourceRef(up.ref);
+        return up.ref;
+      }
+    } catch {
+      /* تدهور أنيق */
+    }
+    return null;
+  };
+
+  /**
    * المسار الكامل متعدد الوكلاء (1.3): يرفع الفيديو، يحلل (Whisper + مشاهد + وجوه)،
    * يضع خطة EDL (مخرج) ويوقف قبل الرندر ليعرض التقرير والخطة على المستخدم
    * ثم يؤكد فيبدأ الرندر الفعلي (ffmpeg) ويعرض الفيديو النهائي.
@@ -591,7 +610,8 @@ export function createAiActions(ctx: AiActionsContext) {
     if (!state.videoMeta) return notify("warning", "ارفع فيديو أولاً");
     await runAIJob("shorts", "إنشاء Shorts/Reels", async (update) => {
       update(20, "تحليل اللحظات المهمة...");
-      // استدعاء ShortsGenerationSkill الحقيقي عبر نظام Skills
+      const sourceRef = await ensureSourceRef();
+      // استدعاء ShortsGenerationSkill الحقيقي عبر نظام Skills (مع sourceRef ⇒ صمت/مشاهد حقيقية في المستند)
       const wf = await apiFetch("/api/skills", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -599,6 +619,7 @@ export function createAiActions(ctx: AiActionsContext) {
           mode: "skill",
           skill: "ShortsGenerationSkill",
           document: { duration: totalDuration, aspect: state.project.aspect },
+          ...(sourceRef ? { sourceRef } : {}),
         }),
       }).then((r) => r.json());
       const shorts =
@@ -667,18 +688,23 @@ export function createAiActions(ctx: AiActionsContext) {
   const aiSceneDetect = async () => {
     if (!state.videoMeta) return notify("warning", "ارفع فيديو أولاً");
     await runAIJob("scenes", "تقسيم الفيديو إلى مشاهد", async (update) => {
-      update(15, "التقاط إطارات...");
+      // فيديو مرفوع ⇒ كشف مشاهد حقيقي بـ ffmpeg (لا حاجة لالتقاط إطارات)؛ وإلا المسار السابق (رؤية/تقديري موسوم).
+      update(10, "رفع الفيديو للتحليل...");
+      const sourceRef = await ensureSourceRef();
       const frames: string[] = [];
-      const steps = Math.min(10, Math.floor(totalDuration / 3));
-      for (let i = 0; i < steps; i++) {
-        const frame = await captureFrame(state.videoUrl!, (i / steps) * totalDuration);
-        if (frame) frames.push(frame);
+      if (!sourceRef) {
+        update(15, "التقاط إطارات...");
+        const steps = Math.min(10, Math.floor(totalDuration / 3));
+        for (let i = 0; i < steps; i++) {
+          const frame = await captureFrame(state.videoUrl!, (i / steps) * totalDuration);
+          if (frame) frames.push(frame);
+        }
       }
       update(40, "تحليل المشاهد...");
       const res = await apiFetch("/api/ai/scenes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ duration: totalDuration, frames }),
+        body: JSON.stringify({ duration: totalDuration, frames, ...(sourceRef ? { sourceRef } : {}) }),
       }).then((r) => r.json());
       const scenes = res.scenes as { start: number; end: number; score: number; description?: string }[];
       if (scenes && scenes.length > 0) {

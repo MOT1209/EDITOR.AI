@@ -28,7 +28,9 @@ export class HighlightDetectionSkill extends BaseSkill {
     const maxLen = this.cfg("maxClipLen", 6);
 
     let pool: Scene[] = scenes.filter((s) => s.score >= threshold);
+    let heuristic = false;
     if (pool.length === 0) {
+      heuristic = true;
       // بديل: قسّم زمنياً واختر مقاطع عشوائية عالية.
       const n = Math.max(2, Math.floor(duration / 8));
       pool = Array.from({ length: n }, (_, i) => ({
@@ -44,7 +46,8 @@ export class HighlightDetectionSkill extends BaseSkill {
       score: +s.score.toFixed(2),
       reason: s.score > 0.85 ? "لحظة قوية" : "لقطة مميزة",
     }));
-    this.log("info", `تم استخراج ${highlights.length} لحظة مهمة`);
+    // البديل أعلاه عشوائي ⇒ يُوسم صراحةً (skillProvenance يقرأ «heuristic») بدل ظهوره كحساب حتمي.
+    this.log("info", `${heuristic ? "المصدر: heuristic — " : ""}تم استخراج ${highlights.length} لحظة مهمة`);
     return { highlights };
   }
 }

@@ -11,7 +11,7 @@ export const subtitlesBody = z.object({ duration: durationSchema.default(30), la
 export const metadataBody = z.object({ duration: durationSchema.default(60), transcript: z.string().max(200_000).optional() });
 export const enhanceBody = z.object({ audioBase64: z.string().max(60_000_000).optional() });
 export const framesBody = z.object({ duration: durationSchema.default(30), frames: frames.default([]) });
-export const scenesBody = z.object({ duration: durationSchema.default(30), frames: frames.optional() });
+export const scenesBody = z.object({ duration: durationSchema.default(30), frames: frames.optional(), sourceRef: z.string().max(256).optional() });
 export const reframeBody = z.object({
   duration: durationSchema.default(30),
   frames: frames.default([]),
@@ -42,6 +42,8 @@ export const skillsBody = z.object({
   workflow: z.string().max(120).optional(),
   document: z.looseObject({ duration: durationSchema.optional() }).optional(),
   config: z.record(z.string().max(80), z.unknown()).optional(),
+  // مرجع فيديو مرفوع (upload:/project:) ⇒ الخادم يحلّل صمتاً/مشاهد حقيقية ويضعها في المستند (تحليل مسبق).
+  sourceRef: z.string().max(256).optional(),
 });
 export const importImageBody = z.object({ imageUrl: z.string().max(2048) });
 
