@@ -4,6 +4,10 @@ import { skillsBody } from "@/lib/server/schemas";
 import { buildExtendedSkillManager } from "@/lib/extensions/skills-bridge";
 import type { MediaDocument } from "@/lib/skills";
 import { skillProvenance } from "@/lib/skills/provenance";
+import { resolveVideoRef } from "@/lib/server/media-ref";
+import { hasFfmpeg } from "@/lib/server/ffmpeg-export";
+import { probeMedia } from "@/lib/engine/media";
+import { realAnalysisFields } from "@/lib/engine/skill-doc";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,6 +52,7 @@ interface RunBody {
 // POST /api/skills
 //   { mode:"skill",    skill:"SceneDetectionSkill", document:{ duration } }
 //   { mode:"workflow", workflow:"default",          document:{ duration } }
+//   + sourceRef:"upload:<uuid>" ⇒ صمت/مشاهد حقيقية (ffmpeg) تدخل المستند كتحليل مسبق فتُوسم real-analysis
 export async function POST(req: NextRequest) {
   try {
     const parsedBody = await parseJsonBody(req, skillsBody);
@@ -57,6 +62,28 @@ export async function POST(req: NextRequest) {
     const { manager: m } = await buildExtendedSkillManager();
     const config = safeConfig(body.config);
     const doc: MediaDocument = { duration: 30, ...(body.document ?? {}) };
+    const notes: string[] = [];
+    if (parsedBody.data.sourceRef !== undefined) {
+      const file = await resolveVideoRef(parsedBody.data.sourceRef);
+      if (!file) {
+        return NextResponse.json({ error: "sourceRef يجب أن يشير إلى فيديو مرفوع (ارفع الفيديو أولاً)", code: "INVALID_INPUT" }, { status: 400 });
+      }
+      if (!hasFfmpeg()) {
+        notes.push("ffmpeg غير مثبت — بلا تحليل حقيقي (ستُوسم النتائج الاستدلالية simulated)");
+      } else {
+        try {
+          const info = await probeMedia(file, req.signal);
+          doc.duration = info.durationSeconds > 0 ? info.durationSeconds : doc.duration;
+          const real = await realAnalysisFields(file, doc.duration, req.signal);
+          // ما أرسله العميل صراحةً (silences/scenes) يبقى؛ التحليل الحقيقي يملأ الغائب فقط.
+          if (real.silences && doc.silences === undefined && info.audio) doc.silences = real.silences;
+          if (real.scenes && doc.scenes === undefined) doc.scenes = real.scenes;
+          notes.push(...real.notes);
+        } catch (e) {
+          notes.push(`تعذّر التحليل الحقيقي: ${e instanceof Error ? e.message : "خطأ"}`);
+        }
+      }
+    }
 
     if (body.mode === "skill") {
       if (!body.skill || !m.has(body.skill)) {
@@ -69,7 +96,7 @@ export async function POST(req: NextRequest) {
       if (config) m.get(body.skill)!.configure(config);
       const result = await m.runSkill(body.skill, doc, ctx);
       const provenance = skillProvenance(body.skill, result.logs);
-      return NextResponse.json({ result, provenance, simulated: provenance === "simulated", metrics: m.getMetrics(body.skill) });
+      return NextResponse.json({ result, provenance, simulated: provenance === "simulated", notes, metrics: m.getMetrics(body.skill) });
     }
 
     // الافتراضي: تشغيل Workflow.
@@ -83,7 +110,7 @@ export async function POST(req: NextRequest) {
     const result = await m.runWorkflow(wfName, doc, { config });
     // خطوات أعطت بيانات محاكاة (بلا تحليل حقيقي) — تعرضها الواجهة كتحذير.
     const simulatedSteps = result.steps.filter((s) => skillProvenance(s.skill, s.logs) === "simulated").map((s) => s.skill);
-    return NextResponse.json({ result, simulatedSteps, metrics: m.allMetrics() });
+    return NextResponse.json({ result, simulatedSteps, notes, metrics: m.allMetrics() });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "خطأ غير متوقع";
     return NextResponse.json({ error: msg }, { status: 500 });

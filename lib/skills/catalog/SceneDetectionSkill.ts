@@ -12,7 +12,7 @@ export class SceneDetectionSkill extends BaseSkill {
   readonly name = "SceneDetectionSkill";
   readonly description = "تحليل الفيديو وتقسيمه إلى مشاهد.";
   readonly category: SkillCategory = "analysis";
-  readonly inputSpec = { duration: "number", frames: "string[] (base64)" };
+  readonly inputSpec = { duration: "number", frames: "string[] (base64)", sourceRef: "string (اختياري — مرجع فيديو مرفوع)" };
   readonly outputSpec = { scenes: "Scene[]" };
   protected readonly defaultConfig = { minSceneLen: 4, endpoint: "/api/ai/scenes" };
 
@@ -25,7 +25,7 @@ export class SceneDetectionSkill extends BaseSkill {
     const frames = input.frames ?? [];
     const api = await this.callEndpoint<{ scenes?: Scene[] }>(
       this.cfg("endpoint", "/api/ai/scenes"),
-      { duration, frames },
+      { duration, frames, sourceRef: input.sourceRef as string | undefined },
       ctx
     );
     if (api?.scenes?.length) {

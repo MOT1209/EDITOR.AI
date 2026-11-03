@@ -21,6 +21,7 @@ import { groupWordsIntoLines } from "@/lib/captions/lines";
 import { linesToAss, linesToSrt, downloadText } from "@/lib/captions/export";
 import type { TranscriptResult } from "@/lib/captions/types";
 import { captureFrame } from "@/lib/ai/client";
+import { uploadFileRaw } from "@/lib/client/upload";
 
 type Aspect = "9:16" | "1:1" | "4:5";
 const ASPECT_RATIO: Record<Aspect, number> = { "9:16": 9 / 16, "1:1": 1, "4:5": 4 / 5 };
@@ -171,6 +172,17 @@ export default function ShortsStudio() {
         });
       }
 
+      // رفع الفيديو للخادم ⇒ صمت/مشاهد حقيقية (ffmpeg) في المستند؛ فشل الرفع ⇒ تحليل بلا مرجع (النتائج الاستدلالية موسومة).
+      let sourceRef: string | undefined;
+      if (file) {
+        setBusy("رفع الفيديو للتحليل...");
+        try {
+          const up = await uploadFileRaw("/api/ffmpeg/probe", file).then((r) => r.json());
+          if (typeof up?.ref === "string") sourceRef = up.ref;
+        } catch {
+          /* تدهور أنيق */
+        }
+      }
       setBusy("استخراج مقاطع Shorts والمؤثرات...");
       const wf = await fetch("/api/skills", {
         method: "POST",
@@ -179,6 +191,7 @@ export default function ShortsStudio() {
           mode: "workflow",
           workflow: "viral-shorts",
           document: { duration, aspect, frames },
+          ...(sourceRef ? { sourceRef } : {}),
         }),
       }).then((r) => r.json());
       const doc = wf?.result?.document || {};

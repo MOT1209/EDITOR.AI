@@ -4,6 +4,9 @@ import { scenesBody } from "@/lib/server/schemas";
 import { guardCost, recordSpend } from "@/lib/server/cost-guard";
 import { getVisionModel,
   getOpencodeKey, getOpencodeBaseUrl } from "@/lib/server/api-keys";
+import { resolveVideoRef } from "@/lib/server/media-ref";
+import { hasFfmpeg } from "@/lib/server/ffmpeg-export";
+import { analyzeScenes, probeMedia } from "@/lib/engine/media";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -14,10 +17,31 @@ export async function POST(req: NextRequest) {
     const OPENCODE_API_KEY = getOpencodeKey(req);
     const reqBody = await parseJsonBody(req, scenesBody);
     if (!reqBody.ok) return reqBody.response;
-    const { duration = 30, frames } = reqBody.data;
+    const { duration = 30, frames, sourceRef } = reqBody.data;
     const sceneCount = Math.max(2, Math.floor(duration / 5));
 
     const warnings: string[] = [];
+    // فيديو مرفوع ⇒ كشف مشاهد حقيقي بـ ffmpeg (نقاط قطع بصرية فعلية) — يتقدّم على رؤية النموذج والتقسيم التقديري.
+    if (sourceRef !== undefined) {
+      const file = await resolveVideoRef(sourceRef);
+      if (!file) return NextResponse.json({ error: "sourceRef يجب أن يشير إلى فيديو مرفوع (ارفع الفيديو أولاً)" }, { status: 400 });
+      if (hasFfmpeg()) {
+        try {
+          const real = (await probeMedia(file, req.signal)).durationSeconds || duration;
+          const { scenes } = await analyzeScenes(file, real, { signal: req.signal });
+          // score 0.5 محايد: لا إشارة جودة بلا نموذج رؤية (لا نختلق درجات).
+          return NextResponse.json({
+            scenes: scenes.map((s, i) => ({ ...s, score: 0.5, description: `مشهد ${i + 1}` })),
+            duration: real,
+            method: "ffmpeg-scene-detect",
+          });
+        } catch (e) {
+          warnings.push(`تعذّر كشف المشاهد بـ ffmpeg (${e instanceof Error ? e.message : "خطأ"})`);
+        }
+      } else {
+        warnings.push("ffmpeg غير مثبت — تعذّر كشف المشاهد الحقيقي");
+      }
+    }
     if (OPENCODE_API_KEY && frames && frames.length > 0) {
       const sample = Math.min(5, frames.length);
       const guard = guardCost("vision", { images: sample, chars: sample * 400 });
