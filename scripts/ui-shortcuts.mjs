@@ -1,0 +1,37 @@
+// اختصارات لوحة المفاتيح بمتصفح حقيقي: يطبع عدد المقاطع بعد كل اختصار (تقسيم/تكرار/حذف/تراجع/إعادة). يُقارَن الناتج قبل/بعد أي تعديل على الاختصارات.
+// الاستخدام: BASE_URL=http://localhost:3000 node scripts/ui-shortcuts.mjs
+import { chromium } from "playwright";
+const BASE = process.env.BASE_URL || "http://localhost:3000";
+const b = await chromium.launch({ args: ["--no-sandbox"] });
+const pg = await b.newPage({ viewport: { width: 1700, height: 980 } });
+const errs = []; pg.on("pageerror", (e) => errs.push(e.message)); pg.on("dialog", (d) => d.accept());
+await pg.goto(BASE, { waitUntil: "networkidle" });
+await pg.locator("input[type=file]").first().setInputFiles("test_assets/test_video.mp4");
+await pg.waitForSelector("text=الوسائط", { timeout: 30000 });
+await pg.waitForTimeout(2500);
+await pg.getByRole("button", { name: "الوسائط" }).first().click();
+await pg.locator('input[aria-label="اختيار ملفات للاستيراد"]').setInputFiles(["test_assets/test_video.mp4"]);
+await pg.waitForSelector('li:has-text("test_video.mp4")', { timeout: 30000 });
+await pg.locator("li", { hasText: "test_video.mp4" }).first().getByRole("button", { name: /للتايملاين/ }).click();
+await pg.waitForTimeout(800);
+const clips = pg.locator("[data-clip-id]");
+const out = [];
+const rec = async (name) => out.push(`${name}: clips=${await clips.count()}`);
+await rec("start");
+await clips.first().click(); await pg.waitForTimeout(200);
+await pg.keyboard.press("Home"); await pg.keyboard.press("ArrowRight"); await pg.keyboard.press("Shift+ArrowRight"); await pg.keyboard.press("Shift+ArrowRight"); await pg.waitForTimeout(200);
+await rec("seek +1f +2s");
+await pg.keyboard.press("s"); await pg.waitForTimeout(900); await rec("split(s)");
+await pg.keyboard.press("Control+d"); await pg.waitForTimeout(900); await rec("dup(ctrl+d)");
+await pg.keyboard.press("Delete"); await pg.waitForTimeout(900); await rec("delete");
+await pg.keyboard.press("Control+z"); await pg.waitForTimeout(900); await rec("undo");
+await pg.keyboard.press("Control+Shift+z"); await pg.waitForTimeout(900); await rec("redo");
+await pg.keyboard.press("Control+z"); await pg.waitForTimeout(500); await pg.keyboard.press("Control+z"); await pg.waitForTimeout(500); await pg.waitForTimeout(900); await rec("undo x3");
+await pg.keyboard.press("Control+a"); await pg.waitForTimeout(200);
+out.push("ctrl+a selected: " + (await pg.locator("[data-clip-id][aria-selected=true], [data-clip-id].ring-2").count()));
+await pg.keyboard.press("ArrowUp"); await pg.keyboard.press("ArrowDown"); await pg.keyboard.press("End"); await pg.keyboard.press("Home");
+await pg.keyboard.press("+"); await pg.keyboard.press("-"); await pg.keyboard.press("n"); await pg.keyboard.press(" "); await pg.keyboard.press(" "); await pg.keyboard.press("Escape");
+await pg.waitForTimeout(200); await rec("end");
+out.push("pageerrors=" + errs.length);
+console.log(out.join("\n"));
+await b.close();
