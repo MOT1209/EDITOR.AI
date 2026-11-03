@@ -120,7 +120,7 @@ export async function startExport(body: ExportRequestBody): Promise<Response> {
   }
 
   await ensureExportDir();
-  const job = jobsStore.create("export", "تصدير الفيديو");
+  const job = jobsStore.create("export", "تصدير الفيديو", body); // الطلب المُتحقَّق منه محفوظ لإعادة المحاولة
   const outputPath = path.join(EXPORT_DIR, `${job.id}.${project.format}`);
   await writeJobStatus({ id: job.id, status: "running", progress: 0 });
   const controller = registerExportController(job.id);

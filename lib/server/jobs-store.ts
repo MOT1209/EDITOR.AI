@@ -32,6 +32,7 @@ const LIST_LIMIT = 200;
 
 let counter = 0;
 const memory = new Map<string, StoredJob>();
+const memoryRequests = new Map<string, unknown>(); // تدهور بلا SQLite: يبقى الطلب في الذاكرة فقط
 
 function pidAlive(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return false;
@@ -121,17 +122,32 @@ function fromRow(r: Record<string, unknown>): StoredJob {
 }
 
 export const jobsStore = {
-  create(kind: string, label: string): StoredJob {
+  /** `request` (اختياري): الطلب المُتحقَّق منه يُحفظ لإعادة المحاولة؛ يُمسح عند الاكتمال، ولا يظهر في list/get. */
+  create(kind: string, label: string, request?: unknown): StoredJob {
     const job: StoredJob = { id: `job_${Date.now()}_${++counter}`, kind, label, status: "running", progress: 0, startedAt: Date.now() };
     const d = db();
     if (!d) {
       memory.set(job.id, job);
+      if (request !== undefined) memoryRequests.set(job.id, request);
       return job;
     }
-    d.prepare("INSERT INTO jobs(id, kind, label, status, progress, owner_pid, owner_boot, started_at) VALUES (?, ?, ?, 'running', 0, ?, ?, ?)").run(
-      job.id, kind, label, process.pid, BOOT_ID, job.startedAt
+    d.prepare("INSERT INTO jobs(id, kind, label, status, progress, owner_pid, owner_boot, started_at, request_json) VALUES (?, ?, ?, 'running', 0, ?, ?, ?, ?)").run(
+      job.id, kind, label, process.pid, BOOT_ID, job.startedAt, request === undefined ? null : JSON.stringify(request)
     );
     return job;
+  },
+
+  /** الطلب المحفوظ لمهمة (للمهام الفاشلة/الملغاة فقط عملياً)، أو undefined. */
+  getRequest(id: string): unknown | undefined {
+    const d = db();
+    if (!d) return memoryRequests.get(id);
+    const r = d.prepare("SELECT request_json FROM jobs WHERE id = ?").get(id);
+    if (!r || typeof r.request_json !== "string") return undefined;
+    try {
+      return JSON.parse(r.request_json);
+    } catch {
+      return undefined;
+    }
   },
 
   get(id: string): StoredJob | undefined {
@@ -153,6 +169,7 @@ export const jobsStore = {
     if (!d) {
       const j = memory.get(id);
       if (j) Object.assign(j, patch);
+      if (patch.status === "completed") memoryRequests.delete(id);
       return;
     }
     const cur = d.prepare("SELECT * FROM jobs WHERE id = ?").get(id);
@@ -169,6 +186,7 @@ export const jobsStore = {
       next.issues === undefined ? null : JSON.stringify(next.issues),
       process.pid, BOOT_ID, next.startedAt, next.finishedAt ?? null
     );
+    if (patch.status === "completed") d.prepare("UPDATE jobs SET request_json = NULL WHERE id = ?").run(id); // لا حاجة لإعادة محاولة مهمة ناجحة
   },
 
   /** يربط المهمة بعملية العامل (ffmpeg) ومخرَجها — للاستعادة إن ماتت عملية الخادم. */

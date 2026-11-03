@@ -30,7 +30,7 @@ export interface Database {
 /** معرّف إقلاع هذه العملية — يميّز مهام عملية سابقة عن الحالية حتى لو تكرر pid. */
 export const BOOT_ID = randomUUID();
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const MIGRATIONS: string[] = [
   `CREATE TABLE IF NOT EXISTS jobs (
      id TEXT PRIMARY KEY,
@@ -55,6 +55,8 @@ const MIGRATIONS: string[] = [
   // v2: عملية العامل (ffmpeg) ومخرَجها — تُقتل ويُحذف المخرَج الجزئي إن ماتت عملية الخادم المالكة.
   `ALTER TABLE jobs ADD COLUMN worker_pid INTEGER;
    ALTER TABLE jobs ADD COLUMN artifact TEXT;`,
+  // v3: طلب التصدير المُتحقَّق منه (مشروع + مراجع معتمة + خيارات؛ بلا مفاتيح ولا مسارات) لإعادة المحاولة بعد انقطاع/فشل.
+  `ALTER TABLE jobs ADD COLUMN request_json TEXT;`,
 ];
 
 type G = { __montageDb?: { file: string; db: Database | null } };
