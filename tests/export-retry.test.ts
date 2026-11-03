@@ -13,7 +13,7 @@ import { GET as statusGet } from "@/app/api/export/status/[id]/route";
 
 // إعادة محاولة التصدير الفاشل/الملغى من طلبه المحفوظ (مهمة جديدة من الصفر).
 const FF = hasFfmpeg();
-const MAIN = "eeeeeeee-0000-4000-8000-000000000001";
+const MAIN = "eeeeeeee-0000-4000-8000-000000000002"; // مميّز عن export-framing: ملفات الرفع مشتركة والملفات تعمل بالتوازي
 const created: string[] = [];
 const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
 const retry = (id: string) => retryPost(new NextRequest(`http://localhost/api/export/retry/${id}`, { method: "POST", headers: { host: "localhost" } }), ctx(id));
