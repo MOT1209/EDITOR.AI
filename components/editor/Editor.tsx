@@ -2,16 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { v4 as uuid } from "uuid";
-import {
-  ModalShell,
-  SectionTitle,
-  EmptyState,
-  InfoRow,
-  StatBox,
-  SliderRow,
-  ColorRow,
-  ToggleRow,
-} from "./ui";
+import { SectionTitle, EmptyState, InfoRow, StatBox, SliderRow, ToggleRow } from "./ui";
 import { ApiSettingsModal, ShortcutsModal } from "./modals";
 import { Inspector } from "./inspector";
 import { MediaLibrary } from "./media-library";
@@ -19,63 +10,40 @@ import { ProjectsModal, ExportModal, ExportResultModal, type ServerProjectSummar
 import {
   Sparkles,
   Upload,
-  Play,
-  Pause,
-  SkipBack,
-  SkipForward,
   Scissors,
   Volume2,
   Palette,
   Captions,
-  Music,
   Image as ImageIcon,
-  Mic,
-  Languages,
   Wand2,
   Download,
-  Settings2,
   Type,
-  ZoomIn,
-  ZoomOut,
-  Plus,
   X,
   Loader2,
-  Trash2,
   Save,
   Sliders,
-  RefreshCcw,
-  Film,
   Layers,
-  AudioWaveform,
   AudioLines,
-  FileVideo,
   FolderOpen,
-  MousePointer2,
   CheckCircle2,
-  XCircle,
   AlertCircle,
   Info,
   Gauge,
   Smartphone,
   Monitor,
-  VolumeX,
   Tag,
   FileText,
   Bot,
   Brain,
-  Music2,
   Aperture,
   Activity,
   Settings,
-  SquareSplitHorizontal,
   Search,
   Crop,
   Waves,
   Video,
   Eye,
-  Share2,
 } from "lucide-react";
-
 import {
   defaultProject,
   loadProjects,
@@ -88,8 +56,8 @@ import {
 import { findLostAudio } from "@/lib/engine/export-guard";
 import { activeVideoClip, clipFraming, framingCss } from "@/lib/engine/framing";
 import { ensureAudioRefs } from "@/lib/client/audio-upload";
-import { EFFECTS_LIBRARY, MUSIC_LIBRARY, aiJobs, generateToneTrack } from "@/lib/mockAi";
-import { apiConfig, apiFetch, SIMULATED_EVENT } from "@/lib/api-config";
+import { MUSIC_LIBRARY, aiJobs, generateToneTrack } from "@/lib/mockAi";
+import { apiFetch, SIMULATED_EVENT } from "@/lib/api-config";
 import { uploadFileRaw } from "@/lib/client/upload";
 import { parseProject } from "@/lib/engine/project-schema";
 import { EXPORT_PRESETS, applyExportPreset } from "@/lib/engine/export-presets";
@@ -114,34 +82,16 @@ import {
   translateTexts,
   mockProgress,
 } from "@/lib/ai/client";
-import type {
-  AIJob,
-  AppNotification,
-  AudioClip,
-  MusicTrack,
-  ProjectAspect,
-  ProjectState,
-  SubtitleCue,
-  TextOverlay,
-  TimelineTrack,
-  VideoClip,
-  Effect,
-} from "@/lib/types";
+import type { AppNotification, ProjectAspect, ProjectState } from "@/lib/types";
 import type { CeoResponse } from "@/lib/agents/types";
-
-import {
-  TABS,
-  COLOR_FILTERS,
-  FONT_OPTIONS,
-  fmtSrtTime,
-  fmtVttTime,
-  reducer,
-  initialState,
-} from "./state";
-import type { State, Action, TabId } from "./state";
+import { TABS, COLOR_FILTERS, FONT_OPTIONS, fmtSrtTime, fmtVttTime, reducer, initialState } from "./state";
+import type { State, Action } from "./state";
 import { SubtitleOverlay, EffectOverlay, Notifications, PipelineModal } from "./overlays";
 import { Timeline, Transport } from "./timeline";
-
+import { ImageLibraryPanel } from "./panels/image-library-panel";
+import { EffectsPanel } from "./panels/effects-panel";
+import { MusicPanel } from "./panels/music-panel";
+import { TextPanel } from "./panels/text-panel";
 
 export default function Editor() {
   const [state, dispatch] = useReducer(reducer, initialState);
@@ -2739,504 +2689,6 @@ function MediaPanel({ state, dispatch, notify, prepare }: { state: State; dispat
       )}
 
       <ImageLibraryPanel state={state} dispatch={dispatch} />
-    </div>
-  );
-}
-
-interface PexelsPhoto {
-  id: string;
-  thumbnail: string;
-  fullUrl: string;
-  photographer: string;
-}
-
-function ImageLibraryPanel({ state, dispatch }: { state: State; dispatch: React.Dispatch<Action> }) {
-  const [query, setQuery] = useState("");
-  const [photos, setPhotos] = useState<PexelsPhoto[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [configured, setConfigured] = useState(true);
-  const [importingId, setImportingId] = useState<string | null>(null);
-
-  const search = async () => {
-    if (!query.trim()) return;
-    setLoading(true);
-    try {
-      const res = await apiFetch(`/api/assets/pexels?query=${encodeURIComponent(query)}`).then((r) => r.json());
-      setConfigured(res.configured !== false);
-      setPhotos(res.photos || []);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const addPhoto = async (photo: PexelsPhoto) => {
-    setImportingId(photo.id);
-    try {
-      const res = await apiFetch("/api/assets/import", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageUrl: photo.fullUrl }),
-      }).then((r) => r.json());
-      if (!res.ref) return;
-      const start = state.playhead || 0;
-      dispatch({
-        type: "ADD_CLIP",
-        clip: {
-          id: uuid(),
-          assetId: `pexels_${photo.id}`,
-          trackId: "t_video",
-          start,
-          duration: 4,
-          inPoint: 0,
-          outPoint: 4,
-          effects: [],
-          volume: 1,
-          speed: 1,
-          zoom: 1,
-          panX: 0,
-          panY: 0,
-          smartZoom: false,
-          kind: "image",
-          imageUrl: res.ref as string,
-        },
-      });
-    } finally {
-      setImportingId(null);
-    }
-  };
-
-  return (
-    <div className="space-y-2">
-      <SectionTitle icon={ImageIcon} title="مكتبة صور (Pexels)" />
-      <div className="flex gap-1.5">
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && search()}
-          placeholder="ابحث عن صورة... (مثلاً: nature)"
-          className="flex-1 bg-bg-soft border border-line rounded-md px-2 py-1.5 text-xs"
-        />
-        <button onClick={search} disabled={loading} className="btn-outline px-2.5" aria-label="بحث">
-          <Search className="h-3.5 w-3.5" />
-        </button>
-      </div>
-      {!configured && (
-        <div className="text-[10px] text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-md p-2">
-          أضف مفتاح Pexels (PEXELS_API_KEY) في .env.local أو نافذة إعدادات API لتفعيل المكتبة.
-        </div>
-      )}
-      {photos.length > 0 && (
-        <div className="grid grid-cols-2 gap-1.5 max-h-72 overflow-y-auto">
-          {photos.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => addPhoto(p)}
-              disabled={importingId === p.id}
-              className="relative aspect-video rounded-md overflow-hidden border border-line/50 hover:border-brand/40 group"
-            >
-              <img src={p.thumbnail} alt={p.photographer} className="h-full w-full object-cover" />
-              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 flex items-center justify-center transition-colors">
-                {importingId === p.id ? (
-                  <Loader2 className="h-4 w-4 animate-spin text-white" />
-                ) : (
-                  <Plus className="h-4 w-4 text-white opacity-0 group-hover:opacity-100" />
-                )}
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function EffectsPanel({ state, dispatch }: { state: State; dispatch: React.Dispatch<Action> }) {
-  const categories: { id: Effect["category"]; label: string }[] = [
-    { id: "transition", label: "انتقالات" },
-    { id: "motion", label: "حركة" },
-    { id: "color", label: "لون" },
-    { id: "vfx", label: "VFX" },
-  ];
-  return (
-    <div className="space-y-3">
-      <div className="text-[11px] text-ink-soft">
-        اضغط لتفعيل/إلغاء التأثير على كامل الفيديو
-      </div>
-      {categories.map((cat) => (
-        <div key={cat.id}>
-          <div className="text-[11px] font-semibold text-ink-soft mb-1.5">{cat.label}</div>
-          <div className="grid grid-cols-2 gap-1.5">
-            {EFFECTS_LIBRARY.filter((e) => e.category === cat.id).map((e) => {
-              const active = state.project.effects.includes(e.id);
-              return (
-                <button
-                  key={e.id}
-                  onClick={() => dispatch({ type: "TOGGLE_EFFECT", effectId: e.id })}
-                  className={`p-2 rounded-md text-[10px] border text-right ${
-                    active
-                      ? "bg-brand/15 border-brand/40 text-brand-glow"
-                      : "bg-bg-soft border-line/50 text-ink-soft hover:bg-bg-elev"
-                  }`}
-                >
-                  <EffectPreview name={e.preview} active={active} />
-                  <div className="mt-1 truncate">{e.name}</div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function EffectPreview({ name, active }: { name: string; active: boolean }) {
-  return (
-    <div
-      className={`h-10 w-full rounded-md overflow-hidden border ${
-        active ? "border-brand/50" : "border-line"
-      }`}
-      style={{
-        background:
-          "linear-gradient(135deg, rgba(124,58,237,0.3), rgba(6,182,212,0.3))",
-        filter:
-          name === "warm"
-            ? "sepia(0.4) hue-rotate(-15deg)"
-            : name === "cool"
-            ? "hue-rotate(20deg) saturate(0.9)"
-            : name === "cinematic"
-            ? "contrast(1.2) saturate(1.2)"
-            : name === "vhs"
-            ? "contrast(1.3) hue-rotate(8deg)"
-            : name === "fade"
-            ? "brightness(0.7)"
-            : name === "zoom"
-            ? "brightness(1.2)"
-            : name === "shake"
-            ? "hue-rotate(5deg)"
-            : name === "zoom-blur"
-            ? "blur(1px)"
-            : "none",
-      }}
-    >
-      <div className="h-full w-full grid place-items-center">
-        <Wand2 className="h-3 w-3 text-white/80" />
-      </div>
-    </div>
-  );
-}
-
-function MusicPanel({
-  state,
-  dispatch,
-  onPlay,
-  onStop,
-}: {
-  state: State;
-  dispatch: React.Dispatch<Action>;
-  onPlay: (m: MusicTrack) => void;
-  onStop: () => void;
-}) {
-  const moods = Array.from(new Set(MUSIC_LIBRARY.map((m) => m.mood)));
-  const [filter, setFilter] = useState<string | null>(null);
-  const filtered = filter ? MUSIC_LIBRARY.filter((m) => m.mood === filter) : MUSIC_LIBRARY;
-
-  const [playingId, setPlayingId] = useState<string | null>(null);
-
-  const play = async (m: MusicTrack) => {
-    if (!m.url) {
-      // لا يوجد ملف — ولّد نغمة حقيقية عبر Web Audio API ثم شغّلها.
-      setPlayingId(m.id);
-      try {
-        const url = await generateToneTrack(m);
-        onPlay({ ...m, url: url || "" });
-      } catch {
-        onPlay(m);
-      } finally {
-        setPlayingId(null);
-      }
-      return;
-    }
-    onPlay(m);
-  };
-  const stop = () => {
-    onStop();
-  };
-
-  return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap gap-1">
-        <button
-          onClick={() => setFilter(null)}
-          className={`text-[10px] px-2 py-1 rounded-md border ${
-            !filter ? "bg-brand/15 border-brand/40 text-brand-glow" : "border-line text-ink-soft"
-          }`}
-        >
-          الكل
-        </button>
-        {moods.map((m) => (
-          <button
-            key={m}
-            onClick={() => setFilter(m)}
-            className={`text-[10px] px-2 py-1 rounded-md border ${
-              filter === m ? "bg-brand/15 border-brand/40 text-brand-glow" : "border-line text-ink-soft"
-            }`}
-          >
-            {m}
-          </button>
-        ))}
-      </div>
-
-      <div className="space-y-1.5">
-        {filtered.map((m) => {
-          const active = state.project.musicId === m.id;
-          return (
-            <div
-              key={m.id}
-              className={`p-2 rounded-md border flex items-center gap-2 ${
-                active ? "bg-brand/10 border-brand/40" : "bg-bg-soft border-line/50"
-              }`}
-            >
-              <div
-                className="h-10 w-10 rounded-md shrink-0"
-                style={{ background: m.cover }}
-              />
-              <div className="flex-1 min-w-0">
-                <div className="text-xs font-semibold truncate">{m.title}</div>
-                <div className="text-[10px] text-ink-mute">
-                  {m.genre} • {m.bpm} BPM • {Math.round(m.duration / 60)} دقيقة
-                </div>
-              </div>
-              <button
-                onClick={() => (active ? stop() : play(m))}
-                className={`h-7 w-7 rounded-full grid place-items-center ${
-                  active ? "bg-brand text-white" : "bg-bg-elev text-ink-soft"
-                }`}
-                title={!m.url ? "توليد نغمة ثم التشغيل" : undefined}
-              >
-                {playingId === m.id ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : active ? (
-                  <Pause className="h-3 w-3" />
-                ) : (
-                  <Play className="h-3 w-3" />
-                )}
-              </button>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-interface TextPanelProps {
-  state: State;
-  dispatch: React.Dispatch<Action>;
-  onSubtitles: () => void;
-  subLang: string;
-  setSubLang: (s: string) => void;
-  subtitleText: string;
-  setSubtitleText: (s: string) => void;
-  onAddSubtitle: () => void;
-  fontSize: number;
-  setFontSize: (n: number) => void;
-  fontColor: string;
-  setFontColor: (s: string) => void;
-  fontBg: string;
-  setFontBg: (s: string) => void;
-  fontFamily: string;
-  setFontFamily: (s: string) => void;
-  translateTarget: string;
-  setTranslateTarget: (s: string) => void;
-  onTranslate: () => void;
-  voiceoverText: string;
-  setVoiceoverText: (s: string) => void;
-  ttsVoice: string;
-  setTtsVoice: (s: string) => void;
-  onDub: () => void;
-}
-
-function TextPanel({ props }: { props: TextPanelProps }) {
-  const [overlayText, setOverlayText] = useState("");
-  const [overlayPosition, setOverlayPosition] = useState<TextOverlay["position"]>("center");
-  const [overlayFont, setOverlayFont] = useState(FONT_OPTIONS[0].css);
-  const [overlayColor, setOverlayColor] = useState("#ffffff");
-  const [overlaySize, setOverlaySize] = useState(56);
-  const [overlayDuration, setOverlayDuration] = useState(3);
-  const [overlayAnimation, setOverlayAnimation] = useState<TextOverlay["animation"]>("fade");
-
-  const addTextOverlay = () => {
-    if (!overlayText.trim()) return;
-    const start = props.state.playhead || 0;
-    props.dispatch({
-      type: "ADD_TEXT_OVERLAY",
-      overlay: {
-        id: uuid(),
-        text: overlayText,
-        start,
-        end: start + overlayDuration,
-        position: overlayPosition,
-        fontFamily: overlayFont,
-        fontSize: overlaySize,
-        color: overlayColor,
-        animation: overlayAnimation,
-      },
-    });
-    setOverlayText("");
-  };
-
-  return (
-    <div className="space-y-3">
-      <SectionTitle icon={Type} title="عنوان / نص حر" />
-      <textarea
-        value={overlayText}
-        onChange={(e) => setOverlayText(e.target.value)}
-        rows={2}
-        className="w-full bg-bg-soft border border-line rounded-md px-2 py-1.5 text-xs"
-        placeholder="اكتب العنوان أو النص..."
-      />
-      <div className="grid grid-cols-2 gap-1.5">
-        {(["top", "center", "bottom"] as TextOverlay["position"][]).map((p) => (
-          <button
-            key={p}
-            onClick={() => setOverlayPosition(p)}
-            className={`p-1.5 rounded-md border text-[10px] ${
-              overlayPosition === p ? "bg-brand/15 border-brand/40 text-brand-glow" : "border-line text-ink-soft"
-            }`}
-          >
-            {p === "top" ? "أعلى" : p === "center" ? "وسط" : "أسفل"}
-          </button>
-        ))}
-        <select
-          value={overlayAnimation}
-          onChange={(e) => setOverlayAnimation(e.target.value as TextOverlay["animation"])}
-          className="bg-bg-soft border border-line rounded-md px-2 py-1 text-[10px]"
-        >
-          <option value="none">بدون حركة</option>
-          <option value="fade">تلاشي</option>
-          <option value="pop">قفزة</option>
-        </select>
-      </div>
-      <select
-        value={overlayFont}
-        onChange={(e) => setOverlayFont(e.target.value)}
-        className="w-full bg-bg-soft border border-line rounded-md px-2 py-1.5 text-xs"
-      >
-        {FONT_OPTIONS.map((f) => (
-          <option key={f.id} value={f.css}>{f.name}</option>
-        ))}
-      </select>
-      <SliderRow label="حجم الخط" value={overlaySize} onChange={setOverlaySize} min={20} max={120} suffix={`${overlaySize}px`} />
-      <SliderRow label="مدة الظهور" value={overlayDuration} onChange={setOverlayDuration} min={1} max={10} step={0.5} suffix={`${overlayDuration}s`} />
-      <ColorRow label="لون النص" value={overlayColor} onChange={setOverlayColor} />
-      <button className="btn-primary w-full" onClick={addTextOverlay}>
-        <Plus className="h-3.5 w-3.5" />
-        أضف للتايملاين (من موضع المؤشر)
-      </button>
-
-      <SectionTitle icon={Captions} title="ترجمة تلقائية" />
-      <button className="btn-primary w-full" onClick={props.onSubtitles}>
-        <Captions className="h-4 w-4" />
-        توليد الترجمة
-      </button>
-      <div>
-        <div className="text-[11px] text-ink-soft mb-1">لغة الترجمة</div>
-        <select
-          value={props.subLang}
-          onChange={(e) => props.setSubLang(e.target.value)}
-          className="w-full bg-bg-soft border border-line rounded-md px-2 py-1.5 text-xs"
-        >
-          <option value="ar">العربية</option>
-          <option value="en">English</option>
-          <option value="fr">Français</option>
-          <option value="es">Español</option>
-          <option value="tr">Türkçe</option>
-          <option value="de">Deutsch</option>
-        </select>
-      </div>
-
-      <SectionTitle icon={Plus} title="إضافة ترجمة يدوية" />
-      <textarea
-        value={props.subtitleText}
-        onChange={(e) => props.setSubtitleText(e.target.value)}
-        rows={3}
-        className="w-full bg-bg-soft border border-line rounded-md px-2 py-1.5 text-xs"
-        placeholder="اكتب نص الترجمة هنا..."
-      />
-      <button className="btn-outline w-full" onClick={props.onAddSubtitle}>
-        <Plus className="h-3.5 w-3.5" />
-        إضافة للتايملاين
-      </button>
-
-      <SectionTitle icon={Type} title="نمط الترجمة" />
-      <div className="space-y-2">
-        <SliderRow
-          label="حجم الخط"
-          value={props.fontSize}
-          onChange={props.setFontSize}
-          min={14}
-          max={48}
-          suffix="px"
-        />
-        <ColorRow label="لون النص" value={props.fontColor} onChange={props.setFontColor} />
-        <ColorRow label="لون الخلفية" value={props.fontBg} onChange={props.setFontBg} />
-        <div>
-          <div className="text-[11px] text-ink-soft mb-1">نوع الخط</div>
-          <select
-            value={props.fontFamily}
-            onChange={(e) => props.setFontFamily(e.target.value)}
-            className="w-full bg-bg-soft border border-line rounded-md px-2 py-1.5 text-xs"
-          >
-            {FONT_OPTIONS.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      <SectionTitle icon={Languages} title="ترجمة ودبلجة" />
-      <select
-        value={props.translateTarget}
-        onChange={(e) => props.setTranslateTarget(e.target.value)}
-        className="w-full bg-bg-soft border border-line rounded-md px-2 py-1.5 text-xs"
-      >
-        <option value="en">English</option>
-        <option value="fr">Français</option>
-        <option value="es">Español</option>
-        <option value="tr">Türkçe</option>
-        <option value="de">Deutsch</option>
-      </select>
-      <button className="btn-outline w-full" onClick={props.onTranslate}>
-        <Languages className="h-3.5 w-3.5" />
-        ترجمة الترجمات
-      </button>
-
-      <SectionTitle icon={Mic} title="تعليق صوتي / TTS" />
-      <textarea
-        value={props.voiceoverText}
-        onChange={(e) => props.setVoiceoverText(e.target.value)}
-        rows={3}
-        className="w-full bg-bg-soft border border-line rounded-md px-2 py-1.5 text-xs"
-        placeholder="اكتب النص المراد تحويله لصوت..."
-      />
-      <select
-        value={props.ttsVoice}
-        onChange={(e) => props.setTtsVoice(e.target.value)}
-        className="w-full bg-bg-soft border border-line rounded-md px-2 py-1.5 text-xs"
-      >
-        <option value="ar-male-1">صوت عربي - ذكر</option>
-        <option value="ar-female-1">صوت عربي - أنثى</option>
-        <option value="en-male-1">English - Male</option>
-        <option value="en-female-1">English - Female</option>
-        <option value="clone">استنساخ صوتي (محلياً)</option>
-      </select>
-      <button className="btn-primary w-full" onClick={props.onDub}>
-        <Mic className="h-3.5 w-3.5" />
-        توليد الصوت وإضافته
-      </button>
     </div>
   );
 }
