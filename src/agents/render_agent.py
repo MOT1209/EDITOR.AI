@@ -194,11 +194,11 @@ class RenderAgent:
         for i, seg in enumerate(segments):
             vin, ain = f"v{i}", f"a{i}"
             chain_v = [f"trim=start={seg.start:.3f}:end={seg.end:.3f}", "setpts=PTS-STARTPTS"]
-            if seg.speed != 1.0:
-                chain_v.append(f"setpts=PTS-STARTPTS/{seg.speed}")
             if seg.crop and seg.crop.zoom > 1.0:
                 # zoompan: قص رقمي نحو مركز الوجه (إحداثيات نسبية × iw/ih — يعمل
                 # مع أي دخل). التتبّع الكامل للوجه يملأ center_x/center_y لاحقاً.
+                # ملاحظة: zoompan يعيد توليد جدول زمني خاص به (reset) — لذا يُبنى
+                # التسريع (setpts) بعد مرحلة zoompan لكي لا يُفقد.
                 z = seg.crop.zoom
                 cx, cy = seg.crop.center_x, seg.crop.center_y
                 chain_v.append(
@@ -213,6 +213,11 @@ class RenderAgent:
             color_chain = COLOR_FILTER_FFMPEG.get(seg.color_filter.value, "")
             if color_chain:
                 chain_v.append(color_chain)
+            # التسريع يُطبَّق بعد scale/zoompan (لأن zoompan يعيد توليد الطوابع
+            # الزمنية) والصيغة يجب أن تكون (PTS-STARTPTS)/speed — فبدون الأقواس
+            # يقرأ ffmpeg التعبيرات كـ PTS-(STARTPTS/speed) فيُسقط التسريع نهائياً.
+            if seg.speed != 1.0:
+                chain_v.append(f"setpts=(PTS-STARTPTS)/{seg.speed}")
             filter_parts.append(f"[0:v]{','.join(chain_v)}[{vin}]")
             video_labels.append(f"[{vin}]")
 

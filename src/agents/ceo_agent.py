@@ -34,7 +34,13 @@ from src.agents.edl_schema import (
     RenderPlan,
 )
 from src.agents.registry import get_agent_class
-from src.agents.utils import disable_crewai_cache_breakpoints, env_or_default, get_logger, load_env
+from src.agents.utils import (
+    build_llm_model,
+    disable_crewai_cache_breakpoints,
+    env_or_default,
+    get_logger,
+    load_env,
+)
 from src.agents.validation import STAGE_VALIDATORS
 
 STAGE_ORDER: tuple[str, ...] = ("analyst", "director", "critic", "audio", "render")
@@ -129,10 +135,7 @@ class CeoOrchestrator:
         if not api_key:
             self.logger.warning("لا OPENCODE_API_KEY — عمل بدون LLM (خطة محلية أنيقة)")
             return None
-        model = DEFAULT_MODEL
-        # LiteLLM يحتاج بادئة مزوّد لبعض الأنواع (مثل groq/ قبل اسم الموديل)
-        if "/" not in model and "groq" in (DEFAULT_BASE_URL or "").lower():
-            model = f"groq/{model}"
+        model = build_llm_model(DEFAULT_BASE_URL, DEFAULT_MODEL)
         try:
             return LLM(
                 model=model,
@@ -313,7 +316,22 @@ class CeoOrchestrator:
             plan = await director.execute(ctx, artifacts)
             validation = STAGE_VALIDATORS["director"](plan)
             if not validation.ok:
-                return _StageOutcome(ok=False, errors=validation.errors)
+                self.logger.warning(
+                    "خطة المخرج المحدثة رفضتها بوابة الجودة (%s) — الإبقاء على الخطة السابقة المصرح بها وتمرير بأفضل خطة سليمة",
+                    validation.errors[0] if validation.errors else "أخطاء تحقق",
+                )
+                return _StageOutcome(
+                    ok=True,
+                    artifact=critique,
+                    warnings=list(validation.warnings)
+                    + (
+                        [
+                            f"خطة المخرج المحدثة لم تجزَ التحقق البنيوي: {validation.errors[0]} — الإبقاء على الخطة السابقة المصرح بها"
+                        ]
+                        if validation.errors
+                        else []
+                    ),
+                )
             artifacts["director"] = plan
             self._save_artifact(ctx, "director", plan)
             artifacts["critic_rounds"] = round_no

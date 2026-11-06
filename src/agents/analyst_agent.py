@@ -48,21 +48,31 @@ except ImportError:  # pragma: no cover — سلامة إضافية عند ال�
     def has_auto_editor() -> bool:
         return False
 
-try:  # اختياري: pyannote.audio لتمييز المتحدثين (يمكن تثبيته لاحقاً)
-    _HAS_PYNANOTE = True
+# اختياري: pyannote.audio لتمييز المتحدثين (يمكن تثبيته لاحقاً).
+# الرافعة _HAS_PYNANOTE لا تُكذَّب: قيمتها الافتراضية False، وتُحدَّث إلى True
+# فقط إذا نجح استيراد المكتبة + تحميل النموذج (lazy، لتجنب تحميل ~70s at import).
+_HAS_PYNANOTE = False
 
-    def _pyannote_pipeline():
-        """ينشئ خط معالجة Diarization — استيراد كسول (المكتبة ثقيلة ~70s عبر lightning/torch)."""
-        try:
-            from pyannote.audio import Pipeline
-            return Pipeline.from_pretrained("pyannote/speaker-diarization")
-        except Exception:
-            return None
-except ImportError:
-    _HAS_PYNANOTE = False
 
-    def _pyannote_pipeline():  # pragma: no cover
+def _pyannote_pipeline():
+    """ينشئ خط معالجة Diarization — استيراد كسول (المكتبة ثقيلة ~70s عبر lightning/torch).
+
+    يُرجع None إذا كانت المكتبة أو النموذج غير متاحين، ويُحدِّث _HAS_PYNANOTE
+    وفق الحقيقة (لا "متوفر دائماً").
+    """
+    global _HAS_PYNANOTE
+    try:
+        from pyannote.audio import Pipeline
+    except ImportError:  # pragma: no cover — pyannote غير مثبت في هذه البيئة
+        _HAS_PYNANOTE = False
         return None
+    try:
+        pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization")
+    except Exception as exc:  # noqa: BLE001 — فشل التحميل/التوكن لا يوقف المسار
+        _HAS_PYNANOTE = False
+        return None
+    _HAS_PYNANOTE = True
+    return pipeline
 
 MIN_SILENCE_SECONDS = 0.3  # متطلب: silences > 0.3s
 SILENCE_NOISE_DB = -25  # نفس عتبة طبقة Next.js
@@ -295,26 +305,40 @@ class AnalystAgent:
         البديل المنيع: تمييز افتراضي على الحدود الصامتة — يبدّل علامة
         المتحدث بين كل كتلة نطقية مستنيرة بالصمت (دقة محدودة لكنها تبقي
         المسار منضّغاً بلا نماذج/تحميلات)."""
-        if _HAS_PYNANOTE:
+        # pyannote (إن توفرت): المخرج Annotation — itertracks(yield_label=True)
+        # يُرجع (Segment, _, label). Segment له .start/.end؛ label سلسلة المتحدث.
+        # pyannote لا تُوفّر ثقة per-turn هنا → 0.75 افتراضية (موثّقة).
+        try:
+            pipeline = _pyannote_pipeline()
+        except Exception as exc:  # noqa: BLE001 — فشل الاستيراد/التحميل لا يوقف المسار
+            self.logger.warning("pyannote غير متاح (%s) — الرجوع للتمييز الصامت", exc)
+            pipeline = None
+        if pipeline is not None:
+            wav = None
             try:
-                pipeline = _pyannote_pipeline()
-                if pipeline is None:
-                    raise RuntimeError("pyannote.audio غير متاح — تمييز صامت بديل")
                 wav = self._extract_wav(source_path)
-                try:
-                    segments = sorted(pipeline(wav), key=lambda s: s[2])
-                    return [
-                        SpeakerSegment(
-                            start=float(seg.start), end=float(seg.end),
-                            label=str(seg.name or "speaker_0"),
-                            confidence=float(seg.confidence or 0.5),
-                        )
-                        for seg in segments
-                    ]
-                finally:
-                    os.unlink(wav)
+                result = pipeline(wav)
+                # pyannote >=3.x قد يُرجع DiarizeOutput (له .speaker_diarization)
+                annotation = getattr(result, "speaker_diarization", result)
+                out: List[SpeakerSegment] = []
+                for turn, _, label in annotation.itertracks(yield_label=True):
+                    out.append(SpeakerSegment(
+                        start=float(turn.start),
+                        end=float(turn.end),
+                        label=str(label),
+                        confidence=0.75,
+                    ))
+                out.sort(key=lambda s: s.start)
+                if out:
+                    return out
             except Exception as exc:  # noqa: BLE001 — فشل النموذج لا يوقف المسار
                 self.logger.warning("pyannote فشل (%s) — الرجوع للتمييز الصامت", exc)
+            finally:
+                if wav:
+                    try:
+                        os.unlink(wav)
+                    except OSError:
+                        pass
         return self._silence_bounded_diarization(source_path)
 
     def _silence_bounded_diarization(self, source_path: str) -> list[SpeakerSegment]:
@@ -464,14 +488,35 @@ class AnalystAgent:
         if name == "res10_300x300_ssd.caffemodel":
             if os.path.exists(p) and os.path.getsize(p) > 100000:
                 return p
-            for u in ("https://raw.githubusercontent.com/opencv/opencv_3.0.0/release-3.0.0/samples/dnn/face_detector/res10_300x300_ssd_iter_140000.caffemodel",):
+            urls = ("https://raw.githubusercontent.com/opencv/opencv_3.0.0/release-3.0.0/samples/dnn/face_detector/res10_300x300_ssd_iter_140000.caffemodel",)
+            for u in urls:
+                tmp = p + ".tmp"
                 try:
                     import urllib.request
-                    urllib.request.urlretrieve(u, p)
-                    if os.path.getsize(p) > 100000:
-                        return p
+                    # تحميل إلى ملف مؤقت (.tmp) ثم os.replace — لتجنب ملف نصف-مكتمل
+                    # عند الانقطاع. فحص الحجم (>100000) قبل الاعتماد.
+                    with urllib.request.urlopen(u, timeout=30) as resp, open(tmp, "wb") as fh:
+                        while True:
+                            chunk = resp.read(64 * 1024)
+                            if not chunk:
+                                break
+                            fh.write(chunk)
+                    if os.path.exists(tmp) and os.path.getsize(tmp) > 100000:
+                        os.replace(tmp, p)
+                        if os.path.exists(p) and os.path.getsize(p) > 100000:
+                            return p
+                    else:
+                        self.logger.warning(
+                            "تنزيل res10 فشل: حجم الملف غير كافٍ — سيستخدم Haar"
+                        )
                 except Exception as exc:  # noqa: BLE001
-                    self.logger.debug("تنزيل res10 فشل (%s) — سيستخدم Haar", exc)
+                    self.logger.warning("تنزيل res10 فشل (%s) — سيستخدم Haar", exc)
+                finally:
+                    try:
+                        if os.path.exists(tmp):
+                            os.unlink(tmp)
+                    except OSError:
+                        pass
         return p if os.path.exists(p) else None
 
     def _extract_wav(self, source_path: str) -> str:

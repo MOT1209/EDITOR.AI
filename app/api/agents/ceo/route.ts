@@ -46,7 +46,19 @@ async function ensureDir(p: string) {
   } catch {}
 }
 
-function detectSilencesFfmpeg(filePath: string): { start: number; end: number }[] {
+/**
+ * كشف فترات الصمت عبر silencedetect.
+ * duration: المدة الفعلية للوسائط — تُستخدم ليُغلق صمت النهاية غير المغلق
+ * (silence_start بلا silence_end) عند نهاية الفيديو الحقيقية وليس عند
+ * MAX_SAFE_INTEGER الذي يفسد حسابات المستهلكين (طول الإزالة، العدّ، النسب).
+ * إذا كانت المدة غير معروفة (0 أو غير رقمية) نرجع إلى تقدير محافظ
+ * start + 15 ثانية حتى لا يمتد المدى بلا حدود — يُنظَّم لاحقاً بواسطة clamp
+ * في normalizePlan عند توفر المدة الحقيقية.
+ */
+function detectSilencesFfmpeg(
+  filePath: string,
+  duration: number
+): { start: number; end: number }[] {
   if (!hasFfmpeg()) return [];
   const r = spawnSync(
     resolveFfmpegPath(),
@@ -71,8 +83,17 @@ function detectSilencesFfmpeg(filePath: string): { start: number; end: number }[
   for (let i = 0; i < Math.min(starts.length, ends.length); i++) {
     if (ends[i] - starts[i] >= 0.4) segs.push({ start: starts[i], end: ends[i] });
   }
-  // صمت في نهاية الفيديو (لا يوجد silence_end بعده)
-  if (starts.length > ends.length) segs.push({ start: starts[starts.length - 1], end: Number.MAX_SAFE_INTEGER });
+  // صمت في نهاية الفيديو (لا يوجد silence_end بعده).
+  // النهاية = المدة الفعلية للوسائط (وليس MAX_SAFE_INTEGER)؛ وإن لم تتوفر
+  // مدة موثوقة فتقدير محافظ start + 15 حتى لا ينتفخ المدى.
+  if (starts.length > ends.length) {
+    const start = starts[starts.length - 1];
+    const end =
+      Number.isFinite(duration) && duration > 0
+        ? Math.max(start, duration)
+        : start + 15;
+    segs.push({ start, end });
+  }
   return segs;
 }
 
@@ -535,8 +556,8 @@ export async function POST(req: NextRequest) {
     if (!duration || duration <= 0) duration = 30;
     duration = Math.min(duration, 3600); // سقف ساعة حمايةً للموارد
 
-    // 3) تحليل الصمت
-    const silences = detectSilencesFfmpeg(filePath);
+    // 3) تحليل الصمت (تُمرَّر المدة الفعلية ليُغلق صمت النهاية عند نهاية الفيديو)
+    const silences = detectSilencesFfmpeg(filePath, duration);
 
     // 4) التفريغ الصوتي (Word-level) عبر Whisper
     let transcript = "";

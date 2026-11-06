@@ -492,6 +492,10 @@ def normalize_plan(
     elif isinstance(raw, str):
         plan = EdlPlan.model_validate_json(raw)
     else:
+        # حقن المصدر قبل التحقق: خطة مخرج LLM قد تخلو من حقل source فيؤدي
+        # حذفه إلى رفع خطأ تحقق بدلاً من التطبيع؛ سطر إعادة الإسناد أدناه يبقى
+        # حارساً نهائياً (يجعل نسختنا المرجعية هي المتعاقة دائماً).
+        raw.setdefault("source", source)
         plan = EdlPlan.model_validate(raw)
 
     plan.source = source
@@ -511,8 +515,18 @@ def normalize_plan(
             if prev.keep and not s.keep:
                 continue  # قطع داخل فترة إبقاء → تجاهل
             if not prev.keep and s.keep:
-                prev.end = max(prev.end, s.end)
-                prev.reason = prev.reason or s.reason
+                # القِبَ ينتصر: نُقلّص نهاية القص السابق إلى بداية الإبقاء بدل
+                # تمديده ليبتلع محتوىً حقيقياً (كان يعادَل `max(end, s.end)`).
+                prev.end = min(prev.end, s.start)
+                if prev.end - prev.start <= 1e-6:
+                    # القص انعدم بعد التقليم (يشمل احتواءه كلياً حيث
+                    # s.start <= prev.start): نزعه ثم الحقّ إبقاءه مكانه.
+                    # آمن بحلقة واحدة: ما قبل prev ينتهي عند prev.start
+                    # الأصلي <= s.start (الترتيب حسب البداية) فلا تتداخل.
+                    merged.pop()
+                else:
+                    prev.reason = prev.reason or s.reason
+                merged.append(s)
                 continue
             if prev.keep and s.keep:
                 prev.end = max(prev.end, s.end)
