@@ -40,7 +40,7 @@ export class TransitionEffectSkill extends BaseSkill {
 
   protected async execute(input: MediaDocument, _ctx: SkillContext) {
     const segments =
-      ((input.keepSegments as Span[] | undefined) ?? []).slice() ??
+      (input.keepSegments as Span[] | undefined)?.slice() ??
       [{ start: 0, end: input.duration ?? 30 }];
     const maxDur = this.cfg("maxDuration", 0.5);
     const dipDur = this.cfg("dipDuration", 0.4);

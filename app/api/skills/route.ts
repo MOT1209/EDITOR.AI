@@ -44,8 +44,10 @@ export async function POST(req: NextRequest) {
         );
       }
       const ctx = m.createContext(doc, { config: body.config });
-      if (body.config) m.get(body.skill)!.configure(body.config);
-      const result = await m.runSkill(body.skill, doc, ctx);
+      // M-5: المرّر config كمعامل مؤقت لـ runSkill (apply → run → restore)
+      // بدل configure() الدائم الذي كان يلوّث حالة المهارة المفردة
+      // ويُسرّب الإعدادات إلى الطلبات اللاحقة بلا config.
+      const result = await m.runSkill(body.skill, doc, ctx, body.config);
       return NextResponse.json({ result, metrics: m.getMetrics(body.skill) });
     }
 

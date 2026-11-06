@@ -68,12 +68,22 @@ export class SpeedRampSkill extends BaseSkill {
           { time: +t2.toFixed(2), rate: fastRate },
         ],
       });
+      // منحنى ختامي يعيد السرعة إلى الطبيعية (1.0) في نهاية مقطع التبريز
+      // (أو نهاية المقطع عند الحافة)، حتى لا يظل المعدل مثبتاً على آخر قيمة.
+      speedRamps.push({
+        hookTime: +t2.toFixed(2),
+        slowBefore: 0,
+        slowRate: 1,
+        fastAfter: 0,
+        fastRate: 1,
+        points: [{ time: +t2.toFixed(2), rate: 1 }],
+      });
       lastTime = h.time;
     }
 
     this.log(
       "info",
-      `أنشأ ${speedRamps.length} منحنى سرعة (إبطاء ×${slowRate} → تسريع ×${fastRate})`
+      `أنشأ ${speedRamps.length} منحنى سرعة مع ختام لكل تبريز (إبطاء ×${slowRate} → تسريع ×${fastRate} → طبيعي 1.0)`
     );
     return { speedRamps };
   }

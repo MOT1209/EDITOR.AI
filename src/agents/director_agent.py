@@ -388,8 +388,6 @@ class DirectorAgent:
                     seg.crop = CropZoomEvent(
                         start=seg.start,
                         end=seg.end,
-                        center_x=0.5,
-                        center_y=0.42,
                         zoom=1.35,
                         ease="ease_in_out",
                         source="default",
@@ -543,7 +541,7 @@ class DirectorAgent:
         if not words:
             return []
         max_words = max_words_per_line or MAX_WORDS_PER_LINE.get(style.value, 5)
-        has_timing = any(w.end > w.start for w in words)
+        has_timing = any((w.end or 0.0) > (w.start or 0.0) for w in words)
         if not has_timing and duration > 0:
             step = duration / max(len(words), 1)
             words = [

@@ -124,14 +124,43 @@ export class SkillManager {
   }
 
   // ---- تشغيل Skill مفردة ----
+  // معامل config? اختياري (M-5): يُطبّق على المهارة المفردة **أثناء**
+  // التنفيذ فقط (apply → run → restore) دون تغيير حالتها الدائمة،
+  // لتجنّب تلوّث config بين workflows/steps. يمكن تمريره كمعامل 3 (config)
+  // أو 4 (ctx, config) للتوافق مع الاستدعاءات القائمة.
   async runSkill(
     name: string,
     input: MediaDocument,
-    ctx?: SkillContext
+    ctxOrConfig?: SkillContext | Record<string, unknown>,
+    config?: Record<string, unknown>
   ): Promise<SkillResult> {
     const skill = this.skills.get(name);
     if (!skill) throw new Error(`Skill غير موجودة: ${name}`);
+
+    let ctx: SkillContext | undefined;
+    let stepConfig: Record<string, unknown> | undefined;
+    if (ctxOrConfig && typeof ctxOrConfig === "object") {
+      const cand = ctxOrConfig as { shared?: unknown; log?: unknown };
+      if (typeof cand.log === "function" && "shared" in cand) {
+        ctx = ctxOrConfig as SkillContext;
+        stepConfig = config;
+      } else {
+        stepConfig = ctxOrConfig as Record<string, unknown>;
+      }
+    }
+
     const context = ctx ?? this.createContext(input);
+
+    // ---- تطبيق config مؤقتاً دون تلويث الحالة المفردة (M-5) ----
+    let previousConfig: Record<string, unknown> | undefined;
+    let applied = false;
+    if (stepConfig) {
+      // Snapshot **قبل** configure (الذي قد يُهيّئ defaults) لاستعادة
+      // الحالة الأصلية (بما في ذلك {} غير المُهيّأة) دون تلوّث.
+      previousConfig = { ...skill.config };
+      skill.configure(stepConfig);
+      applied = true;
+    }
 
     this.running.add(name);
     let res: SkillResult;
@@ -139,6 +168,9 @@ export class SkillManager {
       res = await skill.run(input, context);
     } finally {
       this.running.delete(name);
+      if (applied) {
+        skill.config = previousConfig ?? skill.config;
+      }
     }
 
     // ---- مراقبة الأداء ----

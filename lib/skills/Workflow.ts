@@ -92,10 +92,10 @@ export class Workflow {
         if (!step.optional) break;
         continue;
       }
-      if (step.config) manager.get(step.skill)!.configure(step.config);
-
+      // M-5: لا نُلوّث حالة المهارة المفردة via configure؛ نمرّر config
+      // كمعامل مؤقت لـ runSkill (apply → run → restore).
       ctx.log("info", `▶ تشغيل خطوة: ${step.skill}`);
-      const res = await manager.runSkill(step.skill, ctx.shared, ctx);
+      const res = await manager.runSkill(step.skill, ctx.shared, ctx, step.config);
       steps.push(res);
 
       if (res.ok && res.output) {
