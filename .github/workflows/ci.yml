@@ -41,15 +41,21 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: pnpm
       - name: تثبيت الاعتماديات
-        run: npm install
+        run: pnpm install --frozen-lockfile
       - name: فحص TypeScript (tsc)
-        run: npx tsc --noEmit
+        run: pnpm exec tsc --noEmit
       - name: فحص مطابقة العقد الموحّد (Python ↔ TypeScript)
         run: node scripts/check-contract.ts
+      - name: بناء إنتاجي (next build)
+        run: pnpm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
 
   secrets:
     name: حارس الأسرار (gitleaks)

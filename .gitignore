@@ -41,6 +41,10 @@ next-env.d.ts
 # logs
 *.log
 
+# أصول اختبار ثقيلة (لا تُلتزم — انظر README «الميزات المحلية الإضافية»)
+/test_video.mp4
+/test_assets/
+
 # Python (مسار الوكلاء src/)
 __pycache__/
 *.pyc
