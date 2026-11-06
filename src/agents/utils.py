@@ -146,6 +146,100 @@ def build_llm_model(base_url: str, model: str) -> str:
     return model
 
 
+# ====================================================================
+# ضابط التكلفة (Cost Guard) — نظير Python لـ lib/server/cost-guard.ts
+# يقدّر تكلفة استدعاءات المزوّدين المدفوعة ويتتبّع الإنفاق التراكمي للتشغيل،
+# ليُسجَّل في أدلة .montage_ai/pipeline/ مع كل مسار.
+# ====================================================================
+
+_CHARS_PER_TOKEN = 4
+_TOKENS_PER_IMAGE = 850
+
+
+def _price(key: str, default: float) -> float:
+    raw = os.environ.get(key, "")
+    try:
+        val = float(raw)
+        return val if val >= 0 else default
+    except (TypeError, ValueError):
+        return default
+
+
+def estimate_cost(
+    kind: str,
+    *,
+    chars: int = 0,
+    images: int = 0,
+    duration_sec: float = 0.0,
+) -> float:
+    """يقدّر تكلفة استدعاء واحد بالدولار (تقدير وقائي يميل للأعلى قليلاً).
+
+    ``kind`` ∈ {chat, vision, whisper, tts}. الأسعار قابلة للتهيئة عبر البيئة
+    بنفس مفاتيح طبقة Next.js (COST_CHAT_PER_1K ...).
+    """
+    if kind == "chat":
+        tokens = chars / _CHARS_PER_TOKEN
+        return (tokens / 1000) * _price("COST_CHAT_PER_1K", 0.005)
+    if kind == "vision":
+        tokens = chars / _CHARS_PER_TOKEN + images * _TOKENS_PER_IMAGE
+        return (tokens / 1000) * _price("COST_VISION_PER_1K", 0.01)
+    if kind == "whisper":
+        return (duration_sec / 60) * _price("COST_WHISPER_PER_MIN", 0.006)
+    if kind == "tts":
+        return (chars / 1000) * _price("COST_TTS_PER_1K_CHARS", 0.015)
+    return 0.0
+
+
+def budget_cap_usd() -> float:
+    """السقف الكلي (افتراضي 5$). 0 أو أقل = بلا سقف."""
+    return _price("MONTAGE_BUDGET_CAP", 5.0)
+
+
+class BudgetExceeded(RuntimeError):
+    """يُرفع عند تجاوز سقف التكلفة قبل استدعاء مدفوع."""
+
+
+class BudgetTracker:
+    """يتتبّع الإنفاق التراكمي لتشغيل واحد ويفرض السقف قبل كل استدعاء.
+
+    الاستخدام::
+
+        tracker = BudgetTracker()
+        tracker.guard("whisper", duration_sec=meta["duration"])  # يرفع BudgetExceeded
+        ...  # الاستدعاء الفعلي
+        tracker.record("whisper", duration_sec=actual)           # تسجيل بعد النجاح
+    """
+
+    def __init__(self, cap_usd: Optional[float] = None) -> None:
+        self.cap_usd = budget_cap_usd() if cap_usd is None else cap_usd
+        self.spent_usd = 0.0
+
+    def guard(self, kind: str, **opts: Any) -> float:
+        """يفحص السقف دون تسجيل. يرجع التقدير، ويرفع BudgetExceeded عند التجاوز."""
+        est = estimate_cost(kind, **opts)
+        if self.cap_usd > 0 and self.spent_usd + est > self.cap_usd:
+            raise BudgetExceeded(
+                f"تجاوز سقف التكلفة: {self.spent_usd:.4f}$ + {est:.4f}$ "
+                f"> السقف {self.cap_usd:.2f}$ (ارفع MONTAGE_BUDGET_CAP)"
+            )
+        return est
+
+    def record(self, kind: str, **opts: Any) -> float:
+        """يسجّل إنفاقاً فعلياً بعد نجاح الاستدعاء. يرجع المبلغ المُسجَّل."""
+        est = estimate_cost(kind, **opts)
+        self.spent_usd += est
+        return est
+
+    def snapshot(self) -> Dict[str, float]:
+        """حالة الإنفاق للحفظ في أدلة المسار."""
+        remaining = (self.cap_usd - self.spent_usd) if self.cap_usd > 0 else -1.0
+        return {
+            "spent_usd": round(self.spent_usd, 4),
+            "cap_usd": self.cap_usd,
+            "remaining_usd": round(remaining, 4),
+        }
+
+
 _JSON_FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
 
 

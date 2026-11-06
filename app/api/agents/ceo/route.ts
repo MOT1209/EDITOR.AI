@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { spawnSync } from "child_process";
+import { guardApiRequest } from "@/lib/server/api-guard";
+import { runProcess } from "@/lib/engine/process";
+import { probeMedia } from "@/lib/engine/media";
 import { promises as fsp, existsSync } from "fs";
 import os from "os";
 import path from "path";
@@ -12,6 +14,10 @@ import {
   getWhisperModel,
 } from "@/lib/server/api-keys";
 import { hasFfmpeg, resolveFfmpegPath } from "@/lib/server/ffmpeg-export";
+import { guardCost, recordSpend, releaseReservation } from "@/lib/server/cost-guard";
+import { uploadRef } from "@/lib/server/media-ref";
+import { saveUpload, rejectOversizedRequest, QuotaError, readFormDataCapped } from "@/lib/server/uploads";
+import { validateVideoUpload } from "@/lib/server/validate";
 import type {
   CeoResponse,
   DirectorPlan,
@@ -23,11 +29,11 @@ import type {
   SceneInfo,
   TranscriptSegment,
 } from "@/lib/agents/types";
+import { routeError } from "@/lib/server/with-route";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-const UPLOAD_DIR = path.join(process.cwd(), ".montage_ai", "uploads");
 const NULL_DEVICE = os.platform() === "win32" ? "NUL" : "/dev/null";
 
 const COLOR_FILTERS = ["none", "cinematic", "warm", "cool", "vhs", "bw", "vivid", "dreamy"];
@@ -40,10 +46,16 @@ const MAX_SEGMENTS = 60;
 /* أدوات التحليل (Data Analyst)                                        */
 /* ------------------------------------------------------------------ */
 
-async function ensureDir(p: string) {
+/**
+ * تشغيل ffmpeg غير متزامن (لا يجمّد حلقة أحداث الخادم) عبر runProcess المصلَّب:
+ * وسائط مصفوفة + بيئة مصفّاة + منع بروتوكولات الشبكة + حدود الموارد + مهلة. لا يرمي — يعيد null عند الفشل.
+ */
+async function runFfmpeg(args: string[], timeoutMs: number) {
   try {
-    await fsp.mkdir(p, { recursive: true });
-  } catch {}
+    return await runProcess(resolveFfmpegPath(), args, { timeoutMs, maxStdoutBytes: 1024 * 1024 });
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -55,13 +67,12 @@ async function ensureDir(p: string) {
  * start + 15 ثانية حتى لا يمتد المدى بلا حدود — يُنظَّم لاحقاً بواسطة clamp
  * في normalizePlan عند توفر المدة الحقيقية.
  */
-function detectSilencesFfmpeg(
+async function detectSilencesFfmpeg(
   filePath: string,
   duration: number
-): { start: number; end: number }[] {
+): Promise<{ start: number; end: number }[]> {
   if (!hasFfmpeg()) return [];
-  const r = spawnSync(
-    resolveFfmpegPath(),
+  const r = await runFfmpeg(
     [
       "-i", filePath,
       "-map", "0:a",
@@ -69,8 +80,9 @@ function detectSilencesFfmpeg(
       "-f", "null",
       NULL_DEVICE,
     ],
-    { encoding: "utf-8", timeout: 60000 }
+    60_000
   );
+  if (!r) return [];
   const out = `${r.stderr || ""}${r.stdout || ""}`;
   const starts: number[] = [];
   const ends: number[] = [];
@@ -104,8 +116,7 @@ function detectSilencesFfmpeg(
 async function extractAudioMp3(filePath: string): Promise<string | null> {
   if (!hasFfmpeg()) return null;
   const out = path.join(os.tmpdir(), `montage_ceo_${uuid()}.mp3`);
-  const r = spawnSync(
-    resolveFfmpegPath(),
+  const r = await runFfmpeg(
     [
       "-i", filePath,
       "-vn",
@@ -115,9 +126,12 @@ async function extractAudioMp3(filePath: string): Promise<string | null> {
       "-b:a", "32k",
       "-y", out,
     ],
-    { encoding: "utf-8", timeout: 180000 }
+    180_000
   );
-  if (r.status !== 0 || !existsSync(out)) return null;
+  if (!r || r.code !== 0 || !existsSync(out)) {
+    await fsp.unlink(out).catch(() => {});
+    return null;
+  }
   return out;
 }
 
@@ -193,12 +207,8 @@ async function captureFrames(filePath: string, duration: number): Promise<string
   for (let i = 0; i < count; i++) {
     const t = Math.min((i / count) * duration + duration / count / 2, safeDur);
     const tmp = path.join(os.tmpdir(), `montage_frame_${uuid()}.jpg`);
-    const r = spawnSync(
-      resolveFfmpegPath(),
-      ["-ss", String(t), "-i", filePath, "-frames:v", "1", "-vf", "scale=640:-1", "-q:v", "5", "-y", tmp],
-      { encoding: "utf-8", timeout: 60000 }
-    );
-    if (r.status === 0 && existsSync(tmp)) {
+    const r = await runFfmpeg(["-ss", String(t), "-i", filePath, "-frames:v", "1", "-vf", "scale=640:-1", "-q:v", "5", "-y", tmp], 60_000);
+    if (r && r.code === 0 && existsSync(tmp)) {
       try {
         const buf = await fsp.readFile(tmp);
         frames.push(buf.toString("base64"));
@@ -523,8 +533,15 @@ function normalizePlan(plan: DirectorPlan, duration: number): DirectorPlan {
 /* ------------------------------------------------------------------ */
 
 export async function POST(req: NextRequest) {
+  // مستثنى من middleware (جسم كبير يُبث للقرص) ⇒ الحارس هنا — lib/server/api-guard.ts.
+  const denied = guardApiRequest(req);
+  if (denied) return denied;
   try {
-    const form = await req.formData();
+    const tooBig = rejectOversizedRequest(req);
+    if (tooBig) return tooBig;
+    const parsed = await readFormDataCapped(req);
+    if (parsed.response) return parsed.response;
+    const form = parsed.form;
     const file = form.get("file");
     const request = String(form.get("request") || "").slice(0, 800);
     const language = String(form.get("language") || "ar").slice(0, 10);
@@ -534,56 +551,77 @@ export async function POST(req: NextRequest) {
     if (!file || !(file instanceof File)) {
       return NextResponse.json({ error: "ملف الفيديو مطلوب" }, { status: 400 });
     }
+    const upload = validateVideoUpload(file);
+    if (!upload.ok) return NextResponse.json({ error: upload.error }, { status: 400 });
+    const warnings: string[] = [];
 
     const apiKey = getOpencodeKey(req);
     const baseUrl = getOpencodeBaseUrl();
 
     // 1) احفظ الفيديو على الخادم
-    await ensureDir(UPLOAD_DIR);
-    const id = uuid();
-    const ext = path.extname(file.name) || ".mp4";
-    const filePath = path.join(UPLOAD_DIR, `${id}${ext}`);
-    const buf = Buffer.from(await file.arrayBuffer());
-    await fsp.writeFile(filePath, buf);
+    let saved;
+    try {
+      saved = await saveUpload(file);
+    } catch (e) {
+      if (e instanceof QuotaError) return NextResponse.json({ error: e.message, code: "LIMIT_EXCEEDED" }, { status: 507 });
+      throw e;
+    }
+    const id = saved.id;
+    const filePath = saved.filepath;
 
     // 2) المدة الفعلية
     let duration = durationInput;
     if (!duration || duration <= 0) {
-      const pr = spawnSync(resolveFfmpegPath(), ["-i", filePath], { encoding: "utf-8", timeout: 30000 });
-      const m = /Duration:\s*(\d+):(\d+):(\d+\.\d+)/.exec(`${pr.stderr || ""}`);
-      if (m) duration = Number(m[1]) * 3600 + Number(m[2]) * 60 + parseFloat(m[3]);
+      duration = await probeMedia(filePath).then((i) => i.durationSeconds).catch(() => 0);
     }
     if (!duration || duration <= 0) duration = 30;
     duration = Math.min(duration, 3600); // سقف ساعة حمايةً للموارد
 
     // 3) تحليل الصمت (تُمرَّر المدة الفعلية ليُغلق صمت النهاية عند نهاية الفيديو)
-    const silences = detectSilencesFfmpeg(filePath, duration);
+        const silences = await detectSilencesFfmpeg(filePath, duration);
 
     // 4) التفريغ الصوتي (Word-level) عبر Whisper
     let transcript = "";
     let segments: TranscriptSegment[] = [];
-    if (apiKey) {
+    // الضابط يحجز التقدير عند السماح ⇒ لا يُستدعى بلا مفتاح، ويُحرَّر الحجز إن لم يكتمل الاستدعاء.
+    const whisperGuard = apiKey ? guardCost("whisper", { durationSec: duration }) : null;
+    if (whisperGuard && !whisperGuard.allowed) warnings.push(whisperGuard.reason ?? "تجاوز سقف التكلفة");
+    if (apiKey && whisperGuard?.allowed) {
+      let spent = false;
       let audioPath: string | null = null;
       try {
         audioPath = await extractAudioMp3(filePath);
         if (audioPath) {
           const w = await transcribeWhisper(apiKey, baseUrl, audioPath, language);
+          recordSpend(whisperGuard.estimateUsd);
+          spent = true;
           transcript = w.text;
           segments = w.segments;
         }
       } catch {
-        /* نكمل بدون تفريغ حقيقي */
+        warnings.push("فشل التفريغ الصوتي عبر المزوّد");
       }
+      if (!spent) releaseReservation();
       if (audioPath) await fsp.unlink(audioPath).catch(() => {});
     }
+    let transcriptSimulated = false;
     if (segments.length === 0) {
+      // نص نموذجي لتشغيل الخطة المحلية فقط — موسوم صراحة ولا يُعرض كتفريغ حقيقي.
       segments = mockTranscript(duration);
       transcript = segments.map((s) => s.text).join(" ");
+      transcriptSimulated = true;
+      warnings.push("لا تفريغ حقيقي — الترجمات في الخطة نص نموذجي، راجعها قبل التصدير");
     }
 
     // 5) التحليل البصري
     const frames = await captureFrames(filePath, duration);
-    const vision = apiKey ? await analyzeVision(apiKey, baseUrl, frames, duration) : null;
+    const visionGuard = apiKey && frames.length ? guardCost("vision", { images: frames.length, chars: 3000 }) : null;
+    if (visionGuard && !visionGuard.allowed) warnings.push(visionGuard.reason ?? "تجاوز سقف التكلفة");
+    const vision = apiKey && visionGuard?.allowed ? await analyzeVision(apiKey, baseUrl, frames, duration) : null;
+    if (visionGuard?.allowed) {
+      if (vision) recordSpend(visionGuard.estimateUsd);
+      else releaseReservation();
+    }
     const scenes: SceneInfo[] = vision?.scenes || [];
     const highlights: HighlightInfo[] = vision?.highlights || [];
     const quality: QualityInfo =
@@ -593,7 +631,9 @@ export async function POST(req: NextRequest) {
     // 6) قرار المديرة التنفيذية
     let plan: DirectorPlan | null = null;
     let mock = false;
-    if (apiKey) {
+    const chatGuard = apiKey ? guardCost("chat", { chars: transcript.length + 6000 }) : null;
+    if (chatGuard && !chatGuard.allowed) warnings.push(chatGuard.reason ?? "تجاوز سقف التكلفة");
+    if (apiKey && chatGuard?.allowed) {
       try {
         plan = await directorPlan(apiKey, baseUrl, {
           request,
@@ -608,8 +648,10 @@ export async function POST(req: NextRequest) {
           quality,
           contentDesc,
         });
+        recordSpend(chatGuard.estimateUsd);
       } catch {
         plan = null;
+        releaseReservation();
       }
     }
     if (!plan) {
@@ -626,12 +668,13 @@ export async function POST(req: NextRequest) {
       scenes,
       highlights,
       quality,
-      filePath,
+      sourceRef: uploadRef(id),
       mock,
+      transcriptSimulated,
+      warnings,
     };
     return NextResponse.json(response);
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "خطأ غير متوقع";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return routeError("agents.ceo", err);
   }
 }

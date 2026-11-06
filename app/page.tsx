@@ -1,3 +1,5 @@
+"use client";
+
 import dynamic from "next/dynamic";
 
 const Editor = dynamic(() => import("@/components/editor/Editor"), {
@@ -22,6 +24,12 @@ export default function HomePage() {
         className="fixed top-2 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-violet-600/90 hover:bg-violet-500 text-white text-xs font-medium shadow-lg backdrop-blur transition"
       >
         ✨ استوديو Shorts
+      </Link>
+      <Link
+        href="/extensions"
+        className="fixed top-2 left-[calc(50%+7.5rem)] z-50 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-bg-elev/90 hover:bg-bg-soft border border-line text-ink text-xs font-medium shadow-lg backdrop-blur transition"
+      >
+        🧩 الإضافات
       </Link>
       <Editor />
     </>

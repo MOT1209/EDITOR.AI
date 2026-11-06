@@ -146,6 +146,11 @@ export abstract class BaseSkill<I = MediaDocument, O = Record<string, unknown>>
       (ctx.config.apiBaseUrl as string | undefined) ??
       "";
     if (typeof fetch !== "function") return null;
+    // في Node لا يوجد أصل (origin) لعنوان نسبي — fetch سيفشل حتماً؛ لا نحاول.
+    if (!base && typeof window === "undefined") {
+      this.log("debug", `تخطّي ${path}: لا apiBaseUrl في بيئة الخادم`);
+      return null;
+    }
     try {
       const res = await fetch(`${base}${path}`, {
         method: "POST",
@@ -154,7 +159,13 @@ export abstract class BaseSkill<I = MediaDocument, O = Record<string, unknown>>
         signal: ctx.signal,
       });
       if (!res.ok) return null;
-      return (await res.json()) as T;
+      const data = (await res.json()) as T & { simulated?: boolean };
+      // المسار نفسه أعاد بيانات محاكاة (بلا مفتاح/ملف) — لا نعتبرها نتيجة حقيقية.
+      if (data && data.simulated === true) {
+        this.log("warn", `${path} أعاد بيانات محاكاة — تُعامل كغير متاحة`);
+        return null;
+      }
+      return data;
     } catch {
       return null;
     }

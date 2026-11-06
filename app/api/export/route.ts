@@ -1,73 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
-import path from "path";
-import { aiJobs } from "@/lib/mockAi";
-import type { ProjectState } from "@/lib/types";
-import {
-  EXPORT_DIR,
-  UPLOAD_DIR,
-  ensureExportDir,
-  hasFfmpeg,
-  isPathInside,
-  runExport,
-  writeJobStatus,
-} from "@/lib/server/ffmpeg-export";
+import { parseJsonBody } from "@/lib/server/request";
+import { exportBody, EXPORT_MAX_JSON_BYTES } from "@/lib/server/schemas";
+import { cancelExport } from "@/lib/server/export-jobs";
+import { withRoute } from "@/lib/server/with-route";
+import { startExport } from "@/lib/server/export-start";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 export const dynamic = "force-dynamic";
 
-export async function POST(req: NextRequest) {
-  const body = await req.json().catch(() => null);
-  const sourcePath = body?.sourcePath;
-  const project = body?.project as ProjectState | undefined;
-  const videoStabilize = Boolean(body?.videoStabilize);
-  const colorGrading =
-    typeof body?.colorGrading === "number" ? body.colorGrading : 0.5;
-
-  if (typeof sourcePath !== "string" || !isPathInside(sourcePath, UPLOAD_DIR)) {
-    return NextResponse.json({ error: "مسار الفيديو غير صالح. ارفع الفيديو أولاً." }, { status: 400 });
+/** DELETE /api/export?id=<jobId> → إلغاء تصدير جارٍ (يقتل ffmpeg ويحذف المخرَج الجزئي). */
+async function handleDELETE(req: NextRequest) {
+  const id = req.nextUrl.searchParams.get("id") || "";
+  if (!/^job_\d+_\d+$/.test(id)) {
+    return NextResponse.json({ error: "معرّف مهمة غير صالح" }, { status: 400 });
   }
-  if (!project) {
-    return NextResponse.json({ error: "بيانات المشروع مطلوبة" }, { status: 400 });
+  const cancelled = cancelExport(id);
+  if (!cancelled) {
+    return NextResponse.json({ error: "لا توجد مهمة تصدير جارية بهذا المعرّف" }, { status: 404 });
   }
-  if (!hasFfmpeg()) {
-    return NextResponse.json(
-      { error: "ffmpeg غير مثبت على السيرفر. ثبّته ثم أعد المحاولة." },
-      { status: 503 }
-    );
-  }
-
-  await ensureExportDir();
-  const job = aiJobs.create("export", "تصدير الفيديو");
-  const outputPath = path.join(EXPORT_DIR, `${job.id}.${project.format}`);
-  await writeJobStatus({ id: job.id, status: "running", progress: 0 });
-
-  runExport({
-    sourcePath,
-    outputPath,
-    project,
-    videoStabilize,
-    colorGrading,
-    onProgress: (fraction) => {
-      const progress = Math.round(fraction * 100);
-      aiJobs.update(job.id, { progress });
-      void writeJobStatus({ id: job.id, status: "running", progress });
-    },
-  })
-    .then(async ({ size }) => {
-      aiJobs.complete(job.id, { path: outputPath, size, format: project.format });
-      await writeJobStatus({
-        id: job.id,
-        status: "completed",
-        progress: 100,
-        result: { path: outputPath, size, format: project.format },
-      });
-    })
-    .catch(async (err: unknown) => {
-      const message = err instanceof Error ? err.message : "فشل التصدير";
-      aiJobs.fail(job.id, message);
-      await writeJobStatus({ id: job.id, status: "failed", progress: 0, message });
-    });
-
-  return NextResponse.json({ ok: true, job });
+  return NextResponse.json({ ok: true, id });
 }
+
+async function handlePOST(req: NextRequest) {
+  const parsedBody = await parseJsonBody(req, exportBody, { maxBytes: EXPORT_MAX_JSON_BYTES });
+  if (!parsedBody.ok) return parsedBody.response;
+  const body = parsedBody.data;
+  return startExport(body);
+}
+
+export const POST = withRoute("export", handlePOST);
+export const DELETE = withRoute("export", handleDELETE);

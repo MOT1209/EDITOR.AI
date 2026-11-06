@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPexelsKey } from "@/lib/server/api-keys";
+import { routeError } from "@/lib/server/with-route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,7 +47,6 @@ export async function GET(req: NextRequest) {
     }));
     return NextResponse.json({ configured: true, photos });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "خطأ غير متوقع";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return routeError("assets.pexels", err);
   }
 }

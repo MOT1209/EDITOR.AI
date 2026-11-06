@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { parseJsonBody } from "@/lib/server/request";
+import { thumbnailBody } from "@/lib/server/schemas";
+import { withRoute } from "@/lib/server/with-route";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -67,8 +70,10 @@ function escape(s: string) {
     .replace(/'/g, "&apos;");
 }
 
-export async function POST(req: NextRequest) {
-  const { title = "فيديو رائع", aspect = "16:9" } = await req.json();
+async function handlePOST(req: NextRequest) {
+  const parsedBody = await parseJsonBody(req, thumbnailBody);
+  if (!parsedBody.ok) return parsedBody.response;
+  const { title, aspect } = parsedBody.data;
   const svg = buildSVG(title, aspect);
   return NextResponse.json({
     svg: `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`,
@@ -76,3 +81,5 @@ export async function POST(req: NextRequest) {
     aspect,
   });
 }
+
+export const POST = withRoute("thumbnail", handlePOST);

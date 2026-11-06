@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>تقرير EDITOR.AI الشامل — الفحص والمشاكل والتطوير</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2333; --border:#30363d;
+    --text:#e6edf3; --muted:#8b949e; --green:#3fb950; --yellow:#d29922;
+    --red:#f85149; --blue:#58a6ff; --purple:#bc8cff; --cyan:#39c5cf;
+  }
+  *{box-sizing:border-box; margin:0; padding:0}
+  body{background:var(--bg); color:var(--text); font-family:'Segoe UI',Tahoma,sans-serif; line-height:1.7; padding:2rem 1rem}
+  .wrap{max-width:960px; margin:auto}
+  header{text-align:center; padding:2.5rem 1rem; border:1px solid var(--border); border-radius:16px; background:linear-gradient(135deg,#161b22,#1c2333); margin-bottom:2rem}
+  header h1{font-size:1.9rem; background:linear-gradient(90deg,var(--blue),var(--purple)); -webkit-background-clip:text; -webkit-text-fill-color:transparent}
+  header .sub{color:var(--muted); margin-top:.5rem}
+  .badges{display:flex; gap:.6rem; justify-content:center; flex-wrap:wrap; margin-top:1.2rem}
+  .badge{padding:.35rem .9rem; border-radius:999px; font-size:.8rem; border:1px solid var(--border)}
+  .b-green{color:var(--green); border-color:var(--green)}
+  .b-yellow{color:var(--yellow); border-color:var(--yellow)}
+  .b-red{color:var(--red); border-color:var(--red)}
+  .b-blue{color:var(--blue); border-color:var(--blue)}
+  section{background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:1.6rem; margin-bottom:1.6rem}
+  h2{font-size:1.3rem; margin-bottom:1rem; display:flex; align-items:center; gap:.6rem}
+  h2 .num{background:var(--panel2); border:1px solid var(--border); width:34px; height:34px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:.95rem; color:var(--blue)}
+  h3{font-size:1rem; color:var(--blue); margin:1.2rem 0 .6rem}
+  table{width:100%; border-collapse:collapse; font-size:.88rem; margin:.6rem 0}
+  th,td{text-align:right; padding:.5rem .7rem; border-bottom:1px solid var(--border); vertical-align:top}
+  th{color:var(--muted); font-weight:600; background:var(--panel2)}
+  .ok{color:var(--green); font-weight:700}
+  .warn{color:var(--yellow); font-weight:700}
+  .err{color:var(--red); font-weight:700}
+  code{background:var(--panel2); border:1px solid var(--border); padding:.1rem .4rem; border-radius:6px; font-size:.82rem; direction:ltr; display:inline-block}
+  ul,ol{padding-right:1.3rem; margin:.4rem 0}
+  li{margin:.3rem 0}
+  .card{background:var(--panel2); border:1px solid var(--border); border-radius:10px; padding:1rem; margin:.7rem 0}
+  .stat-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:.8rem; margin:1rem 0}
+  .stat{background:var(--panel2); border:1px solid var(--border); border-radius:10px; padding:1rem; text-align:center}
+  .stat .v{font-size:1.6rem; font-weight:800}
+  .stat .l{color:var(--muted); font-size:.78rem}
+  .tag{display:inline-block; font-size:.7rem; padding:.1rem .5rem; border-radius:6px; margin-left:.4rem}
+  .tag-p{background:#1f3a24; color:var(--green)}
+  .tag-m{background:#3a311f; color:var(--yellow)}
+  .tag-h{background:#3a1f24; color:var(--red)}
+  footer{text-align:center; color:var(--muted); font-size:.8rem; padding:2rem 0 1rem}
+  .progress{height:8px; background:var(--panel2); border-radius:4px; overflow:hidden; margin:.4rem 0}
+  .progress>div{height:100%; border-radius:4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>🎬 تقرير EDITOR.AI الشامل</h1>
+  <div class="sub">فحص شامل للأخطاء + رصد المشاكل + اقتراحات التطوير — نظام المونتاج متعدد الوكلاء (Next.js 14 + Python)</div>
+  <div class="badges">
+    <span class="badge b-green">الأخطاء: 0 حرجة</span>
+    <span class="badge b-yellow">المشاكل: 8 معروفة</span>
+    <span class="badge b-blue">الاقتراحات: 10</span>
+    <span class="badge">التاريخ: 2025</span>
+  </div>
+</header>
+
+<!-- ═══════════ 1. فحص الأخطاء ═══════════ -->
+<section>
+  <h2><span class="num">١</span> فحص شامل للأخطاء (Error Audit)</h2>
+  <p style="color:var(--muted)">12 فحصاً آلياً وحياً — كلها خضراء، لا أخطاء حرجة. التفاصيل:</p>
+
+  <div class="stat-grid">
+    <div class="stat"><div class="v ok">12/12</div><div class="l">فحوصات ناجحة</div></div>
+    <div class="stat"><div class="v ok">0</div><div class="l">أخطاء حرجة</div></div>
+    <div class="stat"><div class="v">2,185</div><div class="l">سطر Python</div></div>
+    <div class="stat"><div class="v">14</div><div class="l">ملفات مرفوعة</div></div>
+    <div class="stat"><div class="v ok">0</div><div class="l">أسرار متتبعة</div></div>
+  </div>
+
+  <table>
+    <tr><th>#</th><th>الفحص</th><th>الأمر</th><th>النتيجة</th></tr>
+    <tr><td>1</td><td>صحة نحو Python</td><td><code>py_compile src/agents/*.py</code></td><td class="ok">✓ 9 ملفات سليمة</td></tr>
+    <tr><td>2</td><td>استيراد شامل بلا crewai</td><td><code>import src.main, src.agents…</code></td><td class="ok">✓ تدهور أنيق يعمل</td></tr>
+    <tr><td>3</td><td>TypeScript (Next.js)</td><td><code>npx tsc --noEmit</code></td><td class="ok">✓ exit=0 — لا أخطاء</td></tr>
+    <tr><td>4</td><td>حالة git</td><td><code>git status --short</code></td><td class="ok">✓ نظيف</td></tr>
+    <tr><td>5</td><td>المسار الكامل (demo)</td><td><code>python -m src.main --demo</code></td><td class="ok">✓ completed 13.8s — 5 مقاطع، 3 ترجمات</td></tr>
+    <tr><td>6</td><td>المسار الهرمي (LLM حي)</td><td>CrewAI + Groq</td><td class="ok">✓ خطة LLM «فيديو حماسي» + تدهور تلقائي</td></tr>
+    <tr><td>7</td><td>كشف الصمت الفعلي</td><td><code>silencedetect</code></td><td class="ok">✓ 5→10 و 15→20 مطابق لـ Next.js</td></tr>
+    <tr><td>8</td><td>التحقق من البوابات</td><td>validation.py</td><td class="ok">✓ analyst/director/render — 0 أخطاء</td></tr>
+    <tr><td>9</td><td>.env.local غير متتبع</td><td><code>git ls-files | grep env.local</code></td><td class="ok">✓ 0 ملفات</td></tr>
+    <tr><td>10</td><td>تغطية .gitignore</td><td>grep .gitignore</td><td class="ok">✓ .venv/.montage_ai/__pycache__/</td></tr>
+    <tr><td>11</td><td>الأسرار في الالتزامات</td><td><code>git diff --cached | grep gsk_/sk-…</code></td><td class="ok">✓ لا قيم مفاتيح</td></tr>
+    <tr><td>12</td><td>GitHub API (شجرة الملفات)</td><td>curl api.github.com</td><td class="ok">✓ 122 ملفاً — لا ملفات حساسة</td></tr>
+  </table>
+</section>
+
+<!-- ═══════════ 2. المشاكل ═══════════ -->
+<section>
+  <h2><span class="num">٢</span> رصد المشاكل (Known Problems)</h2>
+  <p style="color:var(--muted)">8 مشاكل معروفة — مرتبة بالأثر. كلها موثقة في الكود أو هنا مع حلول مقترحة.</p>
+
+  <div class="card">
+    <h3 style="margin-top:0"><span class="tag tag-p">P1</span> تجاويف Whisper/المتحدثون/الوجوه في analyst_agent</h3>
+    <p><code>transcribe_word_level</code> و <code>identify_speakers</code> و <code>track_faces</code> ترفع <code>NotImplementedError</code> — تُلتقط كتحذيرات داخل التقرير (تصميم مقصود للتدهور الأنيق).<br>
+    <b>الأثر:</b> لا ترجمات كلمة-بكلمة حقيقية من الصوت (الديمو يحقن كلمات مصنّعة)، ولا تمييز متحدثين، ولا تتبع وجه لتغذية crop تلقائي.</p>
+    <div class="progress"><div style="width:40%; background:var(--yellow)"></div></div>
+    <p style="font-size:.8rem; color:var(--muted)">الحل: مفتاح Groq موجود ويشمل whisper-large-v3-turbo — الربط جاهز للتطبيق في ممر قادم.</p>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0"><span class="tag tag-p">P1</span> الرندر الفعلي معلّق في render_agent</h3>
+    <p>الممر يبني <b>أمر ffmpeg كاملاً</b> (trim/zoompan/ASS/loudnorm/faststart) ويحفظه في render.json لكنه لا يشغّله — <code>NotImplementedError</code> مقصود.<br>
+    <b>الأثر:</b> المسار ينتهي بخطة + أمر جاهز بلا ملف فيديو نهائي.</p>
+    <div class="progress"><div style="width:35%; background:var(--yellow)"></div></div>
+    <p style="font-size:.8rem; color:var(--muted)">الحل: تنفيذ subprocess.run على build_command + متوازي للمقاطع.</p>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0"><span class="tag tag-p">P2</span> حد TPM المجاني في Groq (12k/دقيقة)</h3>
+    <p><code>Process.hierarchical</code> يستهلك ~6k رمزاً لكل استدعاء (قوالب المديرة + أدوات التفويض) → استدعاءات متعددة تتجاوز الحد.<br>
+    <b>الحل المطبَّق:</b> تدهور تلقائي هرمي → sequential → قواعد محلية (<code>CREWAI_PROCESS</code> للتحكم). الهرمية الكاملة تعمل فقط مع ترقية Dev Tier أو مزوّد آخر.</p>
+    <div class="progress"><div style="width:50%; background:var(--yellow)"></div></div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0"><span class="tag tag-m">P3</span> CrewAI لا يدعم Python 3.14</h3>
+    <p>بيئة الجهاز الافتراضية 3.14.4 — CrewAI يتطلب ≤3.13. الحل المطبَّق: <code>.venv</code> مستقل بـ Python 3.10.11.<br>
+    <b>خطر:</b> أي تشغيل بالثعبان الافتراضي يتجاهل CrewAI صامتاً (تدهور أنيق — لكن بلا LLM).</p>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0"><span class="tag tag-m">P3</span> الترميز cp1256 على Windows</h3>
+    <p>الافتراضي في Git Bash/Windows يحوّل العربية في stdout إلى رموز مكسورة. <b>الحل المطبَّق:</b> <code>python -X utf8</code> + <code>PYTHONIOENCODING=utf-8</code> + reconfigure في utils.py. الممارسة موثقة في README.</p>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0"><span class="tag tag-m">P3</span> لا GPU → NVENC غير متاح</h3>
+    <p>الجهاز بلا تسريع GPU؛ كشف NVENC الحقيقي يرجع false → libx264 (بطيء للفيديوهات الطويلة). التصميم سليم (رجوع تلقائي) لكن الإنتاج الفعلي يحتاج GPU أو سيرفر رندر.</p>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0"><span class="tag tag-m">P3</span> لا اختبارات آلية لوحدة Python</h3>
+    <p>لا pytest حالياً — التحقق يدوي/حي. البوابات والمخطط دوال نقية مثالية للاختبار السريع.</p>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0"><span class="tag tag-h">P4</span> ESLint بطيء/يتعطل على هذا الجهاز</h3>
+    <p>npm على OneDrive بطيء جداً (موثق سابقاً) — <code>next lint</code> علّق >300s. tsc نظيف يغطي أغلب القيمة، لكن فحص الـ lint اليدوي غير متاح بسهولة محلياً.</p>
+  </div>
+</section>
+
+<!-- ═══════════ 3. الاقتراحات ═══════════ -->
+<section>
+  <h2><span class="num">٣</span> اقتراحات التطوير (Roadmap)</h2>
+  <p style="color:var(--muted)">10 اقتراحات مرتبة بالأولوية — كل اقتراح: المشكلة + الحل + التقدير.</p>
+
+  <table>
+    <tr><th>#</th><th>الاقتراح</th><th>القيمة</th><th>الجهد</th><th>الأولوية</th></tr>
+    <tr>
+      <td>1</td>
+      <td><b>استكمال Whisper كلمة-بكلمة</b> — ربط <code>analyst_agent.transcribe_word_level</code> بمفتاح Groq (whisper-large-v3-turbo موجود) أو faster-whisper محلي</td>
+      <td>ترجمات حقيقية متحركة بدل المصنّعة</td>
+      <td>نصف يوم</td>
+      <td><span class="tag tag-p">عالية</span></td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td><b>الرندر الفعلي</b> — تنفيذ <code>build_command</code> عبر subprocess + دمج مقاطع concat + رفع render.json للمدير للمراجعة</td>
+      <td>ملف فيديو نهائي كامل</td>
+      <td>نصف يوم</td>
+      <td><span class="tag tag-p">عالية</span></td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td><b>ربط المسار بـ Next.js</b> — <code>app/api/agents/pipeline/route.ts</code> يستدعي Python subprocess أو FastAPI جانبي؛ UI يعرض الخطة قبل التصدير (سؤال المستخدم المعلّق)</td>
+      <td>تشغيل من الواجهة</td>
+      <td>يوم</td>
+      <td><span class="tag tag-p">عالية</span></td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td><b>تتبع الوجوه (MediaPipe/OpenCV)</b> — تغذية crop.center_x/center_y تلقائياً من مواقع الوجوه المكتشفة</td>
+      <td>قص 9:16 ذكي يتبع المتحدث</td>
+      <td>يوم</td>
+      <td><span class="tag tag-m">متوسطة</span></td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td><b>تمييز المتحدثين (pyannote)</b> — Segments متكلمة تدفع خيارات الترجمة (أسماء/ألوان لكل متحدث)</td>
+      <td>عرض احترافي</td>
+      <td>يوم</td>
+      <td><span class="tag tag-m">متوسطة</span></td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td><b>اختبارات pytest</b> — البوابات الثلاث + normalize_plan (20+ حالة) + extract_json؛ تشغيل في CI</td>
+      <td>منع الانتكاسات (كخطأ المثال الـ19)</td>
+      <td>3 ساعات</td>
+      <td><span class="tag tag-m">متوسطة</span></td>
+    </tr>
+    <tr>
+      <td>7</td>
+      <td><b>ترقية المزود للهرمية الكاملة</b> — Groq Dev Tier أو OPENCODE_BASE_URL لـ OpenAI/Gemini → تفعيل Process.hierarchical بلا تدهور</td>
+      <td>إشراف مديرة حقيقي لكل خطة</td>
+      <td>إعداد فقط</td>
+      <td><span class="tag tag-m">متوسطة</span></td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td><b>معالجة متوازية</b> — ترندير مقاطع KEEP بالتوازي (ThreadPool) ثم concat؛ وكاش لفحص NVENC/probe (مخزّن جزئياً)</td>
+      <td>تسريع 2–4x</td>
+      <td>نصف يوم</td>
+      <td><span class="tag tag-h">لاحقاً</span></td>
+    </tr>
+    <tr>
+      <td>9</td>
+      <td><b>لوحة تشخيص HTML</b> — عرض أدلة <code>.montage_ai/pipeline/</code> (analyst/director/render/manifest) كصفحة ملخص بمقاطع ملونة</td>
+      <td>تصحيح أسرع</td>
+      <td>ساعتان</td>
+      <td><span class="tag tag-h">لاحقاً</span></td>
+    </tr>
+    <tr>
+      <td>10</td>
+      <td><b>GitHub Actions CI</b> — py_compile + pytest + tsc على كل push؛ حارس أسرار (gitleaks) يمنع رفع المفاتيح</td>
+      <td>جودة مستمرة</td>
+      <td>ساعتان</td>
+      <td><span class="tag tag-h">لاحقاً</span></td>
+    </tr>
+  </table>
+
+  <h3>توصية المسار</h3>
+  <div class="card" style="background:#12210f; border-color:#2d5a2d">
+    <p style="color:var(--green)"><b>الخلاصة:</b> الأساس متين — مخطط موحّد ثنائي اللغة (Pydantic↔TypeScript)، بوابات جودة مستقلة عن CrewAI، وتدهور أنيق لا يكسر شيئاً. الأولوية المالية القصوى: <b>(1) Whisper → (2) الرندر الفعلي → (3) ربط الواجهة</b> — هذه الثلاثة تحوّل المسار من «مخطط ذكي» إلى «منتج نهائي كامل».</p>
+  </div>
+</section>
+
+<footer>
+  أُنشئ بواسطة فحص آلي حي — 12 فحصاً، 0 أخطاء حرجة · الالتزام المرجعي <code>54cf36b</code> · الاقتراحات الكاملة في <code>plan.md</code>
+</footer>
+
+</div>
+</body>
+</html>

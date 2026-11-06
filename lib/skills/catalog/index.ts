@@ -42,6 +42,10 @@ import { TransitionEffectSkill } from "./TransitionEffectSkill";
 import { SpeedRampSkill } from "./SpeedRampSkill";
 import { TextOverlaySkill } from "./TextOverlaySkill";
 import { MusicDuckingSkill } from "./MusicDuckingSkill";
+import { ScriptWriterSkill } from "./ScriptWriterSkill";
+import { StoryboardGeneratorSkill } from "./StoryboardGeneratorSkill";
+import { UpscaleSkill } from "./UpscaleSkill";
+import { QualityControlSkill } from "./QualityControlSkill";
 
 /** كل أصناف الـ Skills المتوفّرة. */
 export const SKILL_CLASSES = [
@@ -85,6 +89,10 @@ export const SKILL_CLASSES = [
   SpeedRampSkill,
   TextOverlaySkill,
   MusicDuckingSkill,
+  ScriptWriterSkill,
+  StoryboardGeneratorSkill,
+  UpscaleSkill,
+  QualityControlSkill,
 ] as const;
 
 /** إنشاء نسخة جديدة من كل Skill (حالة/سجلات مستقلة لكل مدير). */
@@ -133,4 +141,8 @@ export {
   SpeedRampSkill,
   TextOverlaySkill,
   MusicDuckingSkill,
+  ScriptWriterSkill,
+  StoryboardGeneratorSkill,
+  UpscaleSkill,
+  QualityControlSkill,
 };

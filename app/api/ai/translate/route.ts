@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { parseJsonBody } from "@/lib/server/request";
+import { translateBody } from "@/lib/server/schemas";
 import { getOpencodeKey, getHfToken, getOpencodeBaseUrl, getChatModel } from "@/lib/server/api-keys";
+import { guardCost, recordSpend } from "@/lib/server/cost-guard";
+import { routeError } from "@/lib/server/with-route";
 
 
 export const runtime = "nodejs";
@@ -10,7 +14,9 @@ export async function POST(req: NextRequest) {
     const OPENCODE_BASE_URL = getOpencodeBaseUrl();
     const OPENCODE_API_KEY = getOpencodeKey(req);
     const HF_TOKEN = getHfToken(req);
-    const { texts, targetLang, sourceLang = "ar" } = await req.json();
+    const reqBody = await parseJsonBody(req, translateBody);
+    if (!reqBody.ok) return reqBody.response;
+    const { texts, targetLang, sourceLang = "ar" } = reqBody.data;
     if (!Array.isArray(texts) || texts.length === 0) {
       return NextResponse.json({ translated: [] });
     }
@@ -19,6 +25,11 @@ export async function POST(req: NextRequest) {
     const useOpenAI = !!OPENCODE_API_KEY;
 
     if (useOpenAI) {
+      const joined = JSON.stringify(texts);
+      const guard = guardCost("chat", { chars: joined.length * 2 + 200 });
+      if (!guard.allowed) {
+        return NextResponse.json({ error: guard.reason, budget: guard }, { status: 402 });
+      }
       const res = await fetch(`${OPENCODE_BASE_URL}/chat/completions`, {
         method: "POST",
         headers: {
@@ -44,6 +55,7 @@ export async function POST(req: NextRequest) {
       });
 
       if (res.ok) {
+        recordSpend(guard.estimateUsd);
         const data = await res.json();
         const content = data.choices?.[0]?.message?.content || "{}";
         const parsed = JSON.parse(content);
@@ -95,7 +107,6 @@ export async function POST(req: NextRequest) {
       translated: texts.map((_: string, i: number) => list[i % list.length]),
     });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "خطأ غير متوقع";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return routeError("ai.translate", err);
   }
 }

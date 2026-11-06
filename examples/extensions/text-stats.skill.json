@@ -1,0 +1,28 @@
+{
+  "format": "montage-extension",
+  "formatVersion": 1,
+  "kind": "skill",
+  "manifest": {
+    "kind": "skill",
+    "id": "script_stats",
+    "version": "1.0.0",
+    "name": "إحصاءات السكربت",
+    "description": "عدد كلمات النص ومدة النطق التقديرية (حساب محلي حتمي).",
+    "category": "text",
+    "tags": ["نص", "سكربت"],
+    "author": "owner",
+    "permissions": [],
+    "dependencies": { "native": ["text_stats"] },
+    "config": {
+      "schema": { "type": "object", "properties": { "wordsPerMinute": { "type": "integer", "minimum": 60, "maximum": 300 } } },
+      "defaults": { "wordsPerMinute": 150 }
+    },
+    "input": { "type": "object", "properties": { "text": { "type": "string", "maxLength": 20000 } }, "required": ["text"] },
+    "output": {
+      "type": "object",
+      "properties": { "words": { "type": "integer" }, "characters": { "type": "integer" }, "estimatedSpeechSeconds": { "type": "number" } }
+    },
+    "execution": { "type": "native", "entry": "text_stats" }
+  },
+  "files": {}
+}

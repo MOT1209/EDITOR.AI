@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { parseJsonBody } from "@/lib/server/request";
+import { reframeBody } from "@/lib/server/schemas";
+import { guardCost, recordSpend } from "@/lib/server/cost-guard";
+import { routeError } from "@/lib/server/with-route";
 import { getVisionModel,
   getOpencodeKey, getOpencodeBaseUrl } from "@/lib/server/api-keys";
-import { createMockRandom } from "@/lib/server/mock-random";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -10,11 +13,16 @@ export async function POST(req: NextRequest) {
   try {
     const OPENCODE_BASE_URL = getOpencodeBaseUrl();
     const OPENCODE_API_KEY = getOpencodeKey(req);
-    const { duration = 30, frames = [], targetAspect = "9:16" } = await req.json();
+    const reqBody = await parseJsonBody(req, reframeBody);
+    if (!reqBody.ok) return reqBody.response;
+    const { duration = 30, frames = [], targetAspect = "9:16" } = reqBody.data;
     const reframePoints: { time: number; x: number; y: number; zoom: number }[] = [];
     const isVertical = targetAspect === "9:16" || targetAspect === "4:5";
 
     if (frames.length > 0 && OPENCODE_API_KEY) {
+      const guard = guardCost("vision", { images: Math.min(2, frames.length), chars: 600 });
+      if (!guard.allowed) return NextResponse.json({ error: guard.reason, budget: guard }, { status: 402 });
+      recordSpend(guard.estimateUsd);
       try {
         const sampleFrames = frames.slice(0, Math.min(2, frames.length));
         for (let fi = 0; fi < sampleFrames.length; fi++) {
@@ -57,22 +65,18 @@ export async function POST(req: NextRequest) {
     }
 
     if (reframePoints.length === 0) {
-      // مولد محاكاة حتمي (بذرة ثابتة): نقاط إعادة الإطار تتكرر لنفس الطلب بدل تغيّرها بين الأجوبة.
-      const rand = createMockRandom(0x5EED0A);
-      const pointCount = Math.max(3, Math.floor(duration / 4));
-      for (let i = 0; i < pointCount; i++) {
-        reframePoints.push({
-          time: (i / pointCount) * duration,
-          x: 0.3 + rand() * 0.4,
-          y: 0.3 + rand() * 0.3,
-          zoom: isVertical ? 1.3 + rand() * 0.5 : 1.0 + rand() * 0.2,
-        });
-      }
+      // بلا تحليل: تأطير مركزي ثابت (افتراض صريح، لا تتبع موضوع).
+      return NextResponse.json({
+        reframePoints: [{ time: 0, x: 0.5, y: 0.42, zoom: isVertical ? 1.5 : 1.0 }],
+        duration,
+        targetAspect,
+        simulated: true,
+        warning: "تأطير مركزي افتراضي — لا تتبع للموضوع بلا مفتاح رؤية",
+      });
     }
 
     return NextResponse.json({ reframePoints, duration, targetAspect });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "خطأ";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return routeError("ai.reframe", err);
   }
 }

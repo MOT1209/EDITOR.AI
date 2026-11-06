@@ -57,3 +57,21 @@ export function createShortsWorkflow(): Workflow {
     ]
   );
 }
+
+/**
+ * مسار "إنشاء محتوى من فكرة" — يبدأ من موضوع نصّي وليس فيديو جاهز:
+ * فكرة → سكربت → لوحة مشاهد → عنوان/وصف/هاشتاغ جاهزة قبل التصوير أو التوليد.
+ */
+export function createContentFromIdeaWorkflow(): Workflow {
+  return new Workflow(
+    "content-from-idea",
+    "تحويل فكرة/موضوع نصّي إلى سكربت ولوحة مشاهد جاهزة للإنتاج",
+    [
+      { skill: "ScriptWriterSkill" },
+      { skill: "StoryboardGeneratorSkill" },
+      { skill: "TitleGenerationSkill", optional: true },
+      { skill: "DescriptionGenerationSkill", optional: true },
+      { skill: "HashtagGenerationSkill", optional: true },
+    ]
+  );
+}

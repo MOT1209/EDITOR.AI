@@ -1,4 +1,5 @@
 import { CaptionLine } from "./types";
+import { downloadBlob } from "@/lib/client/download";
 
 function fmtSrt(t: number): string {
   const ms = Math.floor((t % 1) * 1000);
@@ -63,11 +64,5 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
 }
 
 export function downloadText(filename: string, content: string) {
-  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadBlob(new Blob([content], { type: "text/plain;charset=utf-8" }), filename);
 }

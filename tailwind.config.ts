@@ -18,11 +18,11 @@ const config: Config = {
         ink: {
           DEFAULT: "#f5f5fa",
           soft: "#a0a0b5",
-          mute: "#6b6b80",
+          mute: "#8d8da6",
         },
         brand: {
           DEFAULT: "#7c3aed",
-          glow: "#a855f7",
+          glow: "#c084fc",
           accent: "#06b6d4",
         },
       },

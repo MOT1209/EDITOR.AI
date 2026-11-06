@@ -2,8 +2,12 @@ import { spawn, spawnSync } from "child_process";
 import { promises as fsp, existsSync, readdirSync } from "fs";
 import os from "os";
 import path from "path";
-import type { ProjectAspect, ProjectState, SubtitleCue, TextOverlay, VideoClip } from "@/lib/types";
-import { ASSETS_DIR } from "@/lib/server/assets";
+import type { ProjectState, VideoClip } from "@/lib/types";
+import { clipFraming, type Framing } from "@/lib/engine/framing";
+import { db } from "@/lib/server/db";
+import { jobsStore } from "@/lib/server/jobs-store";
+import { resolveImageRef } from "@/lib/server/media-ref";
+import { childEnv, hardenedSpawn } from "@/lib/engine/hardening";
 
 export const UPLOAD_DIR = path.join(process.cwd(), ".montage_ai", "uploads");
 export const EXPORT_DIR = path.join(process.cwd(), ".montage_ai", "exports");
@@ -18,26 +22,23 @@ export async function ensureExportDir() {
 
 export interface ExportJobStatus {
   id: string;
-  status: "running" | "completed" | "failed";
+  status: "running" | "completed" | "failed" | "cancelled";
   progress: number;
   message?: string;
+  /** مشاكل خطة الرندر المهيكلة (عند فشل التحقق) لعرضها بدقة في الواجهة. */
+  issues?: RenderIssue[];
   result?: { path: string; size: number; format: string };
 }
 
-// Export progress is tracked via a JSON file next to the output, not just the
-// in-memory aiJobs map: Next.js dev-mode recompiles route modules independently,
-// which can reset module-level state between the POST that starts a job and a
-// later GET/download request. A file survives across that, and would also
-// survive across separate serverless invocations in production.
+// حالة التصدير تُحفظ في SQLite (lib/server/jobs-store.ts) — مصدر واحد مع /api/jobs، تبقى بعد إعادة
+// التشغيل وتشاركها العمليات (وحدات Next المعاد تحميلها في التطوير أيضاً). بلا SQLite (تدهور) نعود لملف
+// JSON بجانب المخرَج كما كان. readJobStatus يقرأ ملف JSON القديم إن لم يجد السجل (ترحيل بلا فقد).
 function jobStatusPath(id: string): string {
   return path.join(EXPORT_DIR, `${id}.json`);
 }
 
-// Progress updates fire frequently and asynchronously (ffmpeg's -progress
-// stream), and a later "completed"/"failed" write can race with an in-flight
-// progress write to the same file — two concurrent writeFile calls to one path
-// can interleave and corrupt the JSON. Serialize per-job writes and write via
-// a temp file + rename so a reader never observes a half-written file either.
+// تحديثات التقدّم متكررة وغير متزامنة؛ كتابة «completed/failed» لاحقة قد تتسابق معها. نسلسل الكتابات لكل
+// مهمة (ونكتب JSON بملف مؤقت ثم rename في وضع التدهور) فلا يرى القارئ حالة نصف مكتوبة أو أقدم.
 const writeChains = new Map<string, Promise<void>>();
 
 export async function writeJobStatus(status: ExportJobStatus): Promise<void> {
@@ -45,6 +46,15 @@ export async function writeJobStatus(status: ExportJobStatus): Promise<void> {
   const next = previous
     .catch(() => {})
     .then(async () => {
+      jobsStore.update(status.id, {
+        status: status.status,
+        progress: status.progress,
+        message: status.message,
+        result: status.result,
+        issues: status.issues,
+        ...(status.status === "running" ? {} : { finishedAt: Date.now() }),
+      });
+      if (db()) return;
       await ensureExportDir();
       const finalPath = jobStatusPath(status.id);
       const tmpPath = `${finalPath}.${process.pid}.tmp`;
@@ -52,10 +62,26 @@ export async function writeJobStatus(status: ExportJobStatus): Promise<void> {
       await fsp.rename(tmpPath, finalPath);
     });
   writeChains.set(status.id, next);
+  next.finally(() => {
+    if (writeChains.get(status.id) === next) writeChains.delete(status.id);
+  }).catch(() => {});
   return next;
 }
 
 export async function readJobStatus(id: string): Promise<ExportJobStatus | null> {
+  if (db()) {
+    const j = jobsStore.get(id);
+    if (j) {
+      return {
+        id: j.id,
+        status: j.status,
+        progress: j.progress,
+        ...(j.message ? { message: j.message } : {}),
+        ...(j.issues ? { issues: j.issues as RenderIssue[] } : {}),
+        ...(j.result ? { result: j.result as ExportJobStatus["result"] } : {}),
+      };
+    }
+  }
   try {
     const raw = await fsp.readFile(jobStatusPath(id), "utf-8");
     return JSON.parse(raw) as ExportJobStatus;
@@ -160,154 +186,26 @@ export function hasNvenc(): boolean {
   return nvencCached;
 }
 
-// ffmpeg's subtitles filter chokes on a Windows drive-letter colon in an
-// absolute path no matter how it's escaped/quoted (tested: backslash-escape
-// and single-quote-wrap both fail with "Unable to parse original_size"). The
-// reliable workaround is to run ffmpeg with cwd set to the file's directory
-// and reference it by bare filename, avoiding the colon entirely.
+export { buildAss } from "@/lib/engine/ass";
+export { resolveOutputSize } from "@/lib/engine/render-presets";
+import {
+  COLOR_FILTER_FFMPEG,
+  QUALITY_CRF,
+  FORMAT_CODEC,
+  buildEffectChain,
+  clampSpeed,
+  resolveOutputSize,
+} from "@/lib/engine/render-presets";
+import { buildAss } from "@/lib/engine/ass";
+import { buildRenderPlan, needsCompositor, type RenderIssue, type SourceMap } from "@/lib/engine/render-plan";
+import { compileRenderPlan } from "@/lib/engine/render-compile";
 
-function assTimestamp(seconds: number): string {
-  const cs = Math.max(0, Math.round(seconds * 100));
-  const h = Math.floor(cs / 360000);
-  const m = Math.floor((cs % 360000) / 6000);
-  const s = Math.floor((cs % 6000) / 100);
-  const csRem = cs % 100;
-  const pad = (n: number, len = 2) => String(n).padStart(len, "0");
-  return `${h}:${pad(m)}:${pad(s)}.${pad(csRem)}`;
-}
-
-// TextOverlay.color is a CSS "#RRGGBB" hex; ASS override tags use "&HBBGGRR&"
-// (reversed byte order, no leading #).
-function cssColorToAssBgr(hex: string): string {
-  const m = /^#?([0-9a-fA-F]{6})$/.exec(hex || "");
-  if (!m) return "FFFFFF";
-  const [r, g, b] = [m[1].slice(0, 2), m[1].slice(2, 4), m[1].slice(4, 6)];
-  return `${b}${g}${r}`.toUpperCase();
-}
-
-const ALIGN_CODE: Record<TextOverlay["position"], number> = { bottom: 2, center: 5, top: 8 };
-
-function assAnimationTag(animation: TextOverlay["animation"]): string {
-  if (animation === "fade") return "\\fad(300,300)";
-  if (animation === "pop") return "\\t(0,200,\\fscx115\\fscy115)\\t(200,400,\\fscx100\\fscy100)";
-  return "";
-}
-
-// Regular timed subtitles use a single plain default style (bottom-center) —
-// the same look the old plain-.srt rendering produced. Text overlays get an
-// inline override tag per line for position/font/size/color, so no per-item
-// named ASS style is needed.
-export function buildAss(
-  subtitles: SubtitleCue[],
-  textOverlays: TextOverlay[],
-  width: number,
-  height: number
-): string {
-  const header = [
-    "[Script Info]",
-    "ScriptType: v4.00+",
-    `PlayResX: ${width}`,
-    `PlayResY: ${height}`,
-    "",
-    "[V4+ Styles]",
-    "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-    "Style: Default,Arial,44,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,1,2,20,20,30,1",
-    "",
-    "[Events]",
-    "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
-  ].join("\n");
-
-  const subtitleLines = subtitles.map(
-    (c) => `Dialogue: 0,${assTimestamp(c.start)},${assTimestamp(c.end)},Default,,0,0,0,,${c.text.replace(/\n/g, "\\N")}`
-  );
-
-  const overlayLines = textOverlays.map((t) => {
-    const align = ALIGN_CODE[t.position] ?? 5;
-    const bgr = cssColorToAssBgr(t.color);
-    const tags = `{\\an${align}\\fs${t.fontSize}\\c&H${bgr}&${assAnimationTag(t.animation)}}`;
-    return `Dialogue: 1,${assTimestamp(t.start)},${assTimestamp(t.end)},Default,,0,0,0,,${tags}${t.text.replace(/\n/g, "\\N")}`;
-  });
-
-  return [header, ...subtitleLines, ...overlayLines].join("\n") + "\n";
-}
-
-const RESOLUTION_SIZES: Record<string, Record<ProjectAspect, [number, number]>> = {
-  "720p": { "16:9": [1280, 720], "9:16": [720, 1280], "1:1": [720, 720], "4:5": [720, 900] },
-  "1080p": { "16:9": [1920, 1080], "9:16": [1080, 1920], "1:1": [1080, 1080], "4:5": [1080, 1350] },
-  "4k": { "16:9": [3840, 2160], "9:16": [2160, 3840], "1:1": [2160, 2160], "4:5": [2160, 2700] },
-};
-
-export function resolveOutputSize(resolution: string, aspect: ProjectAspect): [number, number] {
-  return RESOLUTION_SIZES[resolution]?.[aspect] || RESOLUTION_SIZES["1080p"]["16:9"];
-}
-
-const QUALITY_CRF: Record<string, { crf: number; preset: string }> = {
-  draft: { crf: 32, preset: "veryfast" },
-  standard: { crf: 26, preset: "fast" },
-  high: { crf: 20, preset: "medium" },
-  ultra: { crf: 16, preset: "slow" },
-};
-
-// Rough approximations of the editor's CSS preview filters (components/editor/Editor.tsx
-// COLOR_FILTERS), expressed as ffmpeg filter chains. Not pixel-identical to the CSS
-// preview — good enough for a first real export, refine later if needed.
-const COLOR_FILTER_FFMPEG: Record<string, string> = {
-  none: "",
-  cinematic: "eq=contrast=1.1:saturation=1.15:brightness=-0.03",
-  warm: "eq=saturation=1.25:gamma_r=1.05:gamma_b=0.95",
-  cool: "eq=saturation=0.9:brightness=0.03,hue=h=12",
-  vhs: "eq=contrast=1.2:saturation=0.85,hue=h=5",
-  bw: "hue=s=0",
-  vivid: "eq=saturation=1.6:contrast=1.1",
-  dreamy: "eq=brightness=0.08:saturation=1.15,gblur=sigma=1.2",
-};
-
-// Maps EFFECTS_LIBRARY ids (lib/mockAi.ts) to real per-segment ffmpeg filter
-// chains, given the segment's duration (seconds) and output canvas size.
-// fade/zoom/color/glitch/shake are high-fidelity; light-leak is a stylized
-// brightness-pulse approximation (documented — still a real, dynamic, visible
-// effect, just not a literal light-leak texture since that needs a second
-// blended input source, which is future work).
-const EFFECT_FFMPEG: Record<string, (dur: number, w: number, h: number) => string | null> = {
-  fx_fade: (dur) =>
-    dur > 1
-      ? `fade=t=in:st=0:d=0.5,fade=t=out:st=${Math.max(0.5, dur - 0.5).toFixed(3)}:d=0.5`
-      : null,
-  fx_zoom_punch: (_dur, w, h) => `zoompan=z='min(1+0.0025*on,1.3)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${w}x${h}`,
-  fx_kenburns: (_dur, w, h) => `zoompan=z='min(1+0.0006*on,1.15)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${w}x${h}`,
-  fx_zoom_blur: (_dur, w, h) => `zoompan=z='min(1+0.0015*on,1.2)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${w}x${h},gblur=sigma=1.5`,
-  fx_shake: () => "crop=iw-24:ih-24:x='12+8*sin(2*PI*t*5)':y='12+6*cos(2*PI*t*7)'",
-  fx_glitch: () => "rgbashift=rh=6:bv=-6:edge=smear",
-  fx_light_leak: () => "eq=eval=frame:brightness='0.06*sin(2*PI*t*0.4)':saturation=1.1",
-  fx_warm: () => COLOR_FILTER_FFMPEG.warm,
-  fx_cinematic: () => COLOR_FILTER_FFMPEG.cinematic,
-  fx_vhs: () => COLOR_FILTER_FFMPEG.vhs,
-  fx_cool: () => COLOR_FILTER_FFMPEG.cool,
-  // fx_slide_l is handled structurally in buildFilterComplex (xfade between
-  // segments), not as a per-segment filter — it has no entry here.
-};
-
-function buildEffectChain(effectIds: string[], dur: number, w: number, h: number): string[] {
-  const chain: string[] = [];
-  for (const id of effectIds) {
-    const build = EFFECT_FFMPEG[id];
-    if (!build) continue;
-    const filter = build(dur, w, h);
-    if (filter) chain.push(filter);
-  }
-  return chain;
-}
-
-const FORMAT_CODEC: Record<string, { video: string; audio: string; extraArgs: string[] }> = {
-  mp4: { video: "libx264", audio: "aac", extraArgs: ["-pix_fmt", "yuv420p", "-movflags", "+faststart"] },
-  mov: { video: "libx264", audio: "aac", extraArgs: ["-pix_fmt", "yuv420p"] },
-  mkv: { video: "libx264", audio: "aac", extraArgs: ["-pix_fmt", "yuv420p"] },
-  webm: { video: "libvpx-vp9", audio: "libopus", extraArgs: [] },
-};
-
-// Speed changes beyond this range would need chained atempo filters; clamp for v1.
-function clampSpeed(speed: number): number {
-  return Math.min(2, Math.max(0.5, speed || 1));
+export interface AudioInput {
+  /** ملف صوت على الخادم (مسار مطلق مُتحقَّق منه مسبقاً). */
+  path: string;
+  /** بداية الصوت على التايملاين (ثوانٍ). */
+  start: number;
+  volume: number;
 }
 
 export interface ExportRequest {
@@ -315,13 +213,61 @@ export interface ExportRequest {
   outputPath: string;
   project: ProjectState;
   onProgress?: (fraction: number) => void;
+  /** يُستدعى بـ pid عملية ffmpeg فور إطلاقها (لتسجيلها في المهمة كي تُقتل إن ماتت عملية الخادم). */
+  onSpawn?: (pid: number) => void;
   /** تثبيت الفيديو (يُطبَّق فلتر deshake في التصدير). */
   videoStabilize?: boolean;
   /** قوة التصحيح اللوني 0..1 (يُطبق كفلتر eq). */
   colorGrading?: number;
+  /** إلغاء: يقتل ffmpeg ويحذف المخرَج الجزئي. */
+  signal?: AbortSignal;
+  /** مهلة قصوى بالميلي ثانية (افتراضي: 20× المدة + 5 دقائق، بحد أقصى ساعتين). */
+  timeoutMs?: number;
+  /** مسارات صوت إضافية (موسيقى/تعليق) تُمزج فوق صوت المقاطع. */
+  audioInputs?: AudioInput[];
+  /** نافذة من التايملاين (للمعاينة): يُرندر [start, end) فقط. */
+  range?: { start: number; end: number };
+  /** أبعاد مخصّصة (للمعاينة منخفضة الدقة) بدل resolution×aspect. */
+  size?: [number, number];
+  /** preset/crf مخصّص (المعاينة تستخدم ultrafast). */
+  encoderOverride?: { preset: string; crf: number };
+  /** هل للمصدر مسار صوت؟ (افتراضي true — عند false يُولَّد صمت). */
+  sourceHasAudio?: boolean;
+  /** مصادر فيديو إضافية (T-02، المسار القديم): مقاطع assetId المطابق تُقصّ منها بدل المصدر الأساسي. */
+  extraSources?: ExportSource[];
+  /**
+   * مصادر متعددة (assetId → ملف) للمركِّب. عند وجودها واحتياج المشروع للمركِّب (مسارات/مصادر
+   * متعددة أو خصائص طبقات) يُستخدم render-plan/render-compile بدل المسار القديم.
+   */
+  sources?: SourceMap;
+  /** فرض المركِّب حتى لمشروع بسيط (للاختبار). */
+  forceCompositor?: boolean;
+  /** اعتبار الصوت المفقود تحذيراً لا خطأ (إقرار المستخدم). */
+  allowMissingAudio?: boolean;
+}
+
+/** مصدر فيديو إضافي يُضاف كمدخل `-i` ويُربط بمقاطع assetId. */
+export interface ExportSource {
+  assetId: string;
+  path: string;
+  hasAudio: boolean;
+}
+
+/** خطة رندر غير صالحة: تحمل المشاكل المهيكلة لتُعرض للمستخدم. */
+export class RenderPlanError extends Error {
+  constructor(public issues: RenderIssue[]) {
+    super(`خطة الرندر غير صالحة: ${issues.filter((i) => i.severity === "error").map((i) => i.message).join("؛ ")}`);
+    this.name = "RenderPlanError";
+  }
 }
 
 interface Segment {
+  /** معرّف الأصل الذي يُقصّ منه المقطع. */
+  assetId?: string;
+  /** فهرس مدخل ffmpeg (0 = المصدر الأساسي). يُعيَّن في buildExportPlan. */
+  sourceIndex?: number;
+  /** تأطير ذكي (T-15): تكبير ≥1 وإزاحة المركز كنسبة من الإطار (-0.5..0.5). يُطبَّق فقط إن smartZoom=true. */
+  framing?: Framing;
   inPoint: number;
   outPoint: number;
   speed: number;
@@ -335,7 +281,9 @@ export interface ImageOverlay {
   end: number;
 }
 
-function buildSegments(project: ProjectState): Segment[] {
+export { clipFraming };
+
+export function buildSegments(project: ProjectState): Segment[] {
   const videoTrackIds = new Set(project.tracks.filter((t) => t.kind === "video").map((t) => t.id));
   const clips = project.clips
     .filter((c) => c.kind !== "image")
@@ -352,8 +300,10 @@ function buildSegments(project: ProjectState): Segment[] {
   }
 
   return clips.map((c: VideoClip) => ({
+    assetId: c.assetId,
+    framing: clipFraming(c),
     inPoint: Math.max(0, c.inPoint),
-    outPoint: c.outPoint > c.inPoint ? c.outPoint : c.inPoint + c.duration,
+    outPoint: c.outPoint > c.inPoint ? c.outPoint : c.inPoint + c.duration * (c.speed || 1),
     speed: clampSpeed(c.speed),
     volume: typeof c.volume === "number" ? c.volume : 1,
     colorFilter: c.colorFilter,
@@ -365,44 +315,107 @@ function buildSegments(project: ProjectState): Segment[] {
 // than replacing the base timeline — the natural "B-roll cutaway" behavior.
 export function buildImageOverlays(project: ProjectState): ImageOverlay[] {
   return project.clips
-    .filter((c): c is VideoClip & { imageUrl: string } => c.kind === "image" && !!c.imageUrl && isPathInside(c.imageUrl, ASSETS_DIR))
-    .map((c) => ({ path: c.imageUrl, start: c.start, end: c.start + c.duration }));
+    .map((c) => ({ c, p: c.kind === "image" && c.imageUrl ? resolveImageRef(c.imageUrl) : null }))
+    .filter((x): x is { c: VideoClip; p: string } => x.p !== null)
+    .map(({ c, p }) => ({ path: p, start: c.start, end: c.start + c.duration }));
+}
+
+const r3 = (n: number) => Math.round(n * 1000) / 1000;
+
+/**
+ * يقصّ خطة التصدير إلى نافذة [a, b) من التايملاين (للمعاينة): المقاطع تُقص
+ * بزمن المصدر (مع مراعاة السرعة)، والترجمات/النصوص/الصور تُزاح بمقدار -a.
+ */
+export function applyRange(
+  segments: Segment[],
+  range: { start: number; end: number }
+): Segment[] {
+  const out: Segment[] = [];
+  let t = 0;
+  for (const seg of segments) {
+    const len = (seg.outPoint - seg.inPoint) / seg.speed;
+    const a = Math.max(range.start, t);
+    const b = Math.min(range.end, t + len);
+    if (b - a > 0.01) {
+      out.push({
+        ...seg,
+        inPoint: r3(seg.inPoint + (a - t) * seg.speed),
+        outPoint: r3(seg.inPoint + (b - t) * seg.speed),
+      });
+    }
+    t += len;
+  }
+  return out;
+}
+
+function shiftTimed<T extends { start: number; end: number }>(items: T[], range?: { start: number; end: number }): T[] {
+  if (!range) return items;
+  return items
+    .filter((x) => x.end > range.start && x.start < range.end)
+    .map((x) => ({ ...x, start: r3(Math.max(0, x.start - range.start)), end: r3(Math.min(range.end, x.end) - range.start) }));
 }
 
 const SLIDE_TRANSITION_DURATION = 0.5;
 
-function buildFilterComplex(
-  segments: Segment[],
-  effects: string[],
-  imageOverlays: ImageOverlay[],
-  subtitlesFilename: string | null,
-  width: number,
-  height: number,
-  fps: number,
-  videoStabilize?: boolean,
-  gradingFilter?: string | null
-): { filterComplex: string; audioLabel: string } {
+interface FilterOptions {
+  segments: Segment[];
+  effects: string[];
+  imageOverlays: ImageOverlay[];
+  /** فهرس أول مدخل صوت إضافي (بعد المصدر والصور). */
+  audioInputs: AudioInput[];
+  audioInputOffset: number;
+  subtitlesFilename: string | null;
+  width: number;
+  height: number;
+  fps: number;
+  videoStabilize?: boolean;
+  gradingFilter?: string | null;
+  sourceHasAudio: boolean;
+  /** مصادر إضافية بعد الأساسي (مدخلات 1..k)، ثم صور، ثم صوت. */
+  extraSources: ExportSource[];
+}
+
+function buildFilterComplex(o: FilterOptions): { filterComplex: string; audioLabel: string } {
+  const { segments, effects, imageOverlays, subtitlesFilename, width, height, fps } = o;
   const parts: string[] = [];
   const durations = segments.map((s) => (s.outPoint - s.inPoint) / s.speed);
 
   segments.forEach((seg, i) => {
     const colorExpr = COLOR_FILTER_FFMPEG[seg.colorFilter || "none"] || "";
     const effectChain = buildEffectChain(effects, durations[i], width, height);
+    const fr = seg.framing;
+    // قصّ نافذة بحجم الإطار/zoom حول المركز المُزاح (مقيّدة داخل الإطار) قبل التوحيد إلى أبعاد الإخراج.
+    const framingCrop = fr
+      ? [`crop=w=iw/${fr.zoom}:h=ih/${fr.zoom}:x='min(max(iw/2+(${fr.panX})*iw-iw/${fr.zoom}/2,0),iw-iw/${fr.zoom})':y='min(max(ih/2+(${fr.panY})*ih-ih/${fr.zoom}/2,0),ih-ih/${fr.zoom})'`]
+      : [];
     const videoChain = [
       `trim=start=${seg.inPoint}:end=${seg.outPoint}`,
       "setpts=(PTS-STARTPTS)" + (seg.speed !== 1 ? `/${seg.speed}` : ""),
+      ...framingCrop,
+      // توحيد الأبعاد قبل الدمج: concat/xfade يفشلان مع مقاطع بأبعاد مختلفة (zoompan يغيّرها).
+      `scale=${width}:${height}:force_original_aspect_ratio=increase`,
+      `crop=${width}:${height}`,
+      "setsar=1",
+      ...(o.extraSources.length > 0 ? [`fps=${fps}`] : []),
       ...(colorExpr ? [colorExpr] : []),
       ...effectChain,
     ].join(",");
-    parts.push(`[0:v]${videoChain}[v${i}]`);
+    const srcIdx = seg.sourceIndex ?? 0;
+    parts.push(`[${srcIdx}:v]${videoChain}[v${i}]`);
 
-    const audioChain = [
-      `atrim=start=${seg.inPoint}:end=${seg.outPoint}`,
-      "asetpts=PTS-STARTPTS",
-      ...(seg.speed !== 1 ? [`atempo=${seg.speed}`] : []),
-      ...(seg.volume !== 1 ? [`volume=${seg.volume}`] : []),
-    ].join(",");
-    parts.push(`[0:a]${audioChain}[a${i}]`);
+    const srcHasAudio = srcIdx === 0 ? o.sourceHasAudio : (o.extraSources[srcIdx - 1]?.hasAudio ?? false);
+    if (srcHasAudio) {
+      const audioChain = [
+        `atrim=start=${seg.inPoint}:end=${seg.outPoint}`,
+        "asetpts=PTS-STARTPTS",
+        ...(seg.speed !== 1 ? [`atempo=${seg.speed}`] : []),
+        ...(seg.volume !== 1 ? [`volume=${seg.volume}`] : []),
+        "aformat=sample_rates=48000:channel_layouts=stereo",
+      ].join(",");
+      parts.push(`[${srcIdx}:a]${audioChain}[a${i}]`);
+    } else {
+      parts.push(`anullsrc=r=48000:cl=stereo,atrim=duration=${durations[i].toFixed(3)}[a${i}]`);
+    }
   });
 
   let videoLabel: string;
@@ -437,7 +450,7 @@ function buildFilterComplex(
   // Image overlays are extra -i inputs, indexed 1..N (0 is the main source).
   // Each is only visible during its own [start, end] window via `enable`.
   imageOverlays.forEach((ov, i) => {
-    const inputIndex = i + 1;
+    const inputIndex = i + 1 + o.extraSources.length;
     const scaledLabel = `imgsc${i}`;
     parts.push(
       `[${inputIndex}:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}[${scaledLabel}]`
@@ -454,12 +467,12 @@ function buildFilterComplex(
     `crop=${width}:${height}`,
     `fps=${fps}`,
   ];
-  if (videoStabilize) {
+  if (o.videoStabilize) {
     // deshake: تثبيت خفيف أحادي الممر (بديل عملي لـ vidstab الذي يتطلب ممرين).
     finalOps.push("deshake=rx=16:ry=16:edge=mirror");
   }
-  if (gradingFilter) {
-    finalOps.push(gradingFilter);
+  if (o.gradingFilter) {
+    finalOps.push(o.gradingFilter);
   }
   if (subtitlesFilename) {
     finalOps.push(`subtitles=${subtitlesFilename}`);
@@ -469,10 +482,24 @@ function buildFilterComplex(
   // ضبط الصوت التلقائي (تحسين نهائي): إزالة ضوضاء خفيفة (afftdn) ثم
   // تطبيع مستوى الصوت لمعيار السوشال ميديا (-16 LUFS) لضمان وضوح الكلام
   // فوق الموسيقى الخلفية.
-  if (audioLabel) {
-    const enhancedAudio = "aenh";
-    parts.push(`[${audioLabel}]afftdn=nr=12:nf=-35,loudnorm=I=-16:TP=-1.5:LRA=11[aenh]`);
-    audioLabel = enhancedAudio;
+  parts.push(`[${audioLabel}]afftdn=nr=12:nf=-35,loudnorm=I=-16:TP=-1.5:LRA=11[aenh]`);
+  audioLabel = "aenh";
+
+  // مزج الصوت الإضافي (موسيقى/تعليق): تأخير كل مدخل إلى بدايته على التايملاين.
+  if (o.audioInputs.length > 0) {
+    const mixLabels: string[] = [];
+    o.audioInputs.forEach((a, k) => {
+      const idx = o.audioInputOffset + k;
+      const chain: string[] = [];
+      if (a.start < 0) chain.push(`atrim=start=${(-a.start).toFixed(3)}`, "asetpts=PTS-STARTPTS");
+      const delayMs = Math.max(0, Math.round(a.start * 1000));
+      if (delayMs > 0) chain.push(`adelay=${delayMs}|${delayMs}`);
+      chain.push(`volume=${a.volume}`, "aformat=sample_rates=48000:channel_layouts=stereo");
+      parts.push(`[${idx}:a]${chain.join(",")}[mx${k}]`);
+      mixLabels.push(`[mx${k}]`);
+    });
+    parts.push(`[aenh]${mixLabels.join("")}amix=inputs=${mixLabels.length + 1}:duration=first:normalize=0[amix]`);
+    audioLabel = "amix";
   }
 
   return { filterComplex: parts.join(";"), audioLabel };
@@ -489,57 +516,109 @@ function colorGradingFilter(colorGrading: number): string | null {
   return `eq=brightness=${brightness}:saturation=${saturation}:contrast=${contrast}`;
 }
 
-export async function runExport(req: ExportRequest): Promise<{ size: number }> {
-  const { sourcePath, outputPath, project, onProgress, videoStabilize, colorGrading } = req;
-  await ensureExportDir();
+export interface ExportPlan {
+  args: string[];
+  /** محتوى ملف ASS (إن وُجدت ترجمات/نصوص) — يُكتب باسم assFilename بجوار cwd. */
+  ass: string | null;
+  assFilename: string | null;
+  totalDuration: number;
+  width: number;
+  height: number;
+  segmentCount: number;
+  useNvenc: boolean;
+  /** "legacy" = لصق تتابعي من مصدر واحد؛ "compositor" = طبقات متعددة المسارات/المصادر. */
+  engine?: "legacy" | "compositor";
+  /** مشاكل الخطة (تحذيرات) — الأخطاء ترمي RenderPlanError. */
+  issues?: RenderIssue[];
+}
 
-  const segments = buildSegments(project);
-  const imageOverlays = buildImageOverlays(project);
-  const [width, height] = resolveOutputSize(project.resolution, project.aspect);
-  const { crf, preset } = QUALITY_CRF[project.quality] || QUALITY_CRF.standard;
+function buildCompositorPlan(req: Omit<ExportRequest, "onProgress" | "signal">, allowNvenc: boolean): ExportPlan {
+  const { project, range } = req;
+  const plan = buildRenderPlan(project, req.sources!, { range, size: req.size, allowMissingAudio: req.allowMissingAudio });
+  if (!plan.ok) throw new RenderPlanError(plan.issues);
+  const codec = FORMAT_CODEC[project.format] || FORMAT_CODEC.mp4;
+  const useNvenc = allowNvenc && codec.video === "libx264" && !req.encoderOverride && hasNvenc();
+  const compiled = compileRenderPlan(plan, req.sources!, {
+    outputPath: req.outputPath,
+    format: project.format,
+    quality: project.quality,
+    encoderOverride: req.encoderOverride,
+    useNvenc,
+    videoStabilize: req.videoStabilize,
+    gradingFilter: colorGradingFilter(req.colorGrading ?? 0.5),
+  });
+  return { ...compiled, useNvenc, engine: "compositor", issues: plan.issues };
+}
+
+/**
+ * يبني وسائط ffmpeg كاملة من المشروع — دالة نقية (عدا كشف NVENC المخزَّن مؤقتاً)
+ * تُختبر دون تشغيل ffmpeg. كل القيم الرقمية تأتي من مشروع متحقَّق منه (project-schema).
+ */
+export function buildExportPlan(req: Omit<ExportRequest, "onProgress" | "signal">, opts: { allowNvenc?: boolean } = {}): ExportPlan {
+  const { sourcePath, outputPath, project, videoStabilize, colorGrading, range } = req;
+  if (req.sources && (req.forceCompositor || needsCompositor(project, req.sources))) {
+    return buildCompositorPlan(req, opts.allowNvenc ?? true);
+  }
+  let segments = buildSegments(project);
+  let imageOverlays = buildImageOverlays(project);
+  let subtitles = project.subtitles;
+  let textOverlays = project.textOverlays;
+  let audioInputs = (req.audioInputs ?? []).slice();
+  const extraSources = req.extraSources ?? [];
+  // ربط كل مقطع بمدخله حسب assetId (غير المطابق ⇒ المصدر الأساسي 0).
+  const indexByAsset = new Map(extraSources.map((s, k) => [s.assetId, k + 1] as const));
+  segments = segments.map((s) => ({ ...s, sourceIndex: (s.assetId && indexByAsset.get(s.assetId)) || 0 }));
+  if (range) {
+    segments = applyRange(segments, range);
+    imageOverlays = shiftTimed(imageOverlays, range);
+    subtitles = shiftTimed(subtitles, range);
+    textOverlays = shiftTimed(textOverlays, range);
+    audioInputs = audioInputs.map((a) => ({ ...a, start: r3(a.start - range.start) }));
+  }
+  if (segments.length === 0) {
+    throw new Error("نافذة المعاينة لا تتقاطع مع أي مقطع على التايملاين");
+  }
+  const [width, height] = req.size ?? resolveOutputSize(project.resolution, project.aspect);
+  const { crf, preset } = req.encoderOverride ?? QUALITY_CRF[project.quality] ?? QUALITY_CRF.standard;
   const codec = FORMAT_CODEC[project.format] || FORMAT_CODEC.mp4;
   // تسريع GPU إن توفر (h264 فقط — لا ينطبق على webm/vp9): أسرع حتى 3x مع جودة مماثلة.
-  const useNvenc =
-    codec.video === "libx264" && hasNvenc();
+  const useNvenc = (opts.allowNvenc ?? true) && codec.video === "libx264" && !req.encoderOverride && hasNvenc();
 
-  // Written to its own throwaway dir so we can set ffmpeg's cwd there and
-  // reference it by bare filename (see the comment above assTimestamp).
-  let assDir: string | null = null;
-  let assFilename: string | null = null;
-  if (project.subtitles.length > 0 || project.textOverlays.length > 0) {
-    assDir = await fsp.mkdtemp(path.join(os.tmpdir(), "montage_ai_ass_"));
-    assFilename = "subs.ass";
-    await fsp.writeFile(
-      path.join(assDir, assFilename),
-      buildAss(project.subtitles, project.textOverlays, width, height),
-      "utf-8"
-    );
-  }
+  const hasText = subtitles.length > 0 || textOverlays.length > 0;
+  const assFilename = hasText ? "subs.ass" : null;
+  const ass = hasText ? buildAss(subtitles, textOverlays, width, height) : null;
 
   const gradingFilter = colorGradingFilter(colorGrading ?? 0.5);
-  const { filterComplex, audioLabel } = buildFilterComplex(
+  const { filterComplex, audioLabel } = buildFilterComplex({
     segments,
-    project.effects,
+    effects: project.effects,
     imageOverlays,
-    assFilename,
+    audioInputs,
+    audioInputOffset: 1 + extraSources.length + imageOverlays.length,
+    subtitlesFilename: assFilename,
     width,
     height,
-    project.fps,
+    fps: project.fps,
     videoStabilize,
-    gradingFilter
-  );
+    gradingFilter,
+    sourceHasAudio: req.sourceHasAudio ?? true,
+    extraSources,
+  });
 
   const totalDuration = Math.max(
-    segments.reduce((sum, s) => sum + (s.outPoint - s.inPoint) / s.speed, 0),
+    segments.reduce((sum, s) => sum + (s.outPoint - s.inPoint) / s.speed, 0) -
+      (project.effects.includes("fx_slide_l") && segments.length > 1 ? SLIDE_TRANSITION_DURATION * (segments.length - 1) : 0),
     0.1
   );
 
   const args = [
     "-y",
     "-i", sourcePath,
+    ...extraSources.flatMap((s) => ["-i", s.path]),
     // -loop 1 turns a still image into an unbounded video source (otherwise it
     // supplies exactly one frame and the overlay vanishes after a frame).
     ...imageOverlays.flatMap((ov) => ["-loop", "1", "-i", ov.path]),
+    ...audioInputs.flatMap((a) => ["-i", a.path]),
     "-filter_complex", filterComplex,
     "-map", "[vout]",
     "-map", `[${audioLabel}]`,
@@ -555,7 +634,7 @@ export async function runExport(req: ExportRequest): Promise<{ size: number }> {
       : [
           "-c:v", codec.video,
           "-crf", String(codec.video === "libvpx-vp9" ? crf * 2 : crf),
-          ...(codec.video !== "libvpx-vp9" ? ["-preset", preset] : []),
+          ...(codec.video !== "libvpx-vp9" ? ["-preset", preset] : ["-b:v", "0"]),
         ]),
     "-c:a", codec.audio,
     "-b:a", "192k",
@@ -568,34 +647,88 @@ export async function runExport(req: ExportRequest): Promise<{ size: number }> {
     outputPath,
   ];
 
-  await new Promise<void>((resolve, reject) => {
-    const proc = spawn(resolveFfmpegPath(), args, {
-      windowsHide: true,
-      cwd: assDir || undefined,
-    });
-    let stderrTail = "";
+  return { args, ass, assFilename, totalDuration, width, height, segmentCount: segments.length, useNvenc, engine: "legacy", issues: [] };
+}
 
-    proc.stdout?.on("data", (chunk: Buffer) => {
-      const text = chunk.toString("utf-8");
-      const match = text.match(/out_time_ms=(\d+)/);
-      if (match && onProgress) {
-        const outSeconds = Number(match[1]) / 1_000_000;
-        onProgress(Math.min(0.99, outSeconds / totalDuration));
-      }
+export class ExportCancelledError extends Error {
+  constructor() {
+    super("أُلغي التصدير");
+    this.name = "ExportCancelledError";
+  }
+}
+
+export async function runExport(req: ExportRequest): Promise<{ size: number; durationSeconds: number; width: number; height: number }> {
+  const { outputPath, onProgress, onSpawn, signal } = req;
+  await fsp.mkdir(path.dirname(outputPath), { recursive: true });
+  if (signal?.aborted) throw new ExportCancelledError();
+
+  const plan = buildExportPlan(req);
+  const timeoutMs =
+    req.timeoutMs ?? Math.min(2 * 3600_000, Math.round(plan.totalDuration * 20_000) + 5 * 60_000);
+
+  // Written to its own throwaway dir so we can set ffmpeg's cwd there and
+  // reference it by bare filename (see the comment above assTimestamp).
+  let assDir: string | null = null;
+  if (plan.ass && plan.assFilename) {
+    assDir = await fsp.mkdtemp(path.join(os.tmpdir(), "montage_ai_ass_"));
+    await fsp.writeFile(path.join(assDir, plan.assFilename), plan.ass, "utf-8");
+  }
+
+  let outcome: "ok" | "timeout" | "cancel" | "error" = "error";
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const hardened = hardenedSpawn(resolveFfmpegPath(), plan.args);
+      const proc = spawn(hardened.cmd, hardened.args, {
+        windowsHide: true,
+        cwd: assDir || undefined,
+        env: childEnv(),
+        shell: false,
+      });
+      if (proc.pid) onSpawn?.(proc.pid);
+      let stderrTail = "";
+      let killedFor: "timeout" | "cancel" | null = null;
+      const kill = (why: "timeout" | "cancel") => {
+        if (killedFor) return;
+        killedFor = why;
+        proc.kill("SIGKILL");
+      };
+      const timer = setTimeout(() => kill("timeout"), timeoutMs);
+      const onAbort = () => kill("cancel");
+      signal?.addEventListener("abort", onAbort, { once: true });
+
+      proc.stdout?.on("data", (chunk: Buffer) => {
+        const text = chunk.toString("utf-8");
+        const match = text.match(/out_time_ms=(\d+)/);
+        if (match && onProgress) {
+          const outSeconds = Number(match[1]) / 1_000_000;
+          onProgress(Math.min(0.99, outSeconds / plan.totalDuration));
+        }
+      });
+      proc.stderr?.on("data", (chunk: Buffer) => {
+        stderrTail = (stderrTail + chunk.toString("utf-8")).slice(-4000);
+      });
+      proc.on("error", (err) => {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", onAbort);
+        reject(err);
+      });
+      proc.on("close", (code) => {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", onAbort);
+        if (killedFor === "cancel") return reject(new ExportCancelledError());
+        if (killedFor === "timeout") return reject(new Error(`تجاوز التصدير المهلة (${Math.round(timeoutMs / 1000)}s)`));
+        if (code === 0) resolve();
+        else reject(new Error(`ffmpeg exited with code ${code}: ${stderrTail.slice(-800)}`));
+      });
     });
-    proc.stderr?.on("data", (chunk: Buffer) => {
-      stderrTail = (stderrTail + chunk.toString("utf-8")).slice(-4000);
-    });
-    proc.on("error", reject);
-    proc.on("close", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`ffmpeg exited with code ${code}: ${stderrTail.slice(-800)}`));
-    });
-  }).finally(async () => {
+    outcome = "ok";
+  } finally {
     if (assDir) await fsp.rm(assDir, { recursive: true, force: true }).catch(() => {});
-  });
+    // لا نترك مخرَجاً جزئياً بعد فشل/إلغاء/مهلة — لا يُبلَّغ عن ملف غير مكتمل.
+    if (outcome !== "ok") await fsp.rm(outputPath, { force: true }).catch(() => {});
+  }
 
   const stat = await fsp.stat(outputPath);
   onProgress?.(1);
-  return { size: stat.size };
+  return { size: stat.size, durationSeconds: plan.totalDuration, width: plan.width, height: plan.height };
 }

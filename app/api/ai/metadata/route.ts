@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { parseJsonBody } from "@/lib/server/request";
+import { metadataBody } from "@/lib/server/schemas";
 import { getChatModel, getOpencodeKey, getOpencodeBaseUrl } from "@/lib/server/api-keys";
-import { createMockRandom } from "@/lib/server/mock-random";
+import { guardCost, recordSpend } from "@/lib/server/cost-guard";
+import { routeError } from "@/lib/server/with-route";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -9,11 +12,11 @@ export async function POST(req: NextRequest) {
   try {
     const OPENCODE_BASE_URL = getOpencodeBaseUrl();
     const OPENCODE_API_KEY = getOpencodeKey(req);
-    const { duration = 60, transcript } = await req.json();
+    const reqBody = await parseJsonBody(req, metadataBody);
+    if (!reqBody.ok) return reqBody.response;
+    const { duration = 60, transcript } = reqBody.data;
 
     if (!OPENCODE_API_KEY || !transcript) {
-      // مولد محاكاة حتمي (بذرة ثابتة): اختيار العنوان يتكرر لنفس الطلب بدل تغيّره بين الأجوبة.
-      const rand = createMockRandom(0x5EED04);
       const titles = [
         "رحلة مدهشة في عالم الذكاء الاصطناعي",
         "5 أسرار لم تسمع بها من قبل",
@@ -22,10 +25,18 @@ export async function POST(req: NextRequest) {
         "طريقة جديدة ستغير حياتك",
       ];
       return NextResponse.json({
-        title: titles[Math.floor(rand() * titles.length)],
+        title: titles[Math.floor(Math.random() * titles.length)],
         description: `في هذا الفيديو أستعرض تجربتي الكاملة على مدار ${Math.round(duration / 60)} دقائق.`,
         tags: ["ذكاء اصطناعي", "AI", "مونتاج", "تعليم", "تقنية", "تجربة"],
+        simulated: true,
+        warning: "عنوان/وصف نموذجي لا يعتمد على محتوى الفيديو — اضبط مفتاح المزوّد لتوليد حقيقي",
       });
+    }
+
+    const promptText = String(transcript).slice(0, 3000);
+    const guard = guardCost("chat", { chars: promptText.length + 400 });
+    if (!guard.allowed) {
+      return NextResponse.json({ error: guard.reason, budget: guard }, { status: 402 });
     }
 
     const res = await fetch(`${OPENCODE_BASE_URL}/chat/completions`, {
@@ -47,6 +58,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `GPT-4o error: ${errText}` }, { status: res.status });
     }
 
+    recordSpend(guard.estimateUsd);
     const data = await res.json();
     const content = data.choices?.[0]?.message?.content || "{}";
     const result = JSON.parse(content);
@@ -57,7 +69,6 @@ export async function POST(req: NextRequest) {
       tags: Array.isArray(result.tags) ? result.tags : [],
     });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "خطأ غير متوقع";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return routeError("ai.metadata", err);
   }
 }

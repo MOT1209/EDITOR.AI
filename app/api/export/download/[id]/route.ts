@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createReadStream, existsSync, statSync } from "fs";
 import { Readable } from "stream";
 import { EXPORT_DIR, isPathInside, readJobStatus } from "@/lib/server/ffmpeg-export";
+import { withRoute } from "@/lib/server/with-route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,7 +14,11 @@ const MIME: Record<string, string> = {
   webm: "video/webm",
 };
 
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+async function handleGET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
+  if (!/^job_\d+_\d+$/.test(params.id)) {
+    return NextResponse.json({ error: "معرّف مهمة غير صالح" }, { status: 400 });
+  }
   const job = await readJobStatus(params.id);
   if (!job) {
     return NextResponse.json({ error: "المهمة غير موجودة" }, { status: 404 });
@@ -35,7 +40,11 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     headers: {
       "Content-Type": MIME[format] || "application/octet-stream",
       "Content-Length": String(stat.size),
-      "Content-Disposition": `attachment; filename="export_${job.id}.${format}"`,
+      // ?inline=1 للمعاينة المرندرة داخل المتصفح؛ الافتراضي تنزيل.
+      "Content-Disposition": `${req.nextUrl.searchParams.get("inline") === "1" ? "inline" : "attachment"}; filename="export_${job.id}.${format}"`,
+      "X-Content-Type-Options": "nosniff",
     },
   });
 }
+
+export const GET = withRoute("export.download", handleGET);

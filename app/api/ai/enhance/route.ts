@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
+import { parseJsonBody } from "@/lib/server/request";
+import { enhanceBody } from "@/lib/server/schemas";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
   try {
-    const { audioBase64 } = await req.json();
+    const reqBody = await parseJsonBody(req, enhanceBody);
+    if (!reqBody.ok) return reqBody.response;
+    const { audioBase64 } = reqBody.data;
 
     if (!audioBase64) {
       return NextResponse.json({
@@ -16,10 +20,12 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // هذا المسار لا يعالج الصوت: التحسين الفعلي (afftdn + loudnorm) يُطبَّق عند التصدير.
     return NextResponse.json({
       ok: true,
-      enhanced: true,
-      message: "تم تحسين جودة الصوت",
+      enhanced: false,
+      simulated: true,
+      message: "إعدادات مقترحة فقط — التحسين الفعلي يُطبَّق عند التصدير (afftdn + loudnorm)",
       settings: { noiseReduction: 0.7, compression: 0.5, eq: "balanced" },
     });
   } catch {

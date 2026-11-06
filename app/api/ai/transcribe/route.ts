@@ -1,18 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
+import { guardApiRequest } from "@/lib/server/api-guard";
 import { getOpencodeKey, getOpencodeBaseUrl, getWhisperModel } from "@/lib/server/api-keys";
-import { createMockRandom } from "@/lib/server/mock-random";
+import { guardCost, recordSpend, estimateCostUsd, releaseReservation } from "@/lib/server/cost-guard";
+import { estimateAudioSeconds } from "@/lib/server/audio-duration";
+import { validateAudioUpload } from "@/lib/server/validate";
+import { rejectOversizedRequest, readFormDataCapped } from "@/lib/server/uploads";
+import { routeError } from "@/lib/server/with-route";
 
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
+  // مستثنى من middleware (جسم كبير يُبث للقرص) ⇒ الحارس هنا — lib/server/api-guard.ts.
+  const denied = guardApiRequest(req);
+  if (denied) return denied;
+  const tooBig = rejectOversizedRequest(req);
+  if (tooBig) return tooBig;
   try {
     const OPENCODE_BASE_URL = getOpencodeBaseUrl();
     const OPENCODE_API_KEY = getOpencodeKey(req);
-    const form = await req.formData();
+    const parsed = await readFormDataCapped(req);
+    if (parsed.response) return parsed.response;
+    const form = parsed.form;
     const audio = form.get("audio") as File | null;
     if (!audio) return NextResponse.json({ error: "الملف الصوتي مطلوب" }, { status: 400 });
+    const check = validateAudioUpload(audio);
+    if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 });
 
     if (!OPENCODE_API_KEY) {
       return NextResponse.json({
@@ -22,8 +36,15 @@ export async function POST(req: NextRequest) {
           { id: 2, start: 2, end: 4, text: "من الترجمة الصوتية التلقائية", lang: "ar" },
           { id: 3, start: 4, end: 6, text: "اضبط API key للترجمة الحقيقية", lang: "ar" },
         ],
+        simulated: true,
+        warning: "لا مفتاح مزوّد — نص تجريبي وليس تفريغاً للصوت",
       });
     }
+
+    // المدة الحقيقية بـ ffprobe (أو تقدير محافظ) للفحص الوقائي؛ بعد النجاح نسجّل التكلفة الفعلية من data.duration.
+    const { seconds: estDurationSec } = await estimateAudioSeconds(audio);
+    const guard = guardCost("whisper", { durationSec: estDurationSec });
+    if (!guard.allowed) return NextResponse.json({ error: guard.reason, budget: guard }, { status: 402 });
 
     const whisperForm = new FormData();
     whisperForm.append("file", audio);
@@ -37,15 +58,15 @@ export async function POST(req: NextRequest) {
     });
 
     if (!res.ok) {
+      releaseReservation();
       const errText = await res.text();
       return NextResponse.json({ error: `Whisper API error: ${errText}` }, { status: res.status });
     }
 
     const data = await res.json();
-    // مولد محاكاة حتمي (بذرة ثابتة): المعرّفات البديلة عند غياب s.id تتكرر لنفس المدخل.
-    const rand = createMockRandom(0x5EED05);
+    recordSpend(typeof data.duration === "number" ? estimateCostUsd("whisper", { durationSec: data.duration }) : guard.estimateUsd);
     const segments = (data.segments || []).map((s: { id?: number; start: number; end: number; text: string }) => ({
-      id: s.id ?? rand(),
+      id: s.id ?? 0,
       start: s.start,
       end: s.end,
       text: s.text,
@@ -54,7 +75,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ text: data.text || "", segments });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "خطأ غير متوقع";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return routeError("ai.transcribe", err);
   }
 }

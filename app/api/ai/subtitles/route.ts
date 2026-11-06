@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createMockRandom } from "@/lib/server/mock-random";
+import { parseJsonBody } from "@/lib/server/request";
+import { subtitlesBody } from "@/lib/server/schemas";
+import { withRoute } from "@/lib/server/with-route";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -12,8 +15,10 @@ const PHRASES = [
   "سأشرح لكم الطريقة خطوة بخطوة",
 ];
 
-export async function POST(req: NextRequest) {
-  const { duration = 30, lang = "ar" } = await req.json();
+async function handlePOST(req: NextRequest) {
+  const reqBody = await parseJsonBody(req, subtitlesBody);
+  if (!reqBody.ok) return reqBody.response;
+  const { duration = 30, lang = "ar" } = reqBody.data;
   const cues = [];
   // مولد محاكاة حتمي (بذرة ثابتة): نصوص الترجمة تتكرر لنفس الطلب، والمعرّفات حتمية `sub_${i}`.
   const rand = createMockRandom(0x5EED07);
@@ -30,5 +35,12 @@ export async function POST(req: NextRequest) {
       lang,
     });
   }
-  return NextResponse.json({ cues });
+  // ⚠️ لا يفرّغ أي صوت: عبارات نموذجية فقط. التفريغ الحقيقي عبر /api/ai/transcribe(-words).
+  return NextResponse.json({
+    cues,
+    simulated: true,
+    warning: "ترجمة تجريبية (عبارات نموذجية) — اضبط مفتاح المزوّد لتفريغ الصوت الحقيقي",
+  });
 }
+
+export const POST = withRoute("ai.subtitles", handlePOST);

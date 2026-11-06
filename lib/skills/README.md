@@ -108,6 +108,10 @@ export class MySkill extends BaseSkill {
 // 3) (اختياري) أضِفها لأي Workflow عبر wf.addStep("MySkill")
 ```
 
+## مهارات مخصّصة بلا كود (الإضافات)
+
+لإضافة مهارة دون لمس الكود: حزمة بيانات من `/extensions` أو `pnpm ext install` (prompt / workflow / native / external). تُسجَّل المفعّلة في نفس `SkillManager` باسم `ext_<id>`. التفاصيل: `docs/EXTENSIONS.md`.
+
 ## حذف Skill
 
 احذف ملفها وأزِلها من `SKILL_CLASSES`، أو في وقت التشغيل:
@@ -117,12 +121,20 @@ manager.unregister("MySkill");
 manager.getWorkflow("default")?.removeStep("MySkill");
 ```
 
-## قائمة الـ 36 Skill
+## قائمة المهارات (43)
 
 تحليل: Scene، Shot، Face، Person، Object، Highlight، ViralMoment ·
 قص: AutoCut، SmartTrim ·
 صوت: SpeechRecognition، Silence، AudioEnhancement، NoiseReduction، Beat، AutoMusicSync، MusicRecommendation، SoundEffects، VoiceCloning، TextToSpeech ·
-صورة: AutoZoom، AutoReframe، VideoStabilization، AutoColorGrading، ColorCorrection، BackgroundRemoval، FaceTracking ·
-نص: AutoCaption، SubtitleTranslation، Hook، Title، Description، Hashtag ·
-توليد: BRoll، Thumbnail، Shorts ·
+صورة: AutoZoom، AutoReframe، VideoStabilization، AutoColorGrading، ColorCorrection، BackgroundRemoval، FaceTracking، Upscale ·
+نص: AutoCaption، SubtitleTranslation، Hook، Title، Description، Hashtag، ScriptWriter ·
+توليد: BRoll، Thumbnail، Shorts، Storyboard ·
 تصدير: ExportOptimization
+
+## Workflows الجاهزة
+
+| الاسم | البداية | الاستخدام |
+|------|---------|-----------|
+| `default` | فيديو مرفوع | مونتاج كامل تلقائي (تحليل → قص → تحسين → تصدير) |
+| `viral-shorts` | فيديو مرفوع | استخراج مقاطع قابلة للانتشار وتجهيزها للنشر |
+| `content-from-idea` | موضوع نصّي (بلا فيديو) | فكرة → سكربت (`ScriptWriterSkill`) → لوحة مشاهد (`StoryboardGeneratorSkill`) → عنوان/وصف/هاشتاغ، تمهيداً للتصوير أو التوليد |

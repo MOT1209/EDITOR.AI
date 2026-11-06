@@ -10,7 +10,7 @@ export class SilenceDetectionSkill extends BaseSkill {
   readonly name = "SilenceDetectionSkill";
   readonly description = "اكتشاف فترات الصمت في الصوت.";
   readonly category: SkillCategory = "audio";
-  readonly inputSpec = { duration: "number", filePath: "string (اختياري)" };
+  readonly inputSpec = { duration: "number", sourceRef: "string (اختياري — مرجع فيديو مرفوع)" };
   readonly outputSpec = { silences: "Silence[]" };
   protected readonly defaultConfig = {
     minSilence: 0.5,
@@ -19,10 +19,15 @@ export class SilenceDetectionSkill extends BaseSkill {
 
   protected async execute(input: MediaDocument, ctx: SkillContext) {
     const duration = input.duration ?? 30;
-    const filePath = input.filePath as string | undefined;
+    // تحليل حقيقي مُسبق (مثلاً من ffmpeg silencedetect عبر MCP) يتقدّم على أي مصدر آخر.
+    if (Array.isArray(input.silences)) {
+      this.log("info", `المصدر: تحليل مسبق — ${input.silences.length} فترة صمت`);
+      return { silences: input.silences as Silence[] };
+    }
+    const sourceRef = input.sourceRef as string | undefined;
     const api = await this.callEndpoint<{ segments?: Silence[] }>(
       this.cfg("endpoint", "/api/ai/silence"),
-      { duration, filePath },
+      { duration, sourceRef },
       ctx
     );
     if (api?.segments?.length) {

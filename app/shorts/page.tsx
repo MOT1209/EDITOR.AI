@@ -1,3 +1,5 @@
+"use client";
+
 import dynamic from "next/dynamic";
 
 const ShortsStudio = dynamic(() => import("@/components/shorts/ShortsStudio"), {

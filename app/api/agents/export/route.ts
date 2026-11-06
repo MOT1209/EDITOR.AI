@@ -10,9 +10,13 @@
  *   غياب auto-editor → 503 برسالة توجه لتشغيل scripts/install-auto-editor.py.
  */
 import { NextRequest, NextResponse } from "next/server";
+import { parseJsonBody } from "@/lib/server/request";
+import { agentsExportBody } from "@/lib/server/schemas";
+import { limitCommand } from "@/lib/engine/hardening";
 import { spawn } from "child_process";
 import { promises as fsp, existsSync } from "fs";
 import path from "path";
+import { routeError } from "@/lib/server/with-route";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -40,7 +44,8 @@ function resolvePython(): string {
 
 function runPython(args: string[]): Promise<{ code: number; stderr: string }> {
   return new Promise((resolveExit) => {
-    const proc = spawn(resolvePython(), args, { cwd: process.cwd() });
+    const lim = limitCommand(resolvePython(), args);
+    const proc = spawn(lim.cmd, lim.args, { cwd: process.cwd(), shell: false });
     const killer = setTimeout(() => proc.kill(), TIMEOUT_MS);
     let stderr = "";
     proc.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
@@ -57,7 +62,9 @@ function runPython(args: string[]): Promise<{ code: number; stderr: string }> {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const parsedBody = await parseJsonBody(req, agentsExportBody, { maxBytes: 5_000_000 });
+    if (!parsedBody.ok) return parsedBody.response;
+    const body = parsedBody.data;
     const jobId = String(body?.jobId || "");
     const format = String(body?.format || "");
     const plan = body?.plan;
@@ -130,7 +137,6 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "خطأ غير متوقع";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return routeError("agents.export", err);
   }
 }

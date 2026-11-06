@@ -1,6 +1,6 @@
 # 🎬 خطة تطوير EDITOR.AI — نظام المونتاج متعدد الوكلاء
 
-> مستند عمل: الفحص الشامل (MONTAJI_REPORT.html) + هذه الخطة التنفيذية.
+> مستند عمل: الفحص الشامل (docs/archive/MONTAJI_REPORT.html) + هذه الخطة التنفيذية.
 > المرجع: التزام `54cf36b` — مسار Python `src/agents/` + وكيل المديرة في Next.js.
 
 ---
@@ -9,22 +9,36 @@
 
 | الجبهة | الحالة |
 |--------|--------|
-| Next.js 14 (Editor + وكيل المديرة) | ✅ tsc نظيف، تتصدير ثابت |
-| مسار Python متعدد الوكلاء | ✅ 2185 سطراً، يعمل بالكامل مع تدهور أنيق |
+| Next.js 14 (Editor + وكيل المديرة) | ✅ tsc نظيف، تصدير ثابت |
+| مسار Python متعدد الوكلاء | ✅ ~3900 سطر، يعمل بالكامل مع تدهور أنيق |
 | خطة EDL عبر LLM (CrewAI/Groq) | ✅ «فيديو حماسي» — قص صمت حقيقي + تسريع/إبطاء + crop 9:16 |
-| البوابات + الأدلة التشخيصية | ✅ 3 بوابات، حفظ في `.montage_ai/pipeline/` |
+| البوابات + الأدلة التشخيصية | ✅ بوابات لكل مرحلة، حفظ في `.montage_ai/pipeline/` |
 | الأمان (مفاتيح) | ✅ 0 ملفات حساسة في git، فحص ثلاثي |
+
+### مرحلة التقوية (Stabilize) — منجزة 2026-09
+
+| البند | الحالة |
+|-------|--------|
+| **ضابط التكلفة** (Cost Guard) | ✅ `lib/server/cost-guard.ts` + نظير Python في `utils.py` (BudgetTracker) — سقف MONTAGE_BUDGET_CAP قبل كل استدعاء مدفوع |
+| **مراجعة ما بعد الرندر** | ✅ `src/agents/render_review.py` (ffprobe + blackdetect + volumedetect) مدمجة في بوابة `validate_render` |
+| **تحقق المدخلات وحدود الرفع** | ✅ `lib/server/validate.ts` مطبّق على pipeline + transcribe-words |
+| **تتبع الوجه / تمييز المتحدثين** | ✅ منفّذان بالفعل (OpenCV DNN/Haar + pyannote/بديل صمت) — قُوِّي التقاط الأخطاء للتدهور الأنيق |
+| **اختبارات** | ✅ Python 32 حالة (pytest) + الواجهة 16 حالة (Vitest) — كلاهما في CI |
+| **تفكيك Editor.tsx** (3277 سطر) | ⏳ مؤجّل — يحتاج تحقق بصري للواجهة (بيئة تشغيل)؛ لا يُنفَّذ أعمى في مرحلة تثبيت |
 
 ---
 
-## المرحلة 1 — إكمال الممرات المعلّقة (الأولوية القصوى)
+## المرحلة 1 — إكمال الممرات المعلّقة ✅ (منجزة)
 
-### 1.1 Whisper كلمة-بكلمة في `analyst_agent.py`
+> تحديث 2026-09: كل ممرات المرحلة 1 منفّذة فعلياً في الكود (Whisper، الرندر،
+> ربط الواجهة). لم تعد أي دالة ترفع `NotImplementedError`. القسم أدناه مرجعي.
+
+### 1.1 Whisper كلمة-بكلمة في `analyst_agent.py` ✅
 - **الهدف:** استبدال `NotImplementedError` في `transcribe_word_level` بتفريغ حقيقي.
 - **الخيار A (الأسرع):** Groq API — `whisper-large-v3-turbo` بالمفتاح الموجود (OPENCODE_*). `httpx` جاهز.
 - **الخيار B (الأوفلاين):** `faster-whisper` (pip، يعمل على CPU بدون GPU).
 - **التسليم:** `AnalystReport.transcription.words[]` مملوء بتوقيتات كلمة-بكلمة؛ إزالة `_demo_words`.
-- **معيار النجاح:** `python -m src.main test_video.mp4` ينتج ترجمات من الصوت الفعلي (لا ديمو).
+- **معيار النجاح:** `python -m src.main test_assets/test_video.mp4` ينتج ترجمات من الصوت الفعلي (لا ديمو).
 
 ### 1.2 الرندر الفعلي في `render_agent.py`
 - **الهدف:** تنفيذ `build_command()` عبر `subprocess` بدل رفعه فقط.

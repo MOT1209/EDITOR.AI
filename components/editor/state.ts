@@ -72,12 +72,23 @@ export interface State {
   isPlaying: boolean;
   zoom: number;
   selectedClipId: string | null;
+  /** تحديد متعدد (Shift/Ctrl) — selectedClipId هو آخر عنصر محدَّد (الأساسي). */
+  selectedClipIds: string[];
+  selectedAudioId: string | null;
+  /** الالتصاق بحدود المقاطع/المؤشر أثناء السحب. */
+  snapEnabled: boolean;
   selectedSubtitleId: string | null;
   showLeftPanel: boolean;
   showRightPanel: boolean;
   aiMood: string;
   bRollCount: number;
   shortsCount: number;
+  /** سجل التراجع: لقطات المشروع السابقة (الأحدث آخراً). */
+  past: ProjectState[];
+  /** سجل الإعادة. */
+  future: ProjectState[];
+  /** وقت آخر لقطة سجل — لدمج دفعات الإجراءات المتتالية (مثل أدوات الذكاء) في خطوة واحدة. */
+  lastHistoryAt: number;
 }
 
 export type Action =
@@ -93,6 +104,9 @@ export type Action =
   | { type: "TOGGLE_PLAY" }
   | { type: "SET_ZOOM"; z: number }
   | { type: "SELECT_CLIP"; id: string | null }
+  | { type: "SELECT_CLIPS"; ids: string[] }
+  | { type: "SELECT_AUDIO"; id: string | null }
+  | { type: "TOGGLE_SNAP" }
   | { type: "SELECT_SUBTITLE"; id: string | null }
   | { type: "TOGGLE_LEFT" }
   | { type: "TOGGLE_RIGHT" }
@@ -119,9 +133,66 @@ export type Action =
   | { type: "REPLACE_PROJECT"; project: ProjectState }
   | { type: "ADD_TEXT_OVERLAY"; overlay: TextOverlay }
   | { type: "UPDATE_TEXT_OVERLAY"; id: string; patch: Partial<TextOverlay> }
-  | { type: "REMOVE_TEXT_OVERLAY"; id: string };
+  | { type: "REMOVE_TEXT_OVERLAY"; id: string }
+  /** تعديل محسوب مسبقاً بعمليات المحرّك المشتركة (lib/engine/timeline.ts) — يدخل السجل. */
+  | { type: "COMMIT_PROJECT"; project: ProjectState }
+  | { type: "UNDO" }
+  | { type: "REDO" };
+
+/** حد السجل في الذاكرة. */
+export const HISTORY_LIMIT = 100;
+/** إجراءات متتالية خلال هذه المدة تُدمج في خطوة تراجع واحدة. */
+export const HISTORY_COALESCE_MS = 400;
+
+/** الإجراءات التي تعدّل المشروع فعلياً (تُسجَّل للتراجع). التحميل/الاستبدال يصفّر السجل. */
+const TRACKED_ACTIONS = new Set<Action["type"]>([
+  "PATCH_PROJECT", "ADD_CLIP", "ADD_AUDIO", "ADD_SUBTITLES", "UPDATE_SUBTITLE", "REMOVE_SUBTITLE",
+  "UPDATE_CLIP", "REMOVE_CLIP", "REMOVE_AUDIO", "ADD_TRACK", "UPDATE_TRACK", "REMOVE_TRACK",
+  "TOGGLE_EFFECT", "SET_MUSIC", "SET_TITLE_META", "SET_ASPECT", "ADD_TEXT_OVERLAY",
+  "UPDATE_TEXT_OVERLAY", "REMOVE_TEXT_OVERLAY", "COMMIT_PROJECT",
+]);
 
 export function reducer(state: State, action: Action): State {
+  if (action.type === "UNDO") {
+    const prev = state.past[state.past.length - 1];
+    if (!prev) return state;
+    return {
+      ...state,
+      project: prev,
+      past: state.past.slice(0, -1),
+      future: [state.project, ...state.future].slice(0, HISTORY_LIMIT),
+      lastHistoryAt: 0,
+    };
+  }
+  if (action.type === "REDO") {
+    const next = state.future[0];
+    if (!next) return state;
+    return {
+      ...state,
+      project: next,
+      past: [...state.past, state.project].slice(-HISTORY_LIMIT),
+      future: state.future.slice(1),
+      lastHistoryAt: 0,
+    };
+  }
+  const next = baseReducer(state, action);
+  if (action.type === "REPLACE_PROJECT" || action.type === "SET_PROJECT") {
+    return { ...next, past: [], future: [], lastHistoryAt: 0 };
+  }
+  if (TRACKED_ACTIONS.has(action.type) && next.project !== state.project) {
+    const now = Date.now();
+    const coalesce = now - state.lastHistoryAt < HISTORY_COALESCE_MS;
+    return {
+      ...next,
+      past: coalesce ? state.past : [...state.past, state.project].slice(-HISTORY_LIMIT),
+      future: [],
+      lastHistoryAt: now,
+    };
+  }
+  return next;
+}
+
+function baseReducer(state: State, action: Action): State {
   switch (action.type) {
     case "SET_PROJECT":
       return { ...state, project: action.project };
@@ -149,7 +220,13 @@ export function reducer(state: State, action: Action): State {
     case "SET_ZOOM":
       return { ...state, zoom: action.z };
     case "SELECT_CLIP":
-      return { ...state, selectedClipId: action.id };
+      return { ...state, selectedClipId: action.id, selectedClipIds: action.id ? [action.id] : [], selectedAudioId: action.id ? null : state.selectedAudioId };
+    case "SELECT_CLIPS":
+      return { ...state, selectedClipIds: action.ids, selectedClipId: action.ids.length ? action.ids[action.ids.length - 1] : null, selectedAudioId: null };
+    case "SELECT_AUDIO":
+      return { ...state, selectedAudioId: action.id, selectedClipId: action.id ? null : state.selectedClipId, selectedClipIds: action.id ? [] : state.selectedClipIds };
+    case "TOGGLE_SNAP":
+      return { ...state, snapEnabled: !state.snapEnabled };
     case "SELECT_SUBTITLE":
       return { ...state, selectedSubtitleId: action.id };
     case "TOGGLE_LEFT":
@@ -264,6 +341,8 @@ export function reducer(state: State, action: Action): State {
       return { ...state, project: { ...state.project, aspect: action.aspect } };
     case "REPLACE_PROJECT":
       return { ...state, project: action.project };
+    case "COMMIT_PROJECT":
+      return { ...state, project: { ...action.project, updatedAt: Date.now() } };
     case "ADD_TEXT_OVERLAY":
       return {
         ...state,
@@ -304,10 +383,16 @@ export const initialState: State = {
   isPlaying: false,
   zoom: 60,
   selectedClipId: null,
+  selectedClipIds: [],
+  selectedAudioId: null,
+  snapEnabled: true,
   selectedSubtitleId: null,
   showLeftPanel: true,
   showRightPanel: true,
   aiMood: "ملهم",
   bRollCount: 3,
   shortsCount: 3,
+  past: [],
+  future: [],
+  lastHistoryAt: 0,
 };

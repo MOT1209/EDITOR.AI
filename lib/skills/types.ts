@@ -11,7 +11,8 @@ export type SkillCategory =
   | "visual" // صورة/ألوان/تأطير
   | "text" // نصوص (ترجمة، عناوين، أوصاف)
   | "generation" // توليد (Shorts، صور مصغرة، B-roll)
-  | "export"; // تصدير
+  | "export" // تصدير
+  | "utility"; // أدوات عامة (مهارات الإضافات)
 
 export type SkillStatus =
   | "idle"

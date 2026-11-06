@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { parseJsonBody } from "@/lib/server/request";
+import { framesBody } from "@/lib/server/schemas";
 import { getVisionModel, getOpencodeKey, getHfToken, getOpencodeBaseUrl } from "@/lib/server/api-keys";
-import { createMockRandom } from "@/lib/server/mock-random";
+import { guardCost, recordSpend } from "@/lib/server/cost-guard";
+import { routeError } from "@/lib/server/with-route";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -74,11 +77,18 @@ export async function POST(req: NextRequest) {
     const OPENCODE_BASE_URL = getOpencodeBaseUrl();
     const OPENCODE_API_KEY = getOpencodeKey(req);
     const HF_TOKEN = getHfToken(req);
-    const { duration = 30, frames = [] } = await req.json();
+    const reqBody = await parseJsonBody(req, framesBody);
+    if (!reqBody.ok) return reqBody.response;
+    const { duration = 30, frames = [] } = reqBody.data;
     const faces: { start: number; end: number; x: number; y: number; w: number; h: number }[] = [];
 
     if (frames.length > 0) {
       const sampleFrames = frames.slice(0, Math.min(3, frames.length));
+      if (OPENCODE_API_KEY) {
+        const guard = guardCost("vision", { images: sampleFrames.length, chars: sampleFrames.length * 300 });
+        if (!guard.allowed) return NextResponse.json({ error: guard.reason, budget: guard }, { status: 402 });
+        recordSpend(guard.estimateUsd); // تقدير وقائي: يُسجَّل قبل الاستدعاءات المتتابعة
+      }
       for (let fi = 0; fi < sampleFrames.length; fi++) {
         // Prefer the vision model: it returns actual face boxes in normalized
         // 0..1 coords. Fall back to the coarse HF person detector only if vision
@@ -116,25 +126,17 @@ export async function POST(req: NextRequest) {
     }
 
     if (faces.length === 0) {
-      // مولد محاكاة حتمي (بذرة ثابتة): مربعات الوجوه التقديرية تتكرر لنفس الطلب بدل تغيّرها بين الأجوبة.
-      const rand = createMockRandom(0x5EED09);
-      const faceCount = Math.max(1, Math.floor(duration / 5));
-      for (let i = 0; i < faceCount; i++) {
-        const start = (i / faceCount) * duration;
-        faces.push({
-          start,
-          end: Math.min(start + 2 + rand() * 2, duration),
-          x: 0.2 + rand() * 0.4,
-          y: 0.15 + rand() * 0.4,
-          w: 0.15 + rand() * 0.2,
-          h: 0.2 + rand() * 0.25,
-        });
-      }
+      // لا نختلق وجوهاً: نتيجة فارغة + تحذير (التدهور الأنيق).
+      return NextResponse.json({
+        faces: [],
+        duration,
+        simulated: true,
+        warning: "لم يُكشف أي وجه (لا مفتاح رؤية/HF أو لا إطارات) — للكشف المحلي ثبّت opencv واستخدم مسار الوكلاء",
+      });
     }
 
     return NextResponse.json({ faces, duration });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "خطأ";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return routeError("ai.faces", err);
   }
 }

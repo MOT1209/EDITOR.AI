@@ -7,16 +7,21 @@
  * GET  /api/agents/pipeline?job=<jobId> → يقدّم الفيديو النهائي final.mp4
  */
 import { NextRequest, NextResponse } from "next/server";
+import { guardApiRequest } from "@/lib/server/api-guard";
 import { spawn, spawnSync } from "child_process";
-import { promises as fsp, existsSync } from "fs";
+import { logger } from "@/lib/server/logger";
+import { saveUpload, rejectOversizedRequest, QuotaError, readFormDataCapped } from "@/lib/server/uploads";
+import { limitCommand } from "@/lib/engine/hardening";
+import { promises as fsp, existsSync, createReadStream } from "fs";
+import { Readable } from "stream";
 import path from "path";
-import { v4 as uuid } from "uuid";
+import { validateVideoUpload, clampString, pickEnum } from "@/lib/server/validate";
+import { routeError } from "@/lib/server/with-route";
 
 export const runtime = "nodejs";
 export const maxDuration = 300; // 5 دقائق — الرندر الفعلي يأخذ وقتاً
 
 const PIPELINE_DIR = path.join(process.cwd(), ".montage_ai", "pipeline");
-const UPLOAD_DIR = path.join(process.cwd(), ".montage_ai", "uploads");
 const TIMEOUT_MS = 280_000; // أقل بقليل من maxDuration لقتل العملية بأمان
 
 // مبرر الحفظ: تُجرى مسابقة الترشيحات مرة واحدة لكل عملية وتُخزّن نتيجتها هنا
@@ -54,13 +59,14 @@ function resolvePython(): string {
 /** يشغّل سطر أوامر Python ويعيد رمز الخروج */
 async function runPython(args: string[]): Promise<number> {
   return new Promise<number>((resolveExit, rejectExit) => {
-    const proc = spawn(resolvePython(), args, { cwd: process.cwd() });
+    const lim = limitCommand(resolvePython(), args);
+    const proc = spawn(lim.cmd, lim.args, { cwd: process.cwd(), shell: false });
     const killer = setTimeout(() => {
-      console.error("[pipeline] انتهت المهلة — قتل العملية");
+      logger.warn("pipeline.timeout", {});
       proc.kill();
     }, TIMEOUT_MS);
-    proc.stdout.on("data", (d: Buffer) => console.log(`[pipeline] ${d.toString().trimEnd()}`));
-    proc.stderr.on("data", (d: Buffer) => console.error(`[pipeline] ${d.toString().trimEnd()}`));
+    proc.stdout.on("data", (d: Buffer) => logger.info("pipeline.stdout", { line: d.toString().trimEnd() }));
+    proc.stderr.on("data", (d: Buffer) => logger.warn("pipeline.stderr", { line: d.toString().trimEnd() }));
     proc.on("error", (err) => {
       clearTimeout(killer);
       rejectExit(err);
@@ -73,8 +79,15 @@ async function runPython(args: string[]): Promise<number> {
 }
 
 export async function POST(req: NextRequest) {
+  // مستثنى من middleware (جسم كبير يُبث للقرص) ⇒ الحارس هنا — lib/server/api-guard.ts.
+  const denied = guardApiRequest(req);
+  if (denied) return denied;
   try {
-    const form = await req.formData();
+    const tooBig = rejectOversizedRequest(req);
+    if (tooBig) return tooBig;
+    const parsed = await readFormDataCapped(req);
+    if (parsed.response) return parsed.response;
+    const form = parsed.form;
     const phase = String(form.get("phase") || "plan"); // plan | render
     const jobId = String(form.get("jobId") || "");
 
@@ -107,21 +120,27 @@ export async function POST(req: NextRequest) {
     if (!file || !(file instanceof File)) {
       return NextResponse.json({ error: "ملف الفيديو مطلوب" }, { status: 400 });
     }
-    const request = String(form.get("request") || "").slice(0, 800);
-    const language = String(form.get("language") || "ar").slice(0, 10);
-    const mood = String(form.get("mood") || "").slice(0, 20);
-    const aspect = ["9:16", "16:9", "1:1"].includes(String(form.get("aspect") || ""))
-      ? String(form.get("aspect"))
-      : "9:16";
+    const upload = validateVideoUpload(file);
+    if (!upload.ok) {
+      return NextResponse.json({ error: upload.error }, { status: 400 });
+    }
+    const request = clampString(form.get("request"), 800);
+    const language = clampString(form.get("language") || "ar", 10);
+    const mood = clampString(form.get("mood"), 20);
+    const aspect = pickEnum(form.get("aspect"), ["9:16", "16:9", "1:1"] as const, "9:16");
     const noBroll = form.get("noBroll") === "true" || form.get("noBroll") === "1";
     const demo = form.get("demo") === "true" || form.get("demo") === "1";
 
     // 1) احفظ الملف المرفوع
-    await fsp.mkdir(UPLOAD_DIR, { recursive: true });
-    const id = uuid();
-    const ext = path.extname(file.name) || ".mp4";
-    const filePath = path.join(UPLOAD_DIR, `${id}${ext}`);
-    await fsp.writeFile(filePath, Buffer.from(await file.arrayBuffer()));
+    let saved;
+    try {
+      saved = await saveUpload(file);
+    } catch (e) {
+      if (e instanceof QuotaError) return NextResponse.json({ error: e.message, code: "LIMIT_EXCEEDED" }, { status: 507 });
+      throw e;
+    }
+    const id = saved.id;
+    const filePath = saved.filepath;
 
     // 2) شغّل مسار Python مع كتابة النتيجة JSON
     const jsonOut = path.join(PIPELINE_DIR, `req_${id}.json`);
@@ -157,13 +176,15 @@ export async function POST(req: NextRequest) {
       previewStats: result?.preview_stats || null,
     });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "خطأ غير متوقع";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return routeError("agents.pipeline", err);
   }
 }
 
 /** يقدّم الفيديو النهائي (final.mp4) للمعرّف الوظيفي job=... */
 export async function GET(req: NextRequest) {
+  // مستثنى من middleware (جسم كبير يُبث للقرص) ⇒ الحارس هنا — lib/server/api-guard.ts.
+  const denied = guardApiRequest(req);
+  if (denied) return denied;
   const job = new URL(req.url).searchParams.get("job");
   if (!job || !/^job_\d+$/.test(job)) {
     return NextResponse.json({ error: "معرّف وظيفة غير صالح" }, { status: 400 });
@@ -172,13 +193,15 @@ export async function GET(req: NextRequest) {
   if (!existsSync(videoPath)) {
     return NextResponse.json({ error: "الفيديو غير جاهز بعد" }, { status: 404 });
   }
-  const data = await fsp.readFile(videoPath);
-  return new NextResponse(data, {
+  // بث الملف بدل قراءته كاملاً إلى الذاكرة (ملفات الفيديو قد تكون كبيرة).
+  const size = (await fsp.stat(videoPath)).size;
+  const stream = Readable.toWeb(createReadStream(videoPath)) as ReadableStream;
+  return new NextResponse(stream, {
     headers: {
       "Content-Type": "video/mp4",
-      "Content-Length": String(data.length),
+      "Content-Length": String(size),
       "Content-Disposition": `attachment; filename="${job}.mp4"`,
-      "Cache-Control": "public, max-age=3600",
+      "Cache-Control": "private, max-age=3600",
     },
   });
 }

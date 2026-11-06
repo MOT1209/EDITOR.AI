@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { parseJsonBody } from "@/lib/server/request";
+import { analyzeBody } from "@/lib/server/schemas";
+import { guardCost, recordSpend } from "@/lib/server/cost-guard";
+import { routeError } from "@/lib/server/with-route";
 import { getVisionModel,
   getOpencodeKey, getOpencodeBaseUrl } from "@/lib/server/api-keys";
-import { createMockRandom } from "@/lib/server/mock-random";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -10,27 +13,29 @@ export async function POST(req: NextRequest) {
   try {
     const OPENCODE_BASE_URL = getOpencodeBaseUrl();
     const OPENCODE_API_KEY = getOpencodeKey(req);
-    const { duration = 30, frameBase64 } = await req.json();
+    const reqBody = await parseJsonBody(req, analyzeBody);
+    if (!reqBody.ok) return reqBody.response;
+    const { duration = 30, frameBase64 } = reqBody.data;
 
     if (!OPENCODE_API_KEY || !frameBase64) {
-      // مولد محاكاة حتمي (بذرة ثابتة): المشاهد والإبرازات تتكرر لنفس الطلب بدل تغيّرها بين الأجوبة.
-      const rand = createMockRandom(0x5EED02);
       const sceneCount = Math.max(3, Math.floor(duration / 6));
       const scenes = [];
-      const highlights = [];
+      const highlights: { start: number; end: number; reason: string }[] = [];
       for (let i = 0; i < sceneCount; i++) {
         const start = (i / sceneCount) * duration;
         const end = ((i + 1) / sceneCount) * duration;
-        scenes.push({ start, end, score: 0.5 + rand() * 0.5 });
-        if (rand() > 0.6) {
-          highlights.push({ start, end: Math.min(end, start + 3), reason: "لقطة مميزة" });
-        }
+        scenes.push({ start, end, score: 0.5 });
       }
       return NextResponse.json({
         duration, scenes, highlights,
         quality: { brightness: 0.6, contrast: 0.6, saturation: 0.6, sharpness: 0.6 },
+        simulated: true,
+        warning: "تحليل تقديري بلا نموذج رؤية (لا مفتاح أو لا إطار) — القيم افتراضية وليست قياساً",
       });
     }
+
+    const guard = guardCost("vision", { images: 1, chars: 2500 });
+    if (!guard.allowed) return NextResponse.json({ error: guard.reason, budget: guard }, { status: 402 });
 
     const res = await fetch(`${OPENCODE_BASE_URL}/chat/completions`, {
       method: "POST",
@@ -54,6 +59,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `GPT-4o Vision error: ${errText}` }, { status: res.status });
     }
 
+    recordSpend(guard.estimateUsd);
     const data = await res.json();
     const content = data.choices?.[0]?.message?.content || "{}";
     const result = JSON.parse(content);
@@ -65,7 +71,6 @@ export async function POST(req: NextRequest) {
       quality: result.quality || { brightness: 0.5, contrast: 0.5, saturation: 0.5, sharpness: 0.5 },
     });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "خطأ غير متوقع";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return routeError("ai.analyze", err);
   }
 }

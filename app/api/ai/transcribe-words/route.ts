@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { guardApiRequest } from "@/lib/server/api-guard";
 import { getOpencodeKey, getOpencodeBaseUrl, getWhisperModel } from "@/lib/server/api-keys";
+import { guardCost, recordSpend, estimateCostUsd, releaseReservation } from "@/lib/server/cost-guard";
+import { estimateAudioSeconds } from "@/lib/server/audio-duration";
+import { validateAudioUpload } from "@/lib/server/validate";
+import { rejectOversizedRequest, readFormDataCapped } from "@/lib/server/uploads";
+import { routeError } from "@/lib/server/with-route";
 
 
 export const runtime = "nodejs";
@@ -14,14 +20,25 @@ interface Word {
 // نسخ بتوقيتات على مستوى الكلمة (Whisper word-level timestamps)
 // مطلوب لِترجمة الكاريوكي المتحركة كلمة-بكلمة.
 export async function POST(req: NextRequest) {
+  // مستثنى من middleware (جسم كبير يُبث للقرص) ⇒ الحارس هنا — lib/server/api-guard.ts.
+  const denied = guardApiRequest(req);
+  if (denied) return denied;
+  const tooBig = rejectOversizedRequest(req);
+  if (tooBig) return tooBig;
   try {
     const OPENCODE_BASE_URL = getOpencodeBaseUrl();
     const OPENCODE_API_KEY = getOpencodeKey(req);
-    const form = await req.formData();
+    const parsed = await readFormDataCapped(req);
+    if (parsed.response) return parsed.response;
+    const form = parsed.form;
     const audio = form.get("audio") as File | null;
     const language = (form.get("language") as string) || "";
     if (!audio) {
       return NextResponse.json({ error: "الملف الصوتي مطلوب" }, { status: 400 });
+    }
+    const audioCheck = validateAudioUpload(audio);
+    if (!audioCheck.ok) {
+      return NextResponse.json({ error: audioCheck.error }, { status: 400 });
     }
 
     if (!OPENCODE_API_KEY) {
@@ -29,6 +46,13 @@ export async function POST(req: NextRequest) {
         { error: "OPENCODE_API_KEY غير مضبوط — لا يمكن تشغيل Whisper الحقيقي", mock: true },
         { status: 503 }
       );
+    }
+
+    // المدة الحقيقية بـ ffprobe (أو تقدير محافظ) للفحص الوقائي؛ بعد النجاح نسجّل التكلفة الفعلية من data.duration.
+    const { seconds: estDurationSec } = await estimateAudioSeconds(audio);
+    const guard = guardCost("whisper", { durationSec: estDurationSec });
+    if (!guard.allowed) {
+      return NextResponse.json({ error: guard.reason, budget: guard }, { status: 402 });
     }
 
     const whisperForm = new FormData();
@@ -46,6 +70,7 @@ export async function POST(req: NextRequest) {
     });
 
     if (!res.ok) {
+      releaseReservation();
       const errText = await res.text();
       return NextResponse.json(
         { error: `Whisper API error: ${errText}` },
@@ -54,6 +79,12 @@ export async function POST(req: NextRequest) {
     }
 
     const data = await res.json();
+    // تسجيل التكلفة الفعلية من المدة المُعادة (أدق من تقدير الحجم).
+    recordSpend(
+      typeof data.duration === "number"
+        ? estimateCostUsd("whisper", { durationSec: data.duration })
+        : guard.estimateUsd
+    );
 
     const rawWords: Array<{ word?: string; text?: string; start: number; end: number }> =
       data.words || [];
@@ -82,7 +113,6 @@ export async function POST(req: NextRequest) {
       segments,
     });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "خطأ غير متوقع";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return routeError("ai.transcribe-words", err);
   }
 }

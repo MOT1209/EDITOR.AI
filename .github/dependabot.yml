@@ -1,0 +1,13 @@
+# تحديثات أمنية دورية: أفعال CI (المثبتة بـ SHA) وتبعيات Python غير المقفلة.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: pip
+    directory: /src
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

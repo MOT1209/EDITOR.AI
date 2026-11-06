@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { formatTime, formatBytes } from "@/lib/project";
 import type { SubtitleCue, AppNotification } from "@/lib/types";
+import { downloadBlob } from "@/lib/client/download";
 
 export function SubtitleOverlay({
   cue,
@@ -113,7 +114,7 @@ export function Notifications({
               <div className="text-xs font-semibold">{n.title}</div>
               {n.message && <div className="text-[10px] text-ink-soft mt-0.5">{n.message}</div>}
             </div>
-            <button onClick={() => onRemove(n.id)} className="text-ink-mute hover:text-ink">
+            <button onClick={() => onRemove(n.id)} className="text-ink-mute hover:text-ink" aria-label="إغلاق الإشعار">
               <X className="h-3 w-3" />
             </button>
           </div>
@@ -156,13 +157,7 @@ export function PipelineModal({
         setExportMsg(String(err?.error || `فشل التصدير (${res.status})`));
         return;
       }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${jobId}.${exportFormat}.xml`;
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(await res.blob(), `${jobId}.${exportFormat}.xml`);
       setExportMsg("تم تصدير الجدول الزمني لبرنامج المونتاج.");
     } catch {
       setExportMsg("تعذّر التصدير — تأكد أن auto-editor مثبت.");

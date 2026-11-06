@@ -1,0 +1,73 @@
+{
+  "format": "montage-extension",
+  "formatVersion": 1,
+  "kind": "skill",
+  "manifest": {
+    "kind": "skill",
+    "id": "qc_preflight",
+    "version": "1.0.0",
+    "name": "مراقبة جودة قبل التصدير",
+    "description": "مهارة ضبط جودة: تفحص خطة الرندر (مصادر/تداخل/صوت) وتعيد حكماً صريحاً ok/issues قبل أي تصدير مكلف.",
+    "category": "analysis",
+    "tags": [
+      "جودة"
+    ],
+    "author": "owner",
+    "stability": "stable",
+    "permissions": [
+      "media.read"
+    ],
+    "capabilities": [
+      "ffmpeg"
+    ],
+    "dependencies": {
+      "actions": [
+        "timeline.preflight"
+      ]
+    },
+    "input": {
+      "type": "object",
+      "properties": {
+        "projectId": {
+          "type": "string",
+          "maxLength": 80,
+          "description": "معرّف المشروع"
+        }
+      },
+      "required": [
+        "projectId"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "execution": {
+      "type": "workflow",
+      "steps": [
+        {
+          "use": "action:timeline.preflight",
+          "with": {
+            "projectId": "{{input.projectId}}"
+          }
+        }
+      ]
+    }
+  },
+  "files": {}
+}

@@ -1,19 +1,33 @@
 // مودالات المشروع والتصدير — استُخرجت من Editor.tsx لتقليل حجم الملف.
-import { FolderOpen, Plus, Film, Trash2, Download, CheckCircle2 } from "lucide-react";
+import { FolderOpen, Plus, Film, Trash2, Download, CheckCircle2, Server, HardDrive } from "lucide-react";
 import type { ProjectState } from "@/lib/types";
 import { formatTime, formatBytes } from "@/lib/project";
 import { ModalShell, EmptyState } from "./ui";
 
+export interface ServerProjectSummary {
+  id: string;
+  name: string;
+  aspect: string;
+  durationSeconds: number;
+  clips: number;
+  assets: number;
+  updatedAt: string;
+}
+
 export function ProjectsModal({
   projects,
+  serverProjects,
   onClose,
   onLoad,
+  onOpenServer,
   onDelete,
   onNew,
 }: {
   projects: ProjectState[];
+  serverProjects: ServerProjectSummary[] | null;
   onClose: () => void;
   onLoad: (p: ProjectState) => void;
+  onOpenServer: (id: string) => void;
   onDelete: (id: string) => void;
   onNew: () => void;
 }) {
@@ -24,6 +38,34 @@ export function ProjectsModal({
           <Plus className="h-4 w-4" />
           مشروع جديد
         </button>
+        <div className="text-[11px] font-semibold text-ink-soft flex items-center gap-1.5 pt-1">
+          <Server className="h-3.5 w-3.5" />
+          مساحة العمل على الخادم (يعدّلها وكلاء MCP أيضاً — الفيديو محفوظ على الخادم)
+        </div>
+        {serverProjects === null ? (
+          <div className="text-[11px] text-ink-mute">جارِ التحميل…</div>
+        ) : serverProjects.length === 0 ? (
+          <div className="text-[11px] text-ink-mute">لا مشاريع في مساحة العمل بعد (تُنشأ عبر MCP).</div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2">
+            {serverProjects.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => onOpenServer(p.id)}
+                className="text-right rounded-lg border border-line bg-bg-soft p-2.5 hover:border-brand/40 transition"
+              >
+                <div className="text-sm font-semibold truncate">{p.name}</div>
+                <div className="text-[10px] text-ink-mute mt-0.5">
+                  {p.aspect} • {formatTime(p.durationSeconds)} • {p.clips} مقطع • {p.assets} وسيط
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="text-[11px] font-semibold text-ink-soft flex items-center gap-1.5 pt-1">
+          <HardDrive className="h-3.5 w-3.5" />
+          محفوظة في هذا المتصفح (بيانات المشروع فقط — أعد ربط الفيديو عند الفتح)
+        </div>
         {projects.length === 0 ? (
           <EmptyState text="لا توجد مشاريع محفوظة بعد." />
         ) : (
