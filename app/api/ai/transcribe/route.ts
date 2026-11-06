@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOpencodeKey, getOpencodeBaseUrl, getWhisperModel } from "@/lib/server/api-keys";
+import { createMockRandom } from "@/lib/server/mock-random";
 
 
 export const runtime = "nodejs";
@@ -41,8 +42,10 @@ export async function POST(req: NextRequest) {
     }
 
     const data = await res.json();
+    // مولد محاكاة حتمي (بذرة ثابتة): المعرّفات البديلة عند غياب s.id تتكرر لنفس المدخل.
+    const rand = createMockRandom(0x5EED05);
     const segments = (data.segments || []).map((s: { id?: number; start: number; end: number; text: string }) => ({
-      id: s.id ?? Math.random(),
+      id: s.id ?? rand(),
       start: s.start,
       end: s.end,
       text: s.text,

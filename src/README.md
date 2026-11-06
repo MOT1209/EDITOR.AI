@@ -26,7 +26,7 @@ src/
 ## التشغيل
 
 ```bash
-pip install -r src/requirements.txt          # Python 3.10–3.13 موصى به (مع crewai + litellm)
+pip install -r src/requirements.txt          # Python 3.10+ (تم التحقق فعلياً على 3.14.4، النظامي) مع crewai + litellm
 python -m src.main video.mp4 --request "فيديو حماسي قصير مع ترجمة" --mood "قوي"
 python -m src.main video.mp4 --demo          # ترجمات تجريبية بلا Whisper
 python -m src.main video.mp4 --no-broll      # تعطيل جلب Pexels

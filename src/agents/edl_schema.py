@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
@@ -485,12 +486,22 @@ def normalize_plan(
     - اقتطاع الحدود لمدة المصدر، إسقاط المقاطع الصفرية، ترتيبها،
     - دمج التداخلات (الإبقاء يسيطر)،
     - سد الفجوات بمقاطع CUT لتغطية 0..duration كاملة (مثل تطبيع Next.js)،
-    - فرض سقف عدد المقاطع (MAX_SEGMENTS=60).
+    - فرض سقف عدد المقاطع (MAX_SEGMENTS=60): دمج مجاورات القطع قبل الحذف،
+      ثم الرجوع للإسقاط الأصغر عند تعذّر الدمج (fallback) لضمان السقف دائماً.
+
+    مسار النص (str): يُحوَّل الـ JSON إلى dict أولاً ثم يُطبَّق حقن المصدر
+    المعتمد على مسار الكائن (إن غاب ``source`` يُدخَل قيمته المُخصّصة)، ثم
+    ``model_validate`` — فلا ترفع الخطة بلا source بعد مسار النص.
     """
     if isinstance(raw, EdlPlan):
         plan = raw
     elif isinstance(raw, str):
-        plan = EdlPlan.model_validate_json(raw)
+        # مسار نصي (كبئر نص): نحوّل الـ JSON إلى dict ونطبّق آلية حقن source
+        # المعتمدة على مسار الكائن قبل التحقق، ثم نحقن المصدر المُخصّص إن غاب.
+        data: Any = json.loads(raw)
+        if isinstance(data, dict):
+            data.setdefault("source", source)
+        plan = EdlPlan.model_validate(data)
     else:
         # حقن المصدر قبل التحقق: خطة مخرج LLM قد تخلو من حقل source فيؤدي
         # حذفه إلى رفع خطأ تحقق بدلاً من التطبيع؛ سطر إعادة الإسناد أدناه يبقى
@@ -564,7 +575,8 @@ def normalize_plan(
         if not b.id:
             b.id = f"broll_{i + 1}"
 
-    # سقف عدد المقاطع: دمج مقاطع الإبقاء المتجاورة أولاً، ثم حذف أصغر مقاطع القطع.
+    # سقف عدد المقاطع: دمج مجاورة القطع/الإبقاء أولاً، ثم حذف أصغر مقاطع القطع
+    # كـ FALLBACK فقط عند تعذّر الدمج (لا فجوات غير مكملة على التغطية).
     if len(plan.segments) > max_segments:
         plan.segments = _compact_segments(plan.segments, max_segments)
 
@@ -572,8 +584,21 @@ def normalize_plan(
 
 
 def _compact_segments(segments: List[PlanSegment], max_segments: int) -> List[PlanSegment]:
-    """يضغط المقاطع تحت السقف مع الحفاظ على أطول محتوى ممكن."""
-    out = segments[:]
+    """يضغط المقاطع تحت السقف مع الحفاظ على أطول محتوى ممكن.
+
+    الدمج قبل الحذف (سدّ الفجوات يأتي من مسار التطبيع وليس من هنا):
+
+    1) الترتيب التصاعدي (من الأقدم للأحدث).
+    2) دمج القطع المتجاورة: إن كان مقطعا القِبَ قطعاً (``keep=False``) وكانا
+       متجاورين (نهاية السابق >= بداية التالي) فإن نقل التالي إلى نهاية
+       السابق عبر ``prev.end = max(prev.end, next.end)`` وإزالة التالي — لا
+       مكسب محتوى لأن القطع غير عرضية، والتغطية تبقى كاملة قدر الإمكان.
+    3) تكرار الدمج حتى لا يتبقى زوج قطع مجاورة أو يصل العدد إلى السقف.
+    4) FALLBACK: إن بقي العدد فوق السقف وعُذّر الدمج فنرجع إلى سلوك الإسقاط
+       الأصلي حرفياً (إسقاط أصغر المقاطع) — فيبقى السقف مطلوباً (60) مع
+       بقاء التغطية أولاً ثم عرض الفجوة كمقطع CUT منفصل.
+    """
+    out = sorted(segments, key=lambda s: s.start)
     # 1) دمج مقاطع الإبقاء المتجاورة
     changed = True
     while len(out) > max_segments and changed:
@@ -596,7 +621,33 @@ def _compact_segments(segments: List[PlanSegment], max_segments: int) -> List[Pl
                 merged.append(out[i])
                 i += 1
         out = merged
-    # 2) حذف أصغر مقاطع القطع حتى نصل للسقف
+    # 2) دمج القطع المتجاورة (كلاهما keep=False): اسحب التالي في السابق دون
+    #    مكسب محتوى (القطع غير عرضية) مع بقاء التغطية كاملة قدر الإمكان.
+    changed = True
+    while len(out) > max_segments and changed:
+        changed = False
+        merged = []
+        i = 0
+        while i < len(out):
+            if (
+                i + 1 < len(out)
+                and not out[i].keep
+                and not out[i + 1].keep
+                and out[i + 1].start <= out[i].end + 1e-6
+            ):
+                a, b = out[i], out[i + 1]
+                a.end = max(a.end, b.end)
+                a.reason = a.reason or b.reason
+                merged.append(a)
+                i += 2
+                changed = True
+            else:
+                merged.append(out[i])
+                i += 1
+        out = merged
+
+    # 3) FALLBACK: إن بقي العدد فوق السقف بعد كل محاولات الدمج — نعود إلى
+    #    سلوك الإسقاط الأصلي حرفياً (إسقاط أصغر المقاطع) لفرض السقف دائماً.
     cuts = [s for s in out if not s.keep]
     if len(out) > max_segments:
         cuts.sort(key=lambda s: s.end - s.start)

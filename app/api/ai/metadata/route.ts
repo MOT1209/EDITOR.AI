@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getChatModel, getOpencodeKey, getOpencodeBaseUrl } from "@/lib/server/api-keys";
+import { createMockRandom } from "@/lib/server/mock-random";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -11,6 +12,8 @@ export async function POST(req: NextRequest) {
     const { duration = 60, transcript } = await req.json();
 
     if (!OPENCODE_API_KEY || !transcript) {
+      // مولد محاكاة حتمي (بذرة ثابتة): اختيار العنوان يتكرر لنفس الطلب بدل تغيّره بين الأجوبة.
+      const rand = createMockRandom(0x5EED04);
       const titles = [
         "رحلة مدهشة في عالم الذكاء الاصطناعي",
         "5 أسرار لم تسمع بها من قبل",
@@ -19,7 +22,7 @@ export async function POST(req: NextRequest) {
         "طريقة جديدة ستغير حياتك",
       ];
       return NextResponse.json({
-        title: titles[Math.floor(Math.random() * titles.length)],
+        title: titles[Math.floor(rand() * titles.length)],
         description: `في هذا الفيديو أستعرض تجربتي الكاملة على مدار ${Math.round(duration / 60)} دقائق.`,
         tags: ["ذكاء اصطناعي", "AI", "مونتاج", "تعليم", "تقنية", "تجربة"],
       });

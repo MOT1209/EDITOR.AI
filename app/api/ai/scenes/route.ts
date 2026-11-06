@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getVisionModel,
   getOpencodeKey, getOpencodeBaseUrl } from "@/lib/server/api-keys";
+import { createMockRandom } from "@/lib/server/mock-random";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -10,6 +11,8 @@ export async function POST(req: NextRequest) {
     const OPENCODE_BASE_URL = getOpencodeBaseUrl();
     const OPENCODE_API_KEY = getOpencodeKey(req);
     const { duration = 30, frames } = await req.json();
+    // مولد محاكاة حتمي (بذرة ثابتة): درجات المشاهد تتكرر لنفس الطلب بدل تغيّرها بين الأجوبة.
+    const rand = createMockRandom(0x5EED06);
     const sceneCount = Math.max(2, Math.floor(duration / 5));
 
     if (OPENCODE_API_KEY && frames && frames.length > 0) {
@@ -50,7 +53,7 @@ export async function POST(req: NextRequest) {
             scenes.push({
               start,
               end: Math.min(end, duration),
-              score: r.quality || 0.5 + Math.random() * 0.5,
+              score: r.quality || 0.5 + rand() * 0.5,
               description: r.description || `مشهد ${i + 1}`,
             });
           });
@@ -67,7 +70,7 @@ export async function POST(req: NextRequest) {
       scenes.push({
         start: i * segLen + 0.1,
         end: Math.min((i + 1) * segLen, duration),
-        score: 0.5 + Math.random() * 0.5,
+        score: 0.5 + rand() * 0.5,
         description: `مشهد ${i + 1}`,
       });
     }

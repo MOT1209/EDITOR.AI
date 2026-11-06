@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createMockRandom } from "@/lib/server/mock-random";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -7,6 +8,8 @@ export async function POST(req: NextRequest) {
   try {
     const { bpm: userBpm, duration = 30 } = await req.json();
     const bpm = userBpm || 120;
+    // مولد محاكاة حتمي (بذرة ثابتة): نفس الطلب يعطي نفس الدرجات بدل تغيّرها بين الأجوبة.
+    const rand = createMockRandom(0x5EED01);
     const beatInterval = 60 / bpm;
     const beats: number[] = [];
     const totalBeats = Math.floor(duration / beatInterval);
@@ -26,7 +29,7 @@ export async function POST(req: NextRequest) {
       if (i % 4 !== 0) {
         editPoints.push({
           time: i * beatInterval,
-          strength: 0.4 + Math.random() * 0.3,
+          strength: 0.4 + rand() * 0.3,
         });
       }
     }

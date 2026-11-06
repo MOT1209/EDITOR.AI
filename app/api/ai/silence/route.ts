@@ -4,6 +4,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { hasFfmpeg, resolveFfmpegPath } from "@/lib/server/ffmpeg-export";
+import { createMockRandom } from "@/lib/server/mock-random";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -41,13 +42,15 @@ function detectSilencesFfmpeg(filePath: string): { start: number; end: number }[
 }
 
 function detectSilencesMock(duration: number): { start: number; end: number }[] {
+  // مولد محاكاة حتمي (بذرة ثابتة): الفواصل الصامتة تتكرر لنفس المدة بدل تغيّرها بين الأجوبة.
+  const rand = createMockRandom(0x5EED03);
   const segments: { start: number; end: number }[] = [];
   let t = 1;
   while (t < duration - 1) {
-    const gap = 3 + Math.random() * 4;
-    if (Math.random() < 0.35) {
-      const s = t + Math.random() * 2;
-      segments.push({ start: s, end: Math.min(s + 0.4 + Math.random() * 0.8, duration) });
+    const gap = 3 + rand() * 4;
+    if (rand() < 0.35) {
+      const s = t + rand() * 2;
+      segments.push({ start: s, end: Math.min(s + 0.4 + rand() * 0.8, duration) });
     }
     t += gap;
   }

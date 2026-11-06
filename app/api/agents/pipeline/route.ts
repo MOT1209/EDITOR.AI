@@ -7,7 +7,7 @@
  * GET  /api/agents/pipeline?job=<jobId> → يقدّم الفيديو النهائي final.mp4
  */
 import { NextRequest, NextResponse } from "next/server";
-import { spawn } from "child_process";
+import { spawn, spawnSync } from "child_process";
 import { promises as fsp, existsSync } from "fs";
 import path from "path";
 import { v4 as uuid } from "uuid";
@@ -19,13 +19,36 @@ const PIPELINE_DIR = path.join(process.cwd(), ".montage_ai", "pipeline");
 const UPLOAD_DIR = path.join(process.cwd(), ".montage_ai", "uploads");
 const TIMEOUT_MS = 280_000; // أقل بقليل من maxDuration لقتل العملية بأمان
 
+// مبرر الحفظ: تُجرى مسابقة الترشيحات مرة واحدة لكل عملية وتُخزّن نتيجتها هنا
+// للحفاظ على سلوك منخفض العملية (عدم إعادة اختبار الترشيحات في كل استدعاء).
+let cachedPython: string | null = null;
+
 function resolvePython(): string {
+  if (cachedPython !== null) {
+    return cachedPython;
+  }
   const candidates = [
     path.join(process.cwd(), ".venv", "Scripts", "python.exe"),
     path.join(process.cwd(), ".venv", "bin", "python"),
     "python",
   ];
-  return candidates.find((c) => existsSync(c)) || "python";
+  // مسابقة الترشيحات (الحكم الفعلي): كل ترشيح يُختبر فعلياً عبر spawnSync (بطاقة print(1)) وليس بمجرّد
+  // وجود الملف على القرص — فملف .venv/Scripts/python.exe قد يكون موجوداً ومكسوراً
+  // (مثل مؤشر إلى بايثون غير موجود على جهاز المنشأ)، وتُعتمد أول مرجع يعود status === 0.
+  for (const c of candidates) {
+    try {
+      const r = spawnSync(c, ["-c", "print(1)"], { timeout: 5000 });
+      if (r.status === 0) {
+        return (cachedPython = c);
+      }
+    } catch {
+      // خطأ في عملية الاستدعاء نفسها يُعدّ فشلاً لهذا الترشيح ويُكمل loop للترشيح التالي.
+      continue;
+    }
+  }
+  // تدهور أنيق: إن فشلت كل الترشيحات (لا بايثون قابل للتشغيل) تُعاد السلّة القديمة حرفياً —
+  // أول مسار موجود عبر existsSync أو "python" كبديل أخير — بدون تغيير في مسار الفشل النهائي.
+  return (cachedPython = candidates.find((c) => existsSync(c)) || "python");
 }
 
 /** يشغّل سطر أوامر Python ويعيد رمز الخروج */

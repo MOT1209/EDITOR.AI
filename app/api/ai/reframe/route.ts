@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getVisionModel,
   getOpencodeKey, getOpencodeBaseUrl } from "@/lib/server/api-keys";
+import { createMockRandom } from "@/lib/server/mock-random";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -56,13 +57,15 @@ export async function POST(req: NextRequest) {
     }
 
     if (reframePoints.length === 0) {
+      // مولد محاكاة حتمي (بذرة ثابتة): نقاط إعادة الإطار تتكرر لنفس الطلب بدل تغيّرها بين الأجوبة.
+      const rand = createMockRandom(0x5EED0A);
       const pointCount = Math.max(3, Math.floor(duration / 4));
       for (let i = 0; i < pointCount; i++) {
         reframePoints.push({
           time: (i / pointCount) * duration,
-          x: 0.3 + Math.random() * 0.4,
-          y: 0.3 + Math.random() * 0.3,
-          zoom: isVertical ? 1.3 + Math.random() * 0.5 : 1.0 + Math.random() * 0.2,
+          x: 0.3 + rand() * 0.4,
+          y: 0.3 + rand() * 0.3,
+          zoom: isVertical ? 1.3 + rand() * 0.5 : 1.0 + rand() * 0.2,
         });
       }
     }

@@ -290,6 +290,73 @@ def test_tiny_but_above_threshold_survives():
     ], _tuples(plan)
 
 
+# ── حدّ العتبة 0.05 والحالات الحدودية (مراجعة كاملة) ─────────────────────
+def test_clip_below_threshold_is_dropped():
+    """(أ) مقطع أقصر من عتبة 0.05s يُسقط صامتاً: 5.10→5.14 طول 0.04 < 0.05
+    فلا يبقى إبقاء، وتُسد الفجوة بقصّ واحد يغطّي [0, 30] كاملاً."""
+    plan = normalize_plan(
+        {"duration": 30, "segments": [{"start": 5.10, "end": 5.14, "keep": True}]},
+        _src(),
+    )
+    assert _tuples(plan) == [(0.0, 30.0, False)], _tuples(plan)
+    _full_coverage(plan)
+
+
+def test_clip_at_or_above_threshold_stays():
+    """(ب) مقطع فوق العتبة يبقى: 5.10→5.16 طول 0.06 >= 0.05 ينجو من الفلتر
+    ويُسد ما حوله قصّاً. ملاحظة: الطول بالضبط 0.05 قد يُسقط بسبب دقة الفلوت
+    (مثل 5.05 − 5 = 0.0499…) فنتجنّبه ونستخدم 0.06 وما فوق، كما تفعل
+    الاختبارات القائمة التي تختبر 0.1 بدلاً من العتبة بالضبط."""
+    plan = normalize_plan(
+        {"duration": 30, "segments": [{"start": 5.10, "end": 5.16, "keep": True}]},
+        _src(),
+    )
+    assert _tuples(plan) == [
+        (0.0, 5.1, False), (5.1, 5.16, True), (5.16, 30.0, False),
+    ], _tuples(plan)
+    _full_coverage(plan)
+
+
+def test_degenerate_start_equals_end_dropped():
+    """(ج-1) مقطع منتهٍ حيث البداية تساوي النهاية (5→5): طوله 0 < 0.05 بعد
+    القيد للنطاق المصدر فيُسقط وتُسد التغطية بقصّ كامل على [0, 30]."""
+    plan = normalize_plan(
+        {"duration": 30, "segments": [{"start": 5, "end": 5, "keep": True}]},
+        _src(),
+    )
+    assert _tuples(plan) == [(0.0, 30.0, False)], _tuples(plan)
+    _full_coverage(plan)
+
+
+def test_reversed_end_before_start_dropped():
+    """(ج-2) مقطع مقلوب النهاية قبل البداية (10→5): فارق النهاية-البداية
+    سالب < 0.05 بعد القيد فيُسقط وتُسد التغطية بقصّ كامل على [0, 30]."""
+    plan = normalize_plan(
+        {"duration": 30, "segments": [{"start": 10, "end": 5, "keep": True}]},
+        _src(),
+    )
+    assert _tuples(plan) == [(0.0, 30.0, False)], _tuples(plan)
+    _full_coverage(plan)
+
+
+def test_adjoining_segments_stay_separate():
+    """(د) مقطعان متلاصقان متناهيان في الطول (5.0→5.06 و 5.06→5.12، كلاهما 0.06):
+    كلاهما يبقى ويلمس الآخر دون دمج قسري، لأن دمج الإبقاء يتطلب تداخلاً
+    (بداية اللاحق < نهاية السابق − 1e-6) وليس مجرد لمسة عند الحافة."""
+    plan = normalize_plan(
+        {"duration": 30, "segments": [
+            {"start": 5.0, "end": 5.06, "keep": True},
+            {"start": 5.06, "end": 5.12, "keep": True},
+        ]},
+        _src(),
+    )
+    assert _tuples(plan) == [
+        (0.0, 5.0, False), (5.0, 5.06, True),
+        (5.06, 5.12, True), (5.12, 30.0, False),
+    ], _tuples(plan)
+    _full_coverage(plan)
+
+
 # ── حارس شامل: حالات متنوعة معًا لا تكسر التغطية ───────────────────────
 def test_mixed_gauntlet_full_coverage():
     """خطة مختلطة الحالات: قصّ كامل + إبقاء داخله + قصّ صغير + إبقاء لاحق."""

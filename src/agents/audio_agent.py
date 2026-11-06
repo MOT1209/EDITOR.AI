@@ -132,12 +132,15 @@ class AudioAgent:
             mood.value if isinstance(mood, MusicMood) else str(mood),
             (120, 0.6, ["ambient"]),
         )
+        # 0.0 قيمة صحيحة (موسيقى مكتومة عمداً) وليست «missing» — لذلك
+        # نستخدم is None وليس or، لكي لا تتحول 0.0 إلى 0.5.
+        mv = plan.style.music_volume
         music = MusicTrackSpec(
             mood=mood if isinstance(mood, MusicMood) else MusicMood.POWERFUL,
             bpm=bpm,
             energy=energy,
             genres=genres,
-            volume=max(0.0, min(1.0, plan.style.music_volume or 0.5)),
+            volume=max(0.0, min(1.0, 0.5 if mv is None else float(mv))),
         )
 
         speech_spans = self._speech_spans(plan, report)

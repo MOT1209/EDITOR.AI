@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getHfToken } from "@/lib/server/api-keys";
+import { createMockRandom } from "@/lib/server/mock-random";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -58,15 +59,17 @@ export async function POST(req: NextRequest) {
     }
 
     if (objects.length === 0) {
+      // مولد محاكاة حتمي (بذرة ثابتة): الأجسام التقديرية ودرجاتها تتكرر لنفس الطلب بدل تغيّرها بين الأجوبة.
+      const rand = createMockRandom(0x5EED08);
       const labels = ["person", "car", "phone", "laptop", "book", "bottle", "chair", "tv"];
       const count = Math.max(2, Math.floor(duration / 8));
       for (let i = 0; i < count; i++) {
-        const start = (i / count) * duration + Math.random() * 2;
+        const start = (i / count) * duration + rand() * 2;
         objects.push({
           start,
           end: Math.min(start + 3, duration),
-          label: labels[Math.floor(Math.random() * labels.length)],
-          confidence: 0.5 + Math.random() * 0.5,
+          label: labels[Math.floor(rand() * labels.length)],
+          confidence: 0.5 + rand() * 0.5,
         });
       }
     }

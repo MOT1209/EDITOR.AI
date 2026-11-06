@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getVisionModel,
   getOpencodeKey, getOpencodeBaseUrl } from "@/lib/server/api-keys";
+import { createMockRandom } from "@/lib/server/mock-random";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -12,14 +13,16 @@ export async function POST(req: NextRequest) {
     const { duration = 30, frameBase64 } = await req.json();
 
     if (!OPENCODE_API_KEY || !frameBase64) {
+      // مولد محاكاة حتمي (بذرة ثابتة): المشاهد والإبرازات تتكرر لنفس الطلب بدل تغيّرها بين الأجوبة.
+      const rand = createMockRandom(0x5EED02);
       const sceneCount = Math.max(3, Math.floor(duration / 6));
       const scenes = [];
       const highlights = [];
       for (let i = 0; i < sceneCount; i++) {
         const start = (i / sceneCount) * duration;
         const end = ((i + 1) / sceneCount) * duration;
-        scenes.push({ start, end, score: 0.5 + Math.random() * 0.5 });
-        if (Math.random() > 0.6) {
+        scenes.push({ start, end, score: 0.5 + rand() * 0.5 });
+        if (rand() > 0.6) {
           highlights.push({ start, end: Math.min(end, start + 3), reason: "لقطة مميزة" });
         }
       }

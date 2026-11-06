@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getVisionModel, getOpencodeKey, getHfToken, getOpencodeBaseUrl } from "@/lib/server/api-keys";
+import { createMockRandom } from "@/lib/server/mock-random";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -115,16 +116,18 @@ export async function POST(req: NextRequest) {
     }
 
     if (faces.length === 0) {
+      // مولد محاكاة حتمي (بذرة ثابتة): مربعات الوجوه التقديرية تتكرر لنفس الطلب بدل تغيّرها بين الأجوبة.
+      const rand = createMockRandom(0x5EED09);
       const faceCount = Math.max(1, Math.floor(duration / 5));
       for (let i = 0; i < faceCount; i++) {
         const start = (i / faceCount) * duration;
         faces.push({
           start,
-          end: Math.min(start + 2 + Math.random() * 2, duration),
-          x: 0.2 + Math.random() * 0.4,
-          y: 0.15 + Math.random() * 0.4,
-          w: 0.15 + Math.random() * 0.2,
-          h: 0.2 + Math.random() * 0.25,
+          end: Math.min(start + 2 + rand() * 2, duration),
+          x: 0.2 + rand() * 0.4,
+          y: 0.15 + rand() * 0.4,
+          w: 0.15 + rand() * 0.2,
+          h: 0.2 + rand() * 0.25,
         });
       }
     }
